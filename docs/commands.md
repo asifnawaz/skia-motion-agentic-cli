@@ -33,10 +33,11 @@ Relative paths in the file are relative to the file. Flags beat the file and def
 | `<Name> --verify` | | `still`, `bytes` |
 | `<Name> --screenshot` | `--at=0.5,4.0`, `--advance=<s>`, `--sheet` | `preview`, `captures[]`, `sheet` |
 | `<Name> --render` | `--out <file.mp4>`, `--scale <n>` (default 2), `--event <s>` | `path`, `scale`, `compare` |
-| `<Name> --stats` | | `fps`, `frames`, `samples`, per channel and part: range and fastest moment |
+| `<Name> --stats` | | `fps`, `frames`, `samples`, per channel and part: range and fastest moment (a part's speed is the mean over one 30 fps frame, as `skac/speed-cap` measures it) |
 | `<Name> --story` | | `lines[]`: the motion as text, with the beats beside what moved |
 | `<Name> --check` | | `ok`, `failures[]`, `warnings[]`, `skipped[]`, `spec`, `views`, `pixels?`; exit 1 on an error |
 | `<Name> --probe=x,y[;x,y]` | `--at=<s>` (one time, default 0) | `probes[]`: `{x, y, color}` in AARRGGBB |
+| `<Name> --probe-box=x,y,w,h` | `--at=<s>` (one time, default 0) | `colors[]`: top 8 `{color, pixels, share, bbox}` |
 | `lint [files...]` | `--fix` | `findings[]`, `fixed[]` |
 | `update` | `--force` | `ok`, `version`, `latest`, `upgrade`, `files[]` |
 | `<Name> --commands <inline or file>` | with `--verify`, `--screenshot` or `--render` | as that command; alone it renders |
@@ -580,7 +581,7 @@ Exit code 0.
 
 ### <Name> --stats
 
-Samples the rig without rendering. Needs `src/<Name>.rig.ts` (see `skac docs blind`). `fps` and `frames` are the composition's; `samples` counts the fixed 120 Hz grid the rules sample on (960 for 8 s), whatever the fps. Each channel has its range and `fastest_at_s`, `fastest_speed_per_ms`; each part has `x` and `y` ranges, `fastest_at_s` and `fastest_speed_pt_per_ms`.
+Samples the rig without rendering. Needs `src/<Name>.rig.ts` (see `skac docs blind`). `fps` and `frames` are the composition's; `samples` counts the fixed 120 Hz grid the rules sample on (960 for 8 s), whatever the fps. Each channel has its range and `fastest_at_s`, `fastest_speed_per_ms`; each part has `x` and `y` ranges, `fastest_at_s` and `fastest_speed_pt_per_ms`. A part's speed is the mean over one 30 fps frame (in its parent's frame where `meta.parents` says so), the same measure `skac/speed-cap` judges, so `--stats` and `--check` never disagree.
 
 ```
 skac Character --stats
@@ -631,7 +632,17 @@ The colour at one or more points (`'x,y;x,y'`, quoted for the shell), in points 
 skac Character --probe='195,475;30,30' --at=0
 ```
 
-The reply is `{ok, name, at, frame, units: "pt", px_per_pt, probes: [{x, y, color}], next}`.
+The reply is `{ok, name, at, frame, units: "pt", px_per_pt, probes: [{x, y, color}], next}`. Points are always in the composition's points, whatever the rig's `meta.scale`: `px_per_pt` is worked out from the still itself.
+
+### <Name> --probe-box=x,y,w,h --at=s
+
+The distinct colours inside a box (points from the top left), at `s` seconds, top 8 by pixel count. It renders one still. Use it to see what is drawn in a region, or to find a colour to give `--probe` or the spec.
+
+```
+skac Character --probe-box=140,400,110,110 --at=0
+```
+
+The reply is `{ok, name, at, frame, units: "pt", px_per_pt, box, pixels, colors: [{color, pixels, share, bbox: [x, y, w, h]}], next}`; `color` is AARRGGBB, `share` is of the box's pixels inside the frame, `bbox` is in points. A box wholly outside the frame is an error.
 
 ### <Name> --check
 
@@ -749,7 +760,7 @@ Exit code 0.
 
 ### <Name> --render
 
-`npx remotion render … --gl=<gl> --scale=<n>` to `<out>/<Name>/<Name>.mp4`, then compare. `--out` takes a file path, such as `--out=renders/pip.mp4`, not a folder. `--scale` defaults to 2, so a 390×867 pt composition renders at 780×1734 px. The expected size (pt × scale, odd sides rounded down to even for h264), fps and length come from the registration. compare splits before and after at `--event`, else the first `--commands` event, else 4.0 s. `ok` is false when compare fails.
+`npx remotion render … --gl=<gl> --scale=<n>` to `<out>/<Name>/<Name>.mp4`, then compare. `--out` takes a file path, such as `--out=renders/pip.mp4`, not a folder; the render is also copied to `<out>/<Name>/<Name>.mp4`, so `--check` always sees the latest render. `--scale` defaults to 2, so a 390×867 pt composition renders at 780×1734 px. The expected size (pt × scale, odd sides rounded down to even for h264), fps and length come from the registration. compare splits before and after at `--event`, else the first `--commands` event, else 4.0 s. `ok` is false when compare fails.
 
 The example below is a 30 fps render from before 60 became the default. A 60 fps render shows `fps: 60`, `frames: 480` and `measured_at_fps: 30`, and every compare reply now has `measured_at_fps` and `longest_still_s`.
 
@@ -823,7 +834,7 @@ What gates `ok`, and what is advice:
 | `spec_ok` | h264, yuv420p, and the probe matches `--expect` (size and fps exact, duration within 0.05 s) | yes |
 | `blank_frames` | frames with mean luma above 200, counted on every frame; must be 0 | yes |
 | `measured_at_fps` | the rate the motion numbers below were measured at: 30 for a 30, 60 or 120 fps render (measured on the 30 fps instants from frame 0, every 2nd or 4th frame, so the numbers equal a 30 fps render's; blank frames are still counted on every frame); a rate that is not a multiple of 30 is measured as it is | no, a fact |
-| `motion.before_event`, `motion.after_event` | mean YDIF before and after `--event` | advice (before ≥ 0.25, after > before) |
+| `motion.before_event`, `motion.after_event` | mean YDIF before and after `--event` | advice (read before against a reference build of the same size; after > before) |
 | `still_frames` | frames with YDIF below 0.05 | advice |
 | `longest_still_s` | the longest run of still frames, in seconds | advice (≤ 0.5 s) |
 | `jerk` | mean absolute second difference of YDIF; lower is smoother | advice (≤ 0.25) |

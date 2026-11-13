@@ -3,16 +3,17 @@ import { dirname, join } from 'node:path';
 import { CliError, fail, round } from './util.js';
 import { viewsFile } from './render.js';
 import { find, registrations } from './project.js';
+import { partSpeeds } from './rules.js';
 import { beatLines, judgeBeats, judgePoints, pointGroups, readSpec, specPath } from './spec.js';
 
 import { restSpec as realRestSpec } from './rest.js';
 
-// The blind-mode commands: --stats, --probe=x,y, --story, --check and lint. This file only composes the modules that do the work:
+// The blind-mode commands: --stats, --probe=x,y, --probe-box=x,y,w,h, --story, --check and lint. This file only composes the modules that do the work:
 //   deps.lint    { lintFiles(cfg, files, { fix, severities }) -> { findings, fixed } }
 //   deps.rig     { loadRig(cfg, name) -> { rig, meta, file }, sampleRig(rig, meta, events) -> samples }
 //   deps.rules   { runRules(samples, meta, severities) -> { findings, skipped }, describe(samples, meta) -> string[] }
 //   deps.compare { compareVideos(paths, { event, expect }) }
-//   deps.pixels  { stillPixels(cfg, name, { frame, events, ptScale }) -> { width, height, at(xPt, yPt) -> 'AARRGGBB' | null } }
+//   deps.pixels  { stillPixels(cfg, name, { frame, events }) -> { width, height, at(xPt, yPt) -> 'AARRGGBB' | null } }
 //   deps.rest    { restSpec(cfg, name, spec, deps) -> { findings, skipped } }  (optional; defaults to ./rest.js)
 // cli.js passes the real modules; the unit tests pass stubs.
 
@@ -51,29 +52,71 @@ const partSeries = (part, key, n) => {
   return Array.from({ length: n }, () => (typeof v === 'number' ? v : 0));
 };
 
-/**
- * `<Name> --probe=x,y[;x,y...] --at=t`: the colour at each point as AARRGGBB, as rive's --probe prints it.
- * Points are artboard points (the rig's `meta.scale` px per pt; 1 without a rig). One still render, no image to open.
- */
-export const pixelProbe = (cfg, name, { points, at = 0, events } = {}, deps) => {
-  const reg = find(cfg, name);
+const parsePoints = (points) => {
   const pts = String(points || '').split(/[;\s]+/).filter(Boolean).map((p) => {
     const m = /^(-?\d*\.?\d+),(-?\d*\.?\d+)$/.exec(p);
     if (!m) fail(`bad probe point ${JSON.stringify(p)}`, 'use --probe=x,y in points, several as --probe="10,20;30,40"');
     return [Number(m[1]), Number(m[2])];
   });
   if (!pts.length) fail('--probe needs a point', 'use --probe=x,y --at=<seconds>; the rig summary is --stats');
-  let ptScale = 1;
-  try { ptScale = deps.rig.loadRig(cfg, name).meta.scale || 1; } catch (e) { if (!(e instanceof CliError)) throw e; }
-  const fps = reg.fps || 30;
-  const frame = Math.round(at * fps);
-  const still = deps.pixels.stillPixels(cfg, name, { frame, events, ptScale });
+  return pts;
+};
+
+/** One still at `at` s, and its px per pt (the still's width over the composition's width in pt). */
+const stillAt = (cfg, name, at, events, deps) => {
+  const reg = find(cfg, name);
+  const still = deps.pixels.stillPixels(cfg, name, { frame: Math.round(at * (reg.fps || 30)), events });
+  return { still, frame: Math.round(at * (reg.fps || 30)), pxPerPt: reg.width ? still.width / reg.width : 1 };
+};
+
+/**
+ * `<Name> --probe=x,y[;x,y...] --at=t`: the colour at each point as AARRGGBB, as rive's --probe prints it.
+ * Points are artboard points. One still render, no image to open.
+ */
+export const pixelProbe = (cfg, name, { points, at = 0, events } = {}, deps) => {
+  const pts = parsePoints(points);
+  const { still, frame, pxPerPt } = stillAt(cfg, name, at, events, deps);
   const probes = pts.map(([x, y]) => {
     const color = still.at(x, y);
-    if (color === null) fail(`probe ${x},${y} is outside the frame`, `the frame is ${R(still.width / ptScale)}x${R(still.height / ptScale)} pt`);
+    if (color === null) fail(`probe ${x},${y} is outside the frame`, `the frame is ${R(still.width / pxPerPt)}x${R(still.height / pxPerPt)} pt`);
     return { x, y, color };
   });
-  return { ok: true, name, at, frame, units: 'pt', px_per_pt: ptScale, probes, next: [`skac ${name} --check`] };
+  return { ok: true, name, at, frame, units: 'pt', px_per_pt: R(pxPerPt), probes, next: [`skac ${name} --check`] };
+};
+
+const BOX_COLORS = 8;
+
+/**
+ * `<Name> --probe-box=x,y,w,h --at=t`: the distinct colours inside a box (points), top 8 by pixel count, each with its
+ * share of the box and its bounding box in points. One still render; colours are read per point-grid cell, so a box
+ * counts (w x h) cells of one point each at the still's scale.
+ */
+export const boxProbe = (cfg, name, { box, at = 0, events } = {}, deps) => {
+  const m = /^(-?\d*\.?\d+),(-?\d*\.?\d+),(\d*\.?\d+),(\d*\.?\d+)$/.exec(String(box || '').trim());
+  if (!m) fail(`bad probe box ${JSON.stringify(box)}`, 'use --probe-box=x,y,w,h in points, for example --probe-box=100,200,50,50 --at=0.5');
+  const [x, y, w, h] = m.slice(1).map(Number);
+  if (!(w > 0 && h > 0)) fail('--probe-box needs a width and height above 0', 'use --probe-box=x,y,w,h in points');
+  const { still, frame, pxPerPt } = stillAt(cfg, name, at, events, deps);
+  const step = 1 / pxPerPt; // one pixel in pt
+  const seen = new Map();
+  let total = 0;
+  for (let j = 0; j < Math.round(h * pxPerPt); j++) {
+    const py = y + j * step;
+    for (let i = 0; i < Math.round(w * pxPerPt); i++) {
+      const px = x + i * step;
+      const color = still.at(px, py);
+      if (color === null) continue;
+      total++;
+      const c = seen.get(color) || { color, pixels: 0, x0: px, y0: py, x1: px, y1: py };
+      c.pixels++;
+      c.x0 = Math.min(c.x0, px); c.y0 = Math.min(c.y0, py); c.x1 = Math.max(c.x1, px); c.y1 = Math.max(c.y1, py);
+      seen.set(color, c);
+    }
+  }
+  if (!total) fail('the box is outside the frame', `the frame is ${R(still.width / pxPerPt)}x${R(still.height / pxPerPt)} pt`);
+  const colors = [...seen.values()].sort((a, b) => b.pixels - a.pixels).slice(0, BOX_COLORS)
+    .map((c) => ({ color: c.color, pixels: c.pixels, share: R(c.pixels / total), bbox: [R(c.x0), R(c.y0), R(c.x1 - c.x0 + step), R(c.y1 - c.y0 + step)] }));
+  return { ok: true, name, at, frame, units: 'pt', px_per_pt: R(pxPerPt), box: [x, y, w, h], pixels: total, colors, next: [`skac ${name} --probe=x,y --at=${at}`] };
 };
 
 /** `<Name> --stats`: per channel and part, the range and the fastest frame, without rendering. */
@@ -85,13 +128,13 @@ export const stats = (cfg, name, { events } = {}, deps) => {
     const f = fastest(series, t_ms);
     channels[ch] = { ...range(series), fastest_at_s: R(f.at_ms / 1000), fastest_speed_per_ms: R(f.speed) };
   }
+  const windowed = Object.fromEntries(partSpeeds(samples, meta).speeds.map(([p, v]) => [p, v]));
   const parts = {};
   for (const [p, s] of Object.entries(samples.parts || {})) {
     const n = t_ms.length;
     const x = partSeries(s, 'x', n);
     const y = partSeries(s, 'y', n);
-    // Speed of the part's origin in pt/ms, from both axes.
-    const speeds = t_ms.map((_, i) => (i === 0 ? 0 : Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]) / ((t_ms[i] - t_ms[i - 1]) || 1)));
+    const speeds = windowed[p] || t_ms.map(() => 0);
     let bi = 0;
     speeds.forEach((v, i) => { if (v > speeds[bi]) bi = i; });
     parts[p] = { x: range(x), y: range(y), fastest_at_s: R(t_ms[bi] / 1000), fastest_speed_pt_per_ms: R(speeds[bi]) };

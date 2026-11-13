@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from '../../src/config.js';
-import { check, lint, pixelProbe, ruleSeverities, stats, story } from '../../src/blind.js';
+import { boxProbe, check, lint, pixelProbe, ruleSeverities, stats, story } from '../../src/blind.js';
+import * as rulesModule from '../../src/rules.js';
 import { CliError } from '../../src/util.js';
 import { tmp, write } from './helpers.js';
 
@@ -161,23 +162,56 @@ test('lint defaults to every composition and its rig, passes --fix, and fails on
   assert.equal(lint(cfg, ['x.ts'], {}, stubs().deps).ok, true);
 });
 
-test('probe=x,y reads AARRGGBB at points in pt, at the frame for --at, scaled by meta.scale', () => {
+// A 390-wide still (scale 1, one pixel per pt) whatever the rig's meta.scale says.
+const stillOf = (at) => ({ width: 390, height: 867, at });
+
+test('probe=x,y reads AARRGGBB at points in pt, at the frame for --at, whatever meta.scale is', () => {
   const cfg = project();
   const seen = [];
   const deps = stubs().deps;
-  deps.rig.loadRig = (c, name) => ({ rig: () => ({}), meta: { ...meta, scale: 2 }, file: 'x' });
+  deps.rig.loadRig = () => ({ rig: () => ({}), meta: { ...meta, scale: 2 }, file: 'x' });
   deps.pixels = {
     stillPixels: (c, name, o) => {
       seen.push(o);
-      return { width: 780, height: 1734, at: (x, y) => (x * o.ptScale < 780 && y * o.ptScale < 1734 ? (x < 100 ? 'FF57A5E0' : 'FF1E2A44') : null) };
+      return stillOf((x, y) => (x < 390 && y < 867 ? (x < 100 ? 'FF57A5E0' : 'FF1E2A44') : null));
     },
   };
   const doc = pixelProbe(cfg, 'A', { points: '10,20;200,30', at: 0.5, events: [] }, deps);
   assert.deepEqual(doc.probes, [{ x: 10, y: 20, color: 'FF57A5E0' }, { x: 200, y: 30, color: 'FF1E2A44' }]);
-  assert.deepEqual([doc.frame, doc.px_per_pt, seen[0].ptScale, seen[0].frame], [15, 2, 2, 15]); // 0.5 s at 30 fps
+  assert.deepEqual([doc.frame, doc.px_per_pt, seen[0].frame], [15, 1, 15]); // 0.5 s at 30 fps; 390 px over 390 pt
+  assert.equal('ptScale' in seen[0], false);
   assert.throws(() => pixelProbe(cfg, 'A', { points: '500,10' }, deps), /outside the frame/);
   assert.throws(() => pixelProbe(cfg, 'A', { points: '10;20' }, deps), /bad probe point/);
   assert.throws(() => pixelProbe(cfg, 'A', { points: '' }, deps), (e) => /needs a point/.test(e.message) && /--stats/.test(e.hint));
+});
+
+test('probe-box lists the box\'s distinct colours by pixel count with share and bbox in pt', () => {
+  const cfg = project();
+  const deps = stubs().deps;
+  deps.pixels = { stillPixels: () => stillOf((x, y) => (x >= 390 ? null : x >= 12 && x < 14 && y >= 21 && y < 23 ? 'FF57A5E0' : 'FF1E2A44')) };
+  const doc = boxProbe(cfg, 'A', { box: '10,20,10,4', at: 0 }, deps);
+  assert.equal(doc.pixels, 40);
+  assert.deepEqual(doc.colors, [
+    { color: 'FF1E2A44', pixels: 36, share: 0.9, bbox: [10, 20, 10, 4] },
+    { color: 'FF57A5E0', pixels: 4, share: 0.1, bbox: [12, 21, 2, 2] },
+  ]);
+  assert.throws(() => boxProbe(cfg, 'A', { box: '10,20' }, deps), /bad probe box/);
+  assert.throws(() => boxProbe(cfg, 'A', { box: '10,20,0,5' }, deps), /width and height/);
+  assert.throws(() => boxProbe(cfg, 'A', { box: '900,20,5,5' }, deps), /outside the frame/);
+});
+
+test('stats reports the same windowed fastest speed the speed-cap rule measures', () => {
+  const cfg = project();
+  const deps = stubs().deps;
+  // 120 Hz grid: one 20 pt step in 8.33 ms is 2.4 pt/ms per sample, but 0.6 pt/ms over the 33 ms window.
+  const t_ms = Array.from({ length: 12 }, (_, i) => (i * 1000) / 120);
+  const x = t_ms.map((_, i) => (i < 6 ? 0 : 20));
+  const spike = { fps: 120, t_ms, channels: {}, parts: { body: { x, y: t_ms.map(() => 0), w: t_ms.map(() => 10), h: t_ms.map(() => 10) } } };
+  deps.rig.sampleRig = () => spike;
+  const fastest = stats(cfg, 'A', {}, deps).parts.body.fastest_speed_pt_per_ms;
+  const rule = rulesModule.runRules(spike, meta, {}).findings.find((f) => f.ruleId === 'skac/speed-cap');
+  assert.equal(fastest, rule.value);
+  assert.equal(fastest, 0.6);
 });
 
 test('check without a spec says the beats are self-declared and never reads pixels', () => {

@@ -103,7 +103,7 @@ Turn a rule off or change its severity in `skia-motion.json`:
 ## Other commands in the loop
 
 - `skac <Name> --stats`: per channel and part, the min, the max, the time of the fastest frame and its speed. Use it to find where to look in a rig.
-- `skac <Name> --probe=x,y --at=<seconds>`: the colour at a point in pt as AARRGGBB (several points: `--probe="10,20;30,40"`). Use it to check the rest pose without looking.
+- `skac <Name> --probe=x,y --at=<seconds>`: the colour at a point in pt as AARRGGBB (several points: `--probe="10,20;30,40"`). Use it to check the rest pose without looking. `skac <Name> --probe-box=x,y,w,h --at=<seconds>` lists the box's colours (top 8 by pixel count, with share and bbox in pt), to find what is drawn where.
 - `skac lint [files...] [--fix]`: lint only. `--fix` applies the fixable rules.
 - `skac update`: refresh the project's engine files and instructions from the installed skac.
 

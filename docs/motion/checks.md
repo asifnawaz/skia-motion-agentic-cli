@@ -21,7 +21,7 @@ Fields, per video, under `videos[]`:
 | `spec_ok` | the probe matches `--expect` (size and fps exact, duration within 0.05 s) | true |
 | `frames` | frames read | 240 for 8 s at 30 fps |
 | `blank_frames` | frames whose mean luma is above 200: a lost GL context renders white; counted on every frame, not only the 30 fps instants | 0 |
-| `motion.before_event`, `motion.after_event` | mean per-frame change (YDIF) before and after `--event` | before ≥ 0.25 means the idle is not a breathing icon (in the six-build test, rossark scored 0.152, judged too quiet; huashu 0.311); after > before |
+| `motion.before_event`, `motion.after_event` | mean per-frame change (YDIF) before and after `--event` | a whole-frame mean, so it scales with the character's area: there is no absolute bar. Read `before` against a reference build of the same frame size, and `after` > `before`. Example: a 150 pt character in a 390x867 frame with the idle at these docs' sizes reads about 0.15, which is right for that frame; in the six-build test, rossark scored 0.152 and huashu 0.311 at their own sizes |
 | `still_frames` | frames with almost no change (YDIF < 0.05): long holds or a dead idle | a few at most; no run of them while on screen |
 | `jerk` | mean of \|d[i+1] − 2d[i] + d[i−1]\| over the YDIF series: how abruptly the amount of motion changes. Lower is smoother; grain or boiling lines raise it | ≤ 0.25 (rossark 0.179; huashu 0.424, its snaps) |
 | `peak.ydif`, `peak.at_s` | the largest single frame change and when | ≤ 5.25 (rossark's, its hop; a build whose burst left on an expo-out curve scored 9.63) |

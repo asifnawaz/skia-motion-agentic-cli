@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, parseCommands } from './args.js';
 import { loadConfig } from './config.js';
-import { check, lint, pixelProbe, stats, story } from './blind.js';
+import { boxProbe, check, lint, pixelProbe, stats, story } from './blind.js';
 import { compareVideos } from './compare.js';
 import { doctor } from './doctor.js';
 import { docsCommand } from './docs.js';
@@ -19,7 +19,7 @@ import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
   bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix'],
-  str: ['probe', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
+  str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
     'search', 'as', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
 };
@@ -48,6 +48,7 @@ export const execute = (argv, cwd = process.cwd()) => {
         'inspect [Name]', 'compare <mp4...>', 'lint [files...] [--fix]', 'update [--force] [--check]',
         '<Name> --stats | --story | --check  (blind mode: no image)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',
+        '<Name> --probe-box=x,y,w,h --at=t  (the box\'s top 8 colours by pixel count, with share and bbox in pt)',
         '<Name> --verify | --screenshot --at=0.5,4.0 [--sheet] | --render | --commands "tap@4.0"'],
       next: ['skac docs blind', 'skac doctor'],
     };
@@ -87,6 +88,10 @@ const composition = (cfg, name, flags) => {
   if (flags.probe !== undefined) {
     if (times.length > 1) fail('--probe reads one time', 'pass one --at=<seconds>');
     return pixelProbe(cfg, name, { points: flags.probe, at: times[0] ?? 0, events }, DEPS);
+  }
+  if (flags['probe-box'] !== undefined) {
+    if (times.length > 1) fail('--probe-box reads one time', 'pass one --at=<seconds>');
+    return boxProbe(cfg, name, { box: flags['probe-box'], at: times[0] ?? 0, events }, DEPS);
   }
   if (flags.stats) return stats(cfg, name, { events }, DEPS);
   if (flags.story) return story(cfg, name, { events }, DEPS);

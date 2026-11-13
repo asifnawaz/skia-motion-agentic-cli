@@ -11,8 +11,7 @@
 // - A colour boundary inside the part passes: with a 4 pt stroke, a box inset onto the stroke-to-fill
 //   line reads fill inside and stroke outside, so an edge up to the stroke's width too far in passes.
 //
-// deps.pixels.stillPixels(cfg, name, { frame, ptScale }) -> { width, height, at(xPt, yPt) -> AARRGGBB | null }
-// deps.rig?.loadRig(cfg, name).meta.scale -> px per pt (1 when the rig does not load).
+// deps.pixels.stillPixels(cfg, name, { frame }) -> { width, height, at(xPt, yPt) -> AARRGGBB | null }
 
 const RULE = 'skac/rest-spec';
 const NEAR = 24;
@@ -50,14 +49,6 @@ const edgeProbes = ({ x, y, w, h }, t) => {
   ];
 };
 
-const scaleOf = (cfg, name, deps) => {
-  try {
-    return deps.rig?.loadRig(cfg, name).meta.scale || 1;
-  } catch {
-    return 1;
-  }
-};
-
 /** Which edges of `box` fail on `still`; an edge whose probe is off the frame is not judged. */
 const failedEdges = (still, box, tol) => {
   const centre = still.at(box.x + box.w / 2, box.y + box.h / 2);
@@ -82,7 +73,7 @@ export const restSpec = (cfg, name, spec, deps) => {
   if (!parts.length) return { findings: [], skipped: [] };
   let still;
   try {
-    still = deps.pixels.stillPixels(cfg, name, { frame: 0, ptScale: scaleOf(cfg, name, deps) });
+    still = deps.pixels.stillPixels(cfg, name, { frame: 0 });
   } catch (e) {
     return { findings: [], skipped: [{ ruleId: RULE, layer: 'pixels', reason: `the still at t=0 failed: ${e.message}` }] };
   }

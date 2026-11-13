@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fail, now, run, tail } from './util.js';
 import { compareVideos } from './compare.js';
@@ -49,17 +49,19 @@ export const colorAt = (img, px, py) => {
 };
 
 /**
- * One still of `name` at `frame`, scale 1, decoded. `ptScale` (meta.scale, px per pt) turns points into pixels.
+ * One still of `name` at `frame`, scale 1, decoded. Points become pixels by the still itself (decoded width over the
+ * registration's width in pt), so the rig's meta.scale never matters. `px_per_pt` is that ratio.
  * Returns `at(xPt, yPt)` -> AARRGGBB, or null when the point is outside the frame.
  */
-export const stillPixels = (cfg, name, { frame = 0, events, ptScale = 1 } = {}) => {
-  find(cfg, name);
+export const stillPixels = (cfg, name, { frame = 0, events } = {}) => {
+  const reg = find(cfg, name);
   const file = join(outDir(cfg, name), `probe-${frame}.png`);
   mustRun(remotion(cfg, ['still', cfg.entry, name, file, `--frame=${frame}`, `--gl=${cfg.gl}`, '--scale=1', ...propsArgs(events)]), `rendering frame ${frame} of ${name}`);
   const img = decode(file);
+  const pxPerPt = reg.width ? img.width / reg.width : 1;
   const at = (x, y) => {
-    const px = Math.floor(x * ptScale);
-    const py = Math.floor(y * ptScale);
+    const px = Math.floor(x * pxPerPt);
+    const py = Math.floor(y * pxPerPt);
     if (px < 0 || py < 0 || px >= img.width || py >= img.height) return null;
     return colorAt(img, px, py);
   };
@@ -113,9 +115,11 @@ export const screenshot = (cfg, name, { times, sheet, events }) => {
 /** `<Name> --render`: the full mp4 at `scale`, then compare. */
 export const render = (cfg, name, { out, scale = 2, events, event }) => {
   const reg = find(cfg, name);
-  const file = out ? resolve(out) : join(outDir(cfg, name), `${name}.mp4`);
+  const home = join(outDir(cfg, name), `${name}.mp4`);
+  const file = out ? resolve(out) : home;
   mkdirSync(dirname(file), { recursive: true });
   mustRun(remotion(cfg, ['render', cfg.entry, name, file, `--gl=${cfg.gl}`, `--scale=${scale}`, ...propsArgs(events)]), `rendering ${name}`);
+  if (file !== home) copyFileSync(file, home); // --check reads the default path: it must see the latest render
   const known = reg.width && reg.height && reg.fps && reg.frames;
   const even = (n) => n - (n % 2); // h264 yuv420p output has even sides
   const expect = known ? `${even(Math.round(reg.width * scale))}x${even(Math.round(reg.height * scale))}@${reg.fps}/${Math.round((reg.frames / reg.fps) * 1000) / 1000}` : 'none';

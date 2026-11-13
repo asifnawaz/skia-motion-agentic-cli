@@ -87,6 +87,20 @@ export const beatChange = (s, beat) => {
 };
 
 
+/**
+ * Each part's speed in pt/ms: the mean over the SPEED_WINDOW_MS (one 30 fps frame) ending at each sample, the span the
+ * speed cap was calibrated on (18 pt a frame); a per-sample speed would read a step in the rig 4x larger on the 120 Hz
+ * grid. In the parent's frame where meta.parents says so. --stats reads this too, so it never disagrees with speed-cap.
+ * @returns {{speeds: [string, number[], string|null][], unknown: [string, string][]}}
+ */
+export const partSpeeds = (s, meta) => {
+  const dt = dtOf(s);
+  const { steps, unknown } = relativeSteps(s, meta);
+  const w = Math.max(1, Math.round(SPEED_WINDOW_MS / dt));
+  const speeds = steps.map(([name, d, parent]) => [name, d.map((_, i) => (i < w ? 0 : meanSpeed(d, i, w, dt))), parent]);
+  return { speeds, unknown };
+};
+
 const speedCap = {
   id: 'skac/speed-cap',
   category: 'speed',
@@ -95,18 +109,13 @@ const speedCap = {
   docs: 'motion/anticipation',
   needs: ['parts'],
   check(s, meta) {
-    const dt = dtOf(s);
-    const { steps: all, unknown } = relativeSteps(s, meta);
+    const { speeds, unknown } = partSpeeds(s, meta);
     const out = unknown.map(([name, parent]) => mk(this, {
       message: `meta.parents gives \`${name}\` the parent \`${parent}\`, which the rig does not return as a part`,
       fix: 'name a part the rig returns, or drop the entry so the part is measured in the world',
       at_s: 0, part: name,
     }));
-    // Speed is the mean over the SPEED_WINDOW_MS (one 30 fps frame) ending at each sample: the span the cap was
-    // calibrated on (18 pt a frame). A per-sample speed would read a step in the rig 4x larger on the 120 Hz grid.
-    const w = Math.max(1, Math.round(SPEED_WINDOW_MS / dt));
-    for (const [name, steps, parent] of all) {
-      const speed = steps.map((_, i) => (i < w ? 0 : meanSpeed(steps, i, w, dt)));
+    for (const [name, speed, parent] of speeds) {
       for (const [a, b] of runs(speed.map((v) => v > SPEED_CAP))) {
         const k = argMax(speed, a, b);
         out.push(mk(this, {
