@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.1.2...v1.2.0) (2026-11-13)
+
+
+### Features
+
+* skac <Name> --export writes the checked rig and draw into an app ([374ffe1](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/374ffe12a173e7f113a0bb5cd902107584240d4a))
+
 ## [1.1.2](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.1.1...v1.1.2) (2026-11-13)
 
 
