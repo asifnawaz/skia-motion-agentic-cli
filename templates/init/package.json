@@ -1,0 +1,22 @@
+{
+  "name": "skia-motion-project",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "render": "skac Character --render",
+    "studio": "remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/skia": "4.0.543",
+    "@shopify/react-native-skia": "2.14.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-native-web": "0.21.2",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.543",
+    "@types/react": "19.2.2",
+    "typescript": "5.9.3"
+  }
+}

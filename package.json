@@ -1,0 +1,57 @@
+{
+  "name": "skia-motion-agentic-cli",
+  "version": "0.0.0-development",
+  "description": "A rive-like, JSON-only CLI for character and UI motion drawn with @shopify/react-native-skia and rendered headlessly by Remotion. Built for agents.",
+  "type": "module",
+  "bin": {
+    "skac": "bin/skac.js",
+    "skia-motion-agentic-cli": "bin/skac.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "templates",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "docs:rules": "node scripts/rules-doc.js",
+    "test": "node --test test/unit/*.test.js",
+    "test:unit": "node --test test/unit/*.test.js",
+    "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asifnawaz/skia-motion-agentic-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/asifnawaz/skia-motion-agentic-cli/issues"
+  },
+  "homepage": "https://github.com/asifnawaz/skia-motion-agentic-cli",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "skia",
+    "remotion",
+    "motion",
+    "animation",
+    "cli",
+    "agent"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/changelog": "7.0.0",
+    "@semantic-release/git": "11.0.1",
+    "esbuild": "0.28.1",
+    "semantic-release": "25.0.9",
+    "typescript": "5.9.3"
+  }
+}

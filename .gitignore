@@ -1,0 +1,4 @@
+node_modules/
+skia-motion-out/
+*.log
+.DS_Store

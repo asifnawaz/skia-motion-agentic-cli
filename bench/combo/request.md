@@ -1,0 +1,1 @@
+Make a small round character with a sprout on its head, 8 seconds long. It stands still and breathes. At 4 seconds it gets tapped. It crouches, hops up, lands and settles back to rest. Keep it soft and quick, not floaty.

@@ -1,0 +1,4 @@
+{
+  "name": "character",
+  "description": "A friendly vector character with a breathing, blinking idle and a squash-and-stretch reaction to tap events."
+}

@@ -1,0 +1,11 @@
+{
+  "parts": { "body": { "x": 118, "y": 388, "w": 154, "h": 174 }, "sprout": { "x": 179, "y": 364, "w": 32, "h": 24 } },
+  "points": [],
+  "open": ["crouch depth", "hop height", "squash amount at landing", "how long each beat takes"],
+  "beats": [
+    { "name": "crouch", "channel": "stretch", "from_ms": 4000, "to_ms": 4200, "direction": "down" },
+    { "name": "hop", "part": "body", "after": "crouch", "direction": "up" },
+    { "name": "land", "channel": "squash", "after": "hop", "direction": "down" },
+    { "name": "settle", "channel": "squash", "after": "land", "direction": "up" }
+  ]
+}

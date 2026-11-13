@@ -1,0 +1,25 @@
+// Skia's web canvas asks for a display-p3 drawing buffer, which shifts colours. Pin it to sRGB.
+if (typeof window !== 'undefined') {
+  for (const ctor of [window.WebGLRenderingContext, (window as any).WebGL2RenderingContext]) {
+    if (ctor) Object.defineProperty(ctor.prototype, 'drawingBufferColorSpace', { configurable: true, get: () => 'srgb', set: () => undefined });
+  }
+}
+
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Circle } from '@shopify/react-native-skia';
+import { SkiaCanvas } from '@remotion/skia';
+import { meta, rig, type RigEvent } from './__NAME__.rig';
+
+// Draws only from rig(ms) in __NAME__.rig.ts. Pass events with: skac __NAME__ --commands "tap@4.0"
+export const __NAME__ = ({ events = meta.events }: { events?: RigEvent[] }) => {
+  const { fps, width, height } = useVideoConfig();
+  const { bob, color } = rig((useCurrentFrame() / fps) * 1000, events).channels;
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: '#1E2A44' }}>
+      <SkiaCanvas width={width} height={height}>
+        <Circle cx={width / 2} cy={height / 2 + bob} r={70} color={color ? '#F6C453' : '#5FB57A'} />
+      </SkiaCanvas>
+    </AbsoluteFill>
+  );
+};

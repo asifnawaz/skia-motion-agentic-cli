@@ -1,0 +1,11 @@
+{
+  "parts": { "body": { "x": 118, "y": 388, "w": 154, "h": 174 }, "sprout": { "x": 179, "y": 364, "w": 32, "h": 24 } },
+  "points": [],
+  "open": ["breath depth and period", "sway size", "glance size", "event times"],
+  "beats": [
+    { "name": "breathe", "part": "body", "from_ms": 0, "to_ms": 1300, "direction": "up" },
+    { "name": "drift", "part": "body", "direction": "right" },
+    { "name": "sway", "part": "sprout", "overlaps": "drift", "direction": "left" },
+    { "name": "blink", "channel": "lid", "direction": "up" }
+  ]
+}

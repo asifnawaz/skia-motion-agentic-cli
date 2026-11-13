@@ -1,0 +1,28 @@
+// __NAME__.rig.ts: every moving value of __NAME__ as a pure function of time in ms.
+// __NAME__.tsx draws from rig(ms) and nothing else, so `skac __NAME__ --check` tests what is drawn.
+// Write `meta.beats` first (what the request asked to move, when), then rig(), then `--check` and `--story`.
+
+export type RigEvent = { name: string; at: number }; // at: seconds
+
+export const meta = {
+  fps: __FPS__,
+  frames: __FRAMES__,
+  width: __WIDTH__, // px; points = px / scale
+  height: __HEIGHT__,
+  scale: 1,
+  events: [{ name: 'tap', at: 1.0 }] as RigEvent[],
+  // The beats the request asked for: a name, a window in ms, and the channel that must move inside it.
+  beats: [{ name: 'react', from_ms: 1000, to_ms: 1500, channel: 'color' }],
+  loop: false,
+};
+
+export function rig(ms: number, events: RigEvent[] = meta.events) {
+  const t = ms / 1000;
+  const fired = events.some((e) => t >= e.at); // true once the first event has happened
+  return {
+    channels: {
+      bob: Math.sin(t * 2) * 12, // pt
+      color: fired ? 1 : 0,
+    },
+  };
+}

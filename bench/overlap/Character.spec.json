@@ -1,0 +1,9 @@
+{
+  "parts": { "body": { "x": 118, "y": 388, "w": 154, "h": 174 }, "sprout": { "x": 179, "y": 364, "w": 32, "h": 24 } },
+  "points": [],
+  "open": ["how far the sprout lags", "travel distance", "duration"],
+  "beats": [
+    { "name": "body_rise", "part": "body", "direction": "up" },
+    { "name": "sprout_rise", "part": "sprout", "overlaps": "body_rise", "direction": "up" }
+  ]
+}

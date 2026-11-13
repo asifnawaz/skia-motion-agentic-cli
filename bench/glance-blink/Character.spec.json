@@ -1,0 +1,10 @@
+{
+  "parts": { "body": { "x": 118, "y": 388, "w": 154, "h": 174 }, "sprout": { "x": 179, "y": 364, "w": 32, "h": 24 } },
+  "points": [],
+  "open": ["glance size", "hold length", "glide time", "blink timing inside the turn"],
+  "beats": [
+    { "name": "glance", "part": "body", "direction": "left" },
+    { "name": "blink", "channel": "lid", "overlaps": "glance", "direction": "up" },
+    { "name": "glance_back", "part": "body", "after": "blink", "direction": "right" }
+  ]
+}

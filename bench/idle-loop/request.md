@@ -1,0 +1,1 @@
+Make a small round character with a sprout on its head, an 8 second idle that loops with no visible jump. It should look alive but never do anything big: it breathes, its weight drifts, the sprout sways, and it blinks now and then. No hops.

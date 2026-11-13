@@ -1,0 +1,48 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci || npm install
+      - run: npm run test:unit
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/remotion
+          key: e2e-${{ runner.os }}-${{ hashFiles('templates/init/package.json') }}
+          restore-keys: e2e-${{ runner.os }}-
+      - run: npm ci || npm install
+      - run: npm run test:e2e
+        env:
+          SKIA_MOTION_E2E_PROJECT: ''
+          SKAC_GL: swangle
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-output
+          path: |
+            ${{ runner.temp }}/**/*.mp4
+            ${{ runner.temp }}/**/sheet.png
+          if-no-files-found: ignore
