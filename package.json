@@ -1,6 +1,6 @@
 {
   "name": "skia-motion-agentic-cli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Motion for AI agents: a JSON-only CLI that scaffolds, checks and renders character and UI animation drawn with React Native Skia and rendered by Remotion.",
   "type": "module",
   "bin": {
