@@ -1,7 +1,7 @@
 {
   "name": "skia-motion",
   "version": "0.0.0-development",
-  "description": "A rive-like, JSON-only CLI for character and UI motion drawn with @shopify/react-native-skia and rendered headlessly by Remotion. Built for agents.",
+  "description": "Motion for AI agents: a JSON-only CLI that scaffolds, checks and renders character and UI animation drawn with React Native Skia and rendered by Remotion.",
   "type": "module",
   "bin": {
     "skac": "bin/skac.js",
@@ -40,11 +40,17 @@
   },
   "keywords": [
     "skia",
+    "react-native-skia",
     "remotion",
-    "motion",
     "animation",
+    "motion",
+    "motion-design",
+    "character-animation",
     "cli",
-    "agent"
+    "ai-agents",
+    "claude-code",
+    "agentic-coding",
+    "video"
   ],
   "license": "MIT",
   "devDependencies": {
