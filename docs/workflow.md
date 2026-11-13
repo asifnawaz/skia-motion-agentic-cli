@@ -27,5 +27,8 @@ output fields are in [commands.md](commands.md); the loop and the rig are in `sk
     in `--check`'s `views`.
 11. **Compare versions.** `compare a.mp4 b.mp4` returns `summary` rankings; `--baseline` pins one
     as the reference.
+12. **Export for an app.** A scene made with `add <Name> --draw` keeps its drawing in
+    `src/<Name>.draw.ts`. When `--check` is ok, `skac <Name> --export <app-dir>` writes the rig, the
+    drawing and a component into the app. `skac docs app` has the three-line usage.
 
 If a step fails, read `error` and `hint`, change one thing, and run the same step again.

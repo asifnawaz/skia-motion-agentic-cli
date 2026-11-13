@@ -1,0 +1,62 @@
+// __NAME__/index.tsx: the app component for __NAME__ (a copy of skac's template).
+// It draws with the same draw() and rig() the video uses. Mount it and trigger it:
+//   const pip = useRef<__NAME__Handle>(null);
+//   <__NAME__ ref={pip} width={200} height={200} live={motionAllowed} />
+//   pip.current?.fire('tap');
+import { forwardRef, useCallback, useEffect, useImperativeHandle } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { Canvas, Picture, Skia, createPicture } from '@shopify/react-native-skia';
+import { useDerivedValue, useFrameCallback, useSharedValue, type FrameInfo } from 'react-native-reanimated';
+import { scheduleOnUI } from 'react-native-worklets';
+import { draw } from './__NAME__.draw';
+import { rig, type RigEvent } from './__NAME__.rig';
+
+export type __NAME__Handle = { fire: (name: string) => void };
+type Props = {
+  width: number;
+  height: number;
+  /** false freezes the drawing (reduced motion, off screen). The app passes its own gate. */
+  live?: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+const KEEP_EVENTS = 8;
+
+export const __NAME__ = forwardRef<__NAME__Handle, Props>(function __NAME__({ width, height, live = true, style }, ref) {
+  const ms = useSharedValue(0);
+  const events = useSharedValue<RigEvent[]>([]);
+
+  // Time advances only while live. useFrameCallback reads its second argument only on the first
+  // render, so later changes of `live` go through setActive. Pausing clears the callback's start,
+  // so the first frame after a resume reports no previous frame and time picks up where it froze.
+  // The callback is memoised: a new one would re-register on every render and drop a frame.
+  const tick = useCallback((frame: FrameInfo) => {
+    'worklet';
+    ms.value += frame.timeSincePreviousFrame ?? 0;
+  }, [ms]);
+  const clock = useFrameCallback(tick, live);
+  useEffect(() => {
+    clock.setActive(live);
+  }, [clock, live]);
+
+  // The append runs on the UI thread, where `ms` is advanced: the event's time is the frame's own,
+  // and two quick fires never read a list the other has not written yet.
+  useImperativeHandle(ref, () => ({
+    fire: (name: string) => {
+      scheduleOnUI(() => {
+        'worklet';
+        events.value = [...events.value, { name, at: ms.value / 1000 }].slice(-KEEP_EVENTS);
+      });
+    },
+  }), [events, ms]);
+
+  // A new picture per frame is collected by the GC: Skia reports each one's native size as memory pressure.
+  const picture = useDerivedValue(() =>
+    createPicture((canvas) => draw(canvas, rig(ms.value, events.value).channels, { width, height }), Skia.XYWHRect(0, 0, width, height)));
+
+  return (
+    <Canvas style={[{ width, height }, style]}>
+      <Picture picture={picture} />
+    </Canvas>
+  );
+});

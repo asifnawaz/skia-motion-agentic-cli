@@ -26,7 +26,8 @@ Relative paths in the file are relative to the file. Flags beat the file and def
 | `docs [topic]` | `--search <text>`, `--as <reader>` | `index`+`topics[]`, or `topic`+`text`, or `hits[]` |
 | `create [dir]` (alias `init`) | `--force` | `dir`, `files[]`, `next[]` |
 | `samples [name] [dir]` | `--force` | `samples[]`, or `sample`, `dir`, `files[]` |
-| `add <Name>` | `--size 390x867`, `--fps 60`, `--frames 480` | `file`, `rig`, `registered`, `next[]` |
+| `add <Name>` | `--size 390x867`, `--fps 60`, `--frames 480`, `--draw` | `file`, `rig`, `draw?`, `registered`, `next[]`. `--draw` also writes `<Name>.draw.ts` and a composition that draws through it |
+| `<Name> --export <dir>` | `--force` | `ok`, `dir`, `files[]`, `usage`. Needs `src/<Name>.draw.ts`, and `'worklet'` first in `rig()` and `draw()`; runs `--check` first; overwrites only files with the skac header |
 | `schema [Name]` | | Skia drawing components: `components[]`, or `declaration`+`props[]`. Not a composition's props: use `inspect` |
 | `inspect [Name]` | | `compositions[]`, or the resolved scene |
 | `<Name>` | | the scene plus `next[]` |

@@ -16,7 +16,11 @@ export const meta = {
   loop: false,
 };
 
+// 'worklet' lets the app run rig() on the UI thread (an exported scene); it is a plain string elsewhere.
+export type Channels = ReturnType<typeof rig>['channels'];
+
 export function rig(ms: number, events: RigEvent[] = meta.events) {
+  'worklet';
   const t = ms / 1000;
   const fired = events.some((e) => t >= e.at); // true once the first event has happened
   return {

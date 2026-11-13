@@ -18,6 +18,7 @@ No PNG is needed. Check first; look once at the end.
 7. `<Name> --probe=x,y --at=s` reads a colour at a point, as AARRGGBB.
 8. `<Name> --render`. Its `compare` block gates `ok` on `spec_ok` and `blank_frames`; `jerk`, `peak` and `longest_still_s` are advice (`skac docs motion/checks`).
 9. Look once at the end: `<Name> --screenshot --at=<key times> --sheet`. Looks are counted in `views`.
+10. For an app: scaffold with `add <Name> --draw`; when `--check` is ok, `skac <Name> --export <app-dir>`. `skac docs app` has the usage.
 
 Other commands: `lint [files] [--fix]`, `update`. Every flag and field: `skac docs commands`.
 

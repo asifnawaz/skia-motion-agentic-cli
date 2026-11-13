@@ -5,6 +5,7 @@ import { parseArgs, parseCommands } from './args.js';
 import { loadConfig } from './config.js';
 import { boxProbe, check, lint, pixelProbe, stats, story } from './blind.js';
 import { compareVideos } from './compare.js';
+import { exportScene } from './export.js';
 import { doctor } from './doctor.js';
 import { docsCommand } from './docs.js';
 import * as lintModule from './lint.js';
@@ -18,9 +19,9 @@ import { update } from './update.js';
 import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
-  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version'],
+  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
-    'search', 'as', 'entry', 'root', 'out-dir', 'gl'],
+    'search', 'as', 'export', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
 };
 
@@ -45,11 +46,12 @@ export const execute = (argv, cwd = process.cwd()) => {
   if (!first || flags.help) {
     return {
       ok: true, name: 'skac', version: version(),
-      commands: ['--version', 'doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name>', 'samples [name] [dir]', 'schema [Name]',
+      commands: ['--version', 'doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name> [--draw]', 'samples [name] [dir]', 'schema [Name]',
         'inspect [Name]', 'compare <mp4...>', 'lint [files...] [--fix]', 'update [--force] [--check]',
         '<Name> --stats | --story | --check  (blind mode: no image)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',
         '<Name> --probe-box=x,y,w,h --at=t  (the box\'s top 8 colours by pixel count, with share and bbox in pt)',
+        '<Name> --export <app-dir> [--force]  (write the checked rig and draw.ts into the app as a component; needs add --draw)',
         '<Name> --verify | --screenshot --at=0.5,4.0 [--sheet] | --render | --commands "tap@4.0"'],
       next: ['skac docs blind', 'skac doctor'],
     };
@@ -59,7 +61,7 @@ export const execute = (argv, cwd = process.cwd()) => {
     case 'docs': return docsCommand(cfg, { topic: rest[0], section: rest.slice(1).join(' ') || undefined, search: flags.search, as: flags.as });
     case 'create':
     case 'init': return createProject(rest[0], { force: flags.force });
-    case 'add': return add(cfg, rest[0], { size: flags.size, fps: flags.fps, frames: flags.frames });
+    case 'add': return add(cfg, rest[0], { size: flags.size, fps: flags.fps, frames: flags.frames, draw: flags.draw });
     case 'samples': return samples(rest[0], rest[1], { force: flags.force });
     case 'schema': return schema(cfg, rest[0]);
     case 'inspect': return inspect(cfg, rest[0]);
@@ -97,6 +99,7 @@ const composition = (cfg, name, flags) => {
   if (flags.stats) return stats(cfg, name, { events }, DEPS);
   if (flags.story) return story(cfg, name, { events }, DEPS);
   if (flags.check) return check(cfg, name, { events }, DEPS);
+  if (flags.export !== undefined) return exportScene(cfg, name, { dir: flags.export, force: flags.force, version: version() }, DEPS, check);
   if (flags.verify) return verify(cfg, name, { events });
   if (wantsShots) return screenshot(cfg, name, { times, sheet: flags.sheet, events });
   if (flags.render || flags.commands) {

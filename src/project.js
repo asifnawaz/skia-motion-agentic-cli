@@ -100,19 +100,24 @@ export const inspect = (cfg, name) => {
 };
 
 /** Add a composition file and register it in the root file. */
-export const add = (cfg, name, { size = '390x867', fps = 60, frames = 480 } = {}) => {
+export const add = (cfg, name, { size = '390x867', fps = 60, frames = 480, draw = false } = {}) => {
   if (!/^[A-Z][A-Za-z0-9]*$/.test(name || '')) fail(`bad name ${JSON.stringify(name)}`, 'use PascalCase letters and digits, like Character');
   const m = /^(\d+)x(\d+)$/.exec(size);
   if (!m) fail(`--size must look like 390x867, got ${JSON.stringify(size)}`);
-  const tmpl = join(PACKAGE_ROOT, 'templates', 'composition.tsx.tmpl');
-  if (!existsSync(tmpl)) fail('templates/composition.tsx.tmpl is missing from this package', 'reinstall skia-motion-agentic-cli');
+  const tmplName = draw ? 'composition-draw.tsx.tmpl' : 'composition.tsx.tmpl';
+  const tmpl = join(PACKAGE_ROOT, 'templates', tmplName);
+  if (!existsSync(tmpl)) fail(`templates/${tmplName} is missing from this package`, 'reinstall skia-motion-agentic-cli');
+  const drawTmpl = join(PACKAGE_ROOT, 'templates', 'draw.ts.tmpl');
+  if (draw && !existsSync(drawTmpl)) fail('templates/draw.ts.tmpl is missing from this package', 'reinstall skia-motion-agentic-cli');
   if (!existsSync(cfg.root)) fail(`root file not found: ${shown(cfg.root)}`, 'run `skac create` first or set "root"');
   const rigTmpl = join(PACKAGE_ROOT, 'templates', 'rig.ts.tmpl');
   if (!existsSync(rigTmpl)) fail('templates/rig.ts.tmpl is missing from this package', 'reinstall skia-motion-agentic-cli');
   const file = join(dirname(cfg.root), `${name}.tsx`);
   const rigFile = join(dirname(cfg.root), `${name}.rig.ts`);
   if (existsSync(rigFile)) fail(`${shown(rigFile)} already exists`, 'pick another name');
+  const drawFile = join(dirname(cfg.root), `${name}.draw.ts`);
   if (existsSync(file)) fail(`${shown(file)} already exists`, 'pick another name');
+  if (draw && existsSync(drawFile)) fail(`${shown(drawFile)} already exists`, 'pick another name');
   let root = readFileSync(cfg.root, 'utf8');
   if (registrations(cfg).some((r) => r.id === name)) fail(`${name} is already registered`, 'pick another name');
   const lines = root.split('\n');
@@ -125,10 +130,11 @@ export const add = (cfg, name, { size = '390x867', fps = 60, frames = 480 } = {}
   writeFileSync(file, readFileSync(tmpl, 'utf8').replaceAll('__NAME__', name));
   writeFileSync(rigFile, readFileSync(rigTmpl, 'utf8').replaceAll('__NAME__', name)
     .replaceAll('__WIDTH__', m[1]).replaceAll('__HEIGHT__', m[2]).replaceAll('__FPS__', String(Number(fps))).replaceAll('__FRAMES__', String(Number(frames))));
+  if (draw) writeFileSync(drawFile, readFileSync(drawTmpl, 'utf8').replaceAll('__NAME__', name));
   writeFileSync(cfg.root, lines.join('\n'));
   return {
-    ok: true, name, file: rel(cfg, file), rig: rel(cfg, rigFile), root: rel(cfg, cfg.root),
+    ok: true, name, file: rel(cfg, file), rig: rel(cfg, rigFile), ...(draw ? { draw: rel(cfg, drawFile) } : {}), root: rel(cfg, cfg.root),
     registered: { id: name, width: Number(m[1]), height: Number(m[2]), fps: Number(fps), frames: Number(frames) },
-    next: [`skac ${name} --check`, `skac ${name} --story`, `skac ${name} --verify`],
+    next: [`skac ${name} --check`, `skac ${name} --story`, `skac ${name} --verify`, ...(draw ? [`skac ${name} --export <app-dir>`] : [])],
   };
 };

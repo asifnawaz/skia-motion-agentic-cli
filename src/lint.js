@@ -19,7 +19,7 @@ export const loadTypeScript = (cfg) => {
       /* try the next */
     }
   }
-  return fail('typescript was not found, so lint cannot parse the source', 'run npm install in the project (typescript is a devDependency of the template), then try again');
+  return fail('typescript was not found, so skac cannot parse the source (lint and --export need it)', 'run npm install in the project (typescript is a devDependency of the template), then try again');
 };
 
 /** Severity for a rule: the config's `rules` map, else the rule's default. */

@@ -1,0 +1,17 @@
+// __NAME__.draw.ts: the drawing of __NAME__, imperative Skia, one function of the rig's channels.
+// The video (__NAME__.tsx) and the app (`skac __NAME__ --export <dir>`) both call it, so keep it free of
+// React, Remotion and Reanimated imports. Text and images are not covered yet (skac docs app).
+import { Skia, type SkCanvas } from '@shopify/react-native-skia';
+import type { Channels } from './__NAME__.rig';
+
+export function draw(canvas: SkCanvas, ch: Channels, size: { width: number; height: number }) {
+  'worklet';
+  const bg = Skia.Paint();
+  bg.setColor(Skia.Color('#1E2A44'));
+  canvas.drawRect(Skia.XYWHRect(0, 0, size.width, size.height), bg);
+
+  const ball = Skia.Paint();
+  ball.setAntiAlias(true);
+  ball.setColor(Skia.Color(ch.color ? '#F6C453' : '#5FB57A'));
+  canvas.drawCircle(size.width / 2, size.height / 2 + ch.bob, 70, ball);
+}

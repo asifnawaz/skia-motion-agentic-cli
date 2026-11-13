@@ -62,6 +62,7 @@ Every flag, file and output field is in [commands.md](commands.md).
 | Every rule, its fix and its topic | `docs rules` |
 | Every command, flag and output field | [commands.md](commands.md) |
 | The order of work, step by step | [workflow.md](workflow.md) |
+| Shipping a checked scene to an app | [app.md](app.md) |
 | Things that fail silently: colours, blank frames, setup order | [gotchas.md](gotchas.md) |
 | Motion rules: start with `docs motion/skill`, then the topics it names | `docs motion/skill`, `motion/principles`, `motion/body`, `motion/faces`, `motion/anticipation`, `motion/idle`, `motion/remotion-and-app`, `motion/checks` |
 | Anything your project adds | the `docs` list in `skia-motion.json` |

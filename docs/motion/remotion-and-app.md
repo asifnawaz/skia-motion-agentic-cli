@@ -43,4 +43,4 @@ Skia notes for Remotion:
 4. **Pause** when off screen or in the background; with reduced motion the loop sits at frame 0 and one-shots at their final frame.
 5. **One Canvas per scene.** Many items in one Canvas; never a Canvas per part.
 
-The app path has not been run with these templates yet; the Remotion path is proven by a rendered composition.
+To ship a scene to an app, use `skac <Name> --export <app-dir>`: it writes the component, `skac docs app`. What is proven: the Remotion path by a rendered composition, and the exported folder by the unit tests (header, file list, import rewrite) and a typecheck against the app's own Skia and Reanimated types. Running it on a device is not proven.
