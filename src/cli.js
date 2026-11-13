@@ -18,7 +18,7 @@ import { update } from './update.js';
 import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
-  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix'],
+  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
     'search', 'as', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
@@ -39,12 +39,13 @@ const number = (text, flag) => {
 /** Run one command and return its JSON document. */
 export const execute = (argv, cwd = process.cwd()) => {
   const { pos, flags } = parseArgs(argv, SPEC);
+  if (flags.version) return { ok: true, name: 'skac', version: version() };
   const cfg = loadConfig(cwd, { entry: flags.entry, root: flags.root, out: flags['out-dir'], docs: flags['docs-dir'], gl: flags.gl });
   const [first, ...rest] = pos;
   if (!first || flags.help) {
     return {
       ok: true, name: 'skac', version: version(),
-      commands: ['doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name>', 'samples [name] [dir]', 'schema [Name]',
+      commands: ['--version', 'doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name>', 'samples [name] [dir]', 'schema [Name]',
         'inspect [Name]', 'compare <mp4...>', 'lint [files...] [--fix]', 'update [--force] [--check]',
         '<Name> --stats | --story | --check  (blind mode: no image)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',

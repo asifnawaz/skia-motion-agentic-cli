@@ -14,7 +14,7 @@ The nearest `skia-motion.json` walking up from the working directory:
 
 `rules` sets a rule's severity (`"error"`, `"warn"` or `"off"`), for example `{ "skac/speed-cap": "error" }`. Every rule is in `skac docs rules`.
 
-Relative paths in the file are relative to the file. Flags beat the file and defaults apply without it. Global flags: `--entry <file>`, `--root <file>`, `--out-dir <dir>` (where renders and `docs-reads.jsonl` go), `--docs-dir <dir>` (repeatable; extra docs topics), `--gl <backend>`, `--help`.
+Relative paths in the file are relative to the file. Flags beat the file and defaults apply without it. Global flags: `--entry <file>`, `--root <file>`, `--out-dir <dir>` (where renders and `docs-reads.jsonl` go), `--docs-dir <dir>` (repeatable; extra docs topics), `--gl <backend>`, `--help`, `--version` (prints `{"ok":true,"name":"skac","version":...}`).
 
 `gl` is the backend Remotion's headless browser draws Skia with: `angle-egl` (default, needs a GPU), `angle`, `egl`, `swangle` (software, for CI and machines without a GPU), `swiftshader` or `vulkan`. `--gl` beats the `SKAC_GL` environment variable, which beats the file.
 
