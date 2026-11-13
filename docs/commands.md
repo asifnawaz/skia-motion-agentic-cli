@@ -2,7 +2,7 @@
 
 Every command prints exactly one JSON document on stdout. Success has `ok:true`; every failure is `{ok:false, error, hint}` (plus extras such as `did_you_mean` or `output_tail`) with exit code 1. Stderr is for crashes only. Every `next` list is a set of commands you can run as written.
 
-Run it as `skac <cmd>` once installed. Without installing: `npx skia-motion-agentic-cli <cmd>`.
+Run it as `skac <cmd>` once installed. Without installing: `npx skia-motion <cmd>`.
 
 ## Config and global flags
 
@@ -154,7 +154,7 @@ Exit code 0.
   "index": {
     "path": "./docs/README.md",
     "lines": 66,
-    "text": "# Making motion with `skia-motion-agentic-cli`\n\n`skac` (the package `skia-motion-agentic-cli`) turns a project of Skia drawings into an mp4. You draw with\n`@shopify/react-native-skia`; Remotion render…"
+    "text": "# Making motion with `skia-motion`\n\n`skac` (the package `skia-motion`) turns a project of Skia drawings into an mp4. You draw with\n`@shopify/react-native-skia`; Remotion render…"
   },
   "topics": [
     {
@@ -240,12 +240,12 @@ Exit code 0.
     {
       "topic": "README",
       "line": 1,
-      "text": "# Making motion with `skia-motion-agentic-cli`"
+      "text": "# Making motion with `skia-motion`"
     },
     {
       "topic": "README",
       "line": 3,
-      "text": "`skac` (the package `skia-motion-agentic-cli`) turns a project of Skia drawings into an mp4. You draw with"
+      "text": "`skac` (the package `skia-motion`) turns a project of Skia drawings into an mp4. You draw with"
     }
   ]
 }
@@ -688,7 +688,7 @@ skac lint src/Character.tsx src/Character.rig.ts --fix
 
 Refreshes the project's `src/motion/` files and `AGENTS.md` and `CLAUDE.md` from the installed skac. A file the project never edited is replaced (`updated`, or `same` when nothing changed). A file you edited is kept and listed as `kept-edited`; `--force` replaces it. A file new in the template is `added`. "Edited" means the file differs from the hash recorded in `<project>/.skac-files.json` when the project got it; a project with no record treats files equal to the current template as `same` and the rest as `kept-edited`.
 
-The reply has `version` (installed) and, when `npm view` answers within 5 s, `latest` and `upgrade` (`npm i -g skia-motion-agentic-cli@latest`). Offline is not an error: `latest` is left out.
+The reply has `version` (installed) and, when `npm view` answers within 5 s, `latest` and `upgrade` (`npm i -g skia-motion@latest`). Offline is not an error: `latest` is left out.
 
 ```
 skac update

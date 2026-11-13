@@ -105,10 +105,10 @@ export const add = (cfg, name, { size = '390x867', fps = 60, frames = 480 } = {}
   const m = /^(\d+)x(\d+)$/.exec(size);
   if (!m) fail(`--size must look like 390x867, got ${JSON.stringify(size)}`);
   const tmpl = join(PACKAGE_ROOT, 'templates', 'composition.tsx.tmpl');
-  if (!existsSync(tmpl)) fail('templates/composition.tsx.tmpl is missing from this package', 'reinstall skia-motion-agentic-cli');
+  if (!existsSync(tmpl)) fail('templates/composition.tsx.tmpl is missing from this package', 'reinstall skia-motion');
   if (!existsSync(cfg.root)) fail(`root file not found: ${shown(cfg.root)}`, 'run `skac create` first or set "root"');
   const rigTmpl = join(PACKAGE_ROOT, 'templates', 'rig.ts.tmpl');
-  if (!existsSync(rigTmpl)) fail('templates/rig.ts.tmpl is missing from this package', 'reinstall skia-motion-agentic-cli');
+  if (!existsSync(rigTmpl)) fail('templates/rig.ts.tmpl is missing from this package', 'reinstall skia-motion');
   const file = join(dirname(cfg.root), `${name}.tsx`);
   const rigFile = join(dirname(cfg.root), `${name}.rig.ts`);
   if (existsSync(rigFile)) fail(`${shown(rigFile)} already exists`, 'pick another name');

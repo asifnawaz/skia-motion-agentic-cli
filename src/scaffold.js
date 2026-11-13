@@ -50,7 +50,7 @@ const withMotion = (target, force) => {
 /** `create [dir]`: scaffold a project from templates/init, plus the motion templates. */
 export const createProject = (dir = '.', { force = false } = {}) => {
   const src = join(PACKAGE_ROOT, 'templates', 'init');
-  if (!existsSync(src)) fail('templates/init is missing from this package', 'reinstall skia-motion-agentic-cli');
+  if (!existsSync(src)) fail('templates/init is missing from this package', 'reinstall skia-motion');
   const { target, written } = copyTree(src, dir, force);
   const all = [...written, ...withMotion(target, force)];
   writeManifest(target, all);

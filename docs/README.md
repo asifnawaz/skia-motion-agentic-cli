@@ -1,6 +1,6 @@
-# Making motion with `skia-motion-agentic-cli`
+# Making motion with `skia-motion`
 
-`skac` (the package `skia-motion-agentic-cli`) turns a project of Skia drawings into an mp4. You draw with
+`skac` (the package `skia-motion`) turns a project of Skia drawings into an mp4. You draw with
 `@shopify/react-native-skia`; Remotion renders every frame headlessly. Its verbs follow the `rive` CLI.
 
 Every command prints exactly one JSON document. A failure is

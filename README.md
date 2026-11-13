@@ -1,7 +1,7 @@
-# skac: skia-motion-agentic-cli
+# skia-motion: motion for AI agents, drawn with Skia and rendered by Remotion
 
-[![CI](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/skia-motion-agentic-cli.svg)](https://www.npmjs.com/package/skia-motion-agentic-cli)
+[![CI](https://github.com/asifnawaz/skia-motion/actions/workflows/ci.yml/badge.svg)](https://github.com/asifnawaz/skia-motion/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/skia-motion.svg)](https://www.npmjs.com/package/skia-motion)
 
 Character and UI motion drawn with [`@shopify/react-native-skia`](https://shopify.github.io/react-native-skia/),
 rendered headlessly by [Remotion](https://www.remotion.dev/), and driven by a command line built for agents.
@@ -17,12 +17,12 @@ screenshots are an optional human check, counted but never banned. Start with `s
 
 ## Install
 
-Install once with `npm i -g skia-motion-agentic-cli` and run `skac ...`, or skip the install and run `npx skia-motion-agentic-cli ...`. The commands below are written as `skac`.
+Install once with `npm i -g skia-motion` and run `skac ...`, or skip the install and run `npx skia-motion ...`. The commands below are written as `skac`.
 
 ## Start in 60 seconds
 
 ```bash
-npx skia-motion-agentic-cli create my-motion && cd my-motion && npm install && npx skia-motion-agentic-cli Character --render
+npx skia-motion create my-motion && cd my-motion && npm install && npx skia-motion Character --render
 ```
 
 That scaffolds a project with a sample character, installs it, and renders an mp4 with a
@@ -69,10 +69,10 @@ without a GPU (CI) use `swangle`, or set `SKAC_GL=swangle`.
 ## Use it as an agent skill
 
 ```bash
-npx skills add asifnawaz/skia-motion-agentic-cli
+npx skills add asifnawaz/skia-motion
 ```
 
-Or copy `skills/skia-motion-agentic-cli` into your agent's skills folder. The skill sends
+Or copy `skills/skia-motion` into your agent's skills folder. The skill sends
 the agent to `skac docs blind` first.
 
 ## Requirements
