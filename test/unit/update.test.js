@@ -111,7 +111,7 @@ test('latest: a newer version names the upgrade command, an equal one does not',
   const dir = project();
   const doc = update(cfg(dir), { runner: at('99.0.0') });
   assert.equal(doc.latest, '99.0.0');
-  assert.equal(doc.upgrade, 'npm i -g skia-motion@latest');
+  assert.equal(doc.upgrade, 'npm i -g skia-motion-agentic-cli@latest');
   const same = update(cfg(dir), { runner: at(doc.version) });
   assert.equal(same.upgrade, undefined);
 });

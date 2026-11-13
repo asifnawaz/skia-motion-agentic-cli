@@ -5,7 +5,7 @@ import { run } from './util.js';
 import { PACKAGE_ROOT } from './docs.js';
 
 export const MANIFEST = '.skac-files.json';
-export const PACKAGE_NAME = 'skia-motion';
+export const PACKAGE_NAME = 'skia-motion-agentic-cli';
 const LOOKUP_TIMEOUT_MS = 5000;
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');

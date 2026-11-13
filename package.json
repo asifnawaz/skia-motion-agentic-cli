@@ -1,11 +1,11 @@
 {
-  "name": "skia-motion",
+  "name": "skia-motion-agentic-cli",
   "version": "0.0.0-development",
   "description": "Motion for AI agents: a JSON-only CLI that scaffolds, checks and renders character and UI animation drawn with React Native Skia and rendered by Remotion.",
   "type": "module",
   "bin": {
     "skac": "bin/skac.js",
-    "skia-motion": "bin/skac.js"
+    "skia-motion-agentic-cli": "bin/skac.js"
   },
   "files": [
     "bin",
@@ -28,12 +28,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/asifnawaz/skia-motion.git"
+    "url": "git+https://github.com/asifnawaz/skia-motion-agentic-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/asifnawaz/skia-motion/issues"
+    "url": "https://github.com/asifnawaz/skia-motion-agentic-cli/issues"
   },
-  "homepage": "https://github.com/asifnawaz/skia-motion",
+  "homepage": "https://github.com/asifnawaz/skia-motion-agentic-cli",
   "publishConfig": {
     "access": "public",
     "provenance": true

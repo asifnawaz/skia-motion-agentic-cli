@@ -1,9 +1,9 @@
 ---
-name: skia-motion
-description: Makes, checks and renders character or UI motion drawn with @shopify/react-native-skia and rendered headlessly by Remotion, through skia-motion commands that all answer in JSON. Checks the motion against numbered rules without opening an image. Use when asked to animate a character or interface in Skia, produce an mp4 of it, or check a motion's timing, smoothness, rules or blank frames.
+name: skia-motion-agentic-cli
+description: Makes, checks and renders character or UI motion drawn with @shopify/react-native-skia and rendered headlessly by Remotion, through skia-motion-agentic-cli commands that all answer in JSON. Checks the motion against numbered rules without opening an image. Use when asked to animate a character or interface in Skia, produce an mp4 of it, or check a motion's timing, smoothness, rules or blank frames.
 ---
 
-# skia-motion
+# skia-motion-agentic-cli
 
 Every command prints one JSON document. Read `ok`; on `false`, read `error` and `hint`.
 
