@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.1.0...v1.1.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* skac --version prints the version ([3d0c881](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/3d0c881a23eeb8af39031e8cba0bb9de51ede31e))
+
 # [1.1.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.0.0...v1.1.0) (2026-11-13)
 
 
