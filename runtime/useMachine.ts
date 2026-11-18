@@ -29,6 +29,8 @@ export type MachineOptions = {
   frameRate?: number;
   /** Host clocks in milliseconds, keyed by the machine's declared clock names. */
   clocks?: Record<string, SharedValue<number>>;
+  /** Resting values for channels that an animation does not key. */
+  channelDefaults?: Readonly<Record<string, number>>;
   probe?: MachineProbe;
   /** Entries after initialization, in machine order. Delivered on the React Native thread. */
   onStateEntries?: (entries: StateEntry[]) => void;
@@ -117,7 +119,7 @@ function samePose(left: Pose, right: Pose): boolean {
 /** Play `machine` with its `clips`. The machine and clips must be stable (module constants), as an exported scene's are. */
 export function useMachine<const M extends Machine>(machine: M, clips: Clips, options: MachineOptions = {}): MachineHandle<M> {
   if (__DEV__ && options.exportedBy !== undefined) assertRuntimeVersion(options.exportedBy);
-  const { live = true, clocks = noClocks, probe, onStateEntries, onValuesChange, observeValues } = options;
+  const { live = true, clocks = noClocks, channelDefaults, probe, onStateEntries, onValuesChange, observeValues } = options;
   const systemReduced = useReducedMotion();
   const reduced = options.reduced ?? systemReduced;
   const rate = options.frameRate;
@@ -145,7 +147,7 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
   const lastChannels = useSharedValue('');
   const awaitingChange = useSharedValue(false);
   const liveNow = useSharedValue(live);
-  const firstPose = useMemo(() => poseAt(compiled, clips, first, 0, read, reduced), [first]); // eslint-disable-line react-hooks/exhaustive-deps
+  const firstPose = useMemo(() => poseAt(compiled, clips, first, 0, read, reduced, channelDefaults), [first]); // eslint-disable-line react-hooks/exhaustive-deps
   const pose = useSharedValue<Pose>(firstPose);
 
   const observed = useMemo(() => Array.from(new Set(observeValues), (name) => {
@@ -173,7 +175,7 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
       if (!liveNow.value) return undefined;
       // Subscribe to the named clocks, including when the frame callback sleeps.
       for (const n of clockNames) void clocks[n]!.value;
-      return poseAt(compiled, clips, snapshot.value, ms.value, read, reduced);
+      return poseAt(compiled, clips, snapshot.value, ms.value, read, reduced, channelDefaults);
     },
     (next) => {
       // The reaction subscribes only to the prepare inputs. Updating its output cannot wake it again.
@@ -203,14 +205,14 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
     snapshot.value = next;
     if (entries?.length && onStateEntries) scheduleOnRN(onStateEntries, entries);
     if (probe?.onChanged) {
-      const key = JSON.stringify(poseAt(compiled, clips, next, t, read, reduced).channels);
+      const key = JSON.stringify(poseAt(compiled, clips, next, t, read, reduced, channelDefaults).channels);
       if (key !== lastChannels.value) {
         lastChannels.value = key;
         if (awaitingChange.value) { awaitingChange.value = false; scheduleOnRN(probe.onChanged, frame.timestamp); }
       }
     }
     if (pending.value.length === 0 && settled(compiled, next, read, reduced).frame) scheduleOnRN(sleep);
-  }, [compiled, clips, reduced, probe, onStateEntries, frameInterval, read]);
+  }, [compiled, clips, reduced, probe, onStateEntries, frameInterval, read, channelDefaults]);
 
   const frames = useFrameCallback(tick, false);
   // The callback is switched from JavaScript only: switching it from a worklet makes a synchronous remote call that

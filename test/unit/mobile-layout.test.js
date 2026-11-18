@@ -22,6 +22,9 @@ function harness() {
   let slot = 0;
   let live;
   let preparedPaths = 0;
+  const binding = { value: undefined };
+  let reaction;
+  let previous;
   const jsx = (type, props) => ({ type, props });
   const modules = {
     'react/jsx-runtime': { jsx, jsxs: jsx },
@@ -45,7 +48,9 @@ function harness() {
     },
     'react-native-skia': {
       Canvas: 'Canvas', Picture: 'Picture', TileMode: { Clamp: 0 }, BlurStyle: { Normal: 0 },
+      createPicture: () => ({}),
       Skia: {
+        XYWHRect: (...rect) => rect,
         Color: () => [0, 0, 0, 1],
         Paint: () => ({ setAntiAlias() {}, setColor() {}, setAlphaf() {}, setShader() {}, setMaskFilter() {} }),
         Shader: { MakeRadialGradient: () => ({}) },
@@ -56,7 +61,11 @@ function harness() {
         } },
       },
     },
-    'react-native-reanimated': {},
+    'react-native-reanimated': {
+      useSharedValue: () => binding,
+      useDerivedValue: (compute) => ({ value: compute() }),
+      useAnimatedReaction: (prepare, apply) => { reaction = { prepare, apply }; },
+    },
     'machine-stub': {
       useMachine: (_machine, _clips, options) => {
         live = options.live;
@@ -79,8 +88,31 @@ function harness() {
     load: () => module.exports.loadMotionAsset(source),
     preload: module.exports.preloadMotionAsset,
     preparedPaths: () => preparedPaths,
+    sampleChannels(view) {
+      const picture = view.props.children[0].props.children;
+      picture.type(picture.props);
+      const next = reaction.prepare();
+      reaction.apply(next, previous);
+      previous = next;
+      return binding.value;
+    },
   };
 }
+
+test('paused players hold their external channels and sample the newest value on resume', () => {
+  const app = harness();
+  const healthWidth = { value: 100 };
+  const channels = { healthWidth };
+  const loaded = app.load();
+  app.layout(app.render({ source: loaded, channels }), 320, 150);
+  assert.deepEqual(app.sampleChannels(app.render({ source: loaded, channels })), { healthWidth: 100 });
+  healthWidth.value = 65;
+  assert.deepEqual(app.sampleChannels(app.render({ source: loaded, channels, live: false })), { healthWidth: 100 });
+  healthWidth.value = 35;
+  assert.deepEqual(app.sampleChannels(app.render({ source: loaded, channels, live: false })), { healthWidth: 100 });
+  assert.deepEqual(app.sampleChannels(app.render({ source: loaded, channels })), { healthWidth: 35 });
+  assert.deepEqual(app.sampleChannels(app.render({ source: loaded })), {});
+});
 
 test('MotionPlayer derives its default aspect ratio from the asset and draws at the measured size', () => {
   const app = harness();

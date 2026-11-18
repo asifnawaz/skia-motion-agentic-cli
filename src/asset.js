@@ -17,7 +17,7 @@ const SAMPLES = {
 };
 
 const USAGE = [
-  'skac asset guide [workflow|format|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback]',
+  'skac asset guide [workflow|format|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|migrate]',
   'skac asset sample [game-hud|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
@@ -122,7 +122,7 @@ function embedImage(path, requestedSize) {
   return { ok: true, bytes: data.length, ...size, rgbaBytes: size.width * size.height * 4, uri };
 }
 
-function readAsset(path) {
+function readAsset(path, authoring) {
   let source;
   try {
     source = readFileSync(path, 'utf8');
@@ -130,7 +130,10 @@ function readAsset(path) {
     fail(`cannot read ${path}`, 'pass a JSON source or a .skmotion file');
   }
   try {
-    return { file: assetRuntime().parseAssetFile(source), source };
+    const runtime = assetRuntime();
+    const file = authoring && extname(path).toLowerCase() !== '.skmotion'
+      ? runtime.parseAssetSource(source) : runtime.parseAssetFile(source);
+    return { file, source };
   } catch (error) {
     fail(error.message, 'see skac asset sample for an example of skac.asset/1', { file: path });
   }
@@ -153,6 +156,9 @@ function embedResource(path) {
     fail(`could not embed ${path}: ${error.message}`, 'pass a small font or audio clip');
   }
   if (bytes.length < 1 || bytes.length > limit) fail('resource size changed while reading', 'retry with a stable source file');
+  if (type.startsWith('font/') && !assetRuntime().hasFontHeader(bytes)) {
+    fail('invalid TTF or OTF font header', 'use a valid font file');
+  }
   return { ok: true, bytes: bytes.length, uri: `data:${type};base64,${bytes.toString('base64')}` };
 }
 
@@ -241,7 +247,7 @@ export function assetCommand(args, flags, cwd) {
     fail('invalid asset command', 'run skac asset for the command list');
   }
   const path = resolve(cwd, input);
-  const { file, source } = readAsset(path);
+  const { file, source } = readAsset(path, action === 'pack' || action === 'check');
   const isBundle = file.schema === 'skac.bundle/1';
   const asset = assetRuntime().selectArtboard(file, flags.artboard);
   const bundleInfo = isBundle ? {
@@ -249,7 +255,9 @@ export function assetCommand(args, flags, cwd) {
     selectedArtboard: flags.artboard ?? file.defaultArtboard,
   } : {};
   if (action === 'check') {
-    const summary = { ok: true, file: path, ...describe(asset), ...bundleInfo };
+    const runtime = assetRuntime();
+    const { warnings } = runtime.validateMachine(asset.machine, { clips: asset.clips });
+    const summary = { ok: true, file: path, ...describe(asset), ...bundleInfo, warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)] };
     if (!asset.attachments?.length) return summary;
     const rows = trace(asset, flags);
     const attachments = assetRuntime().measureAttachments(asset.attachments, rows);

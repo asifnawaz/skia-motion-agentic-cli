@@ -3,11 +3,13 @@ import { EASE_IN, EASE_IN_OUT, EASE_OUT } from '../templates/motion/motion';
 import type { Clips, Machine, StateEntry } from '../templates/motion/machine';
 import type { AssetAnchor } from './asset-layout';
 import { imageSize } from './asset-image';
+import { decodeBase64 } from './base64';
 import type { MeshNode, MeshVertex } from './asset-mesh';
 
 export const ASSET_SCHEMA = 'skac.asset/1';
 export const ASSET_BUNDLE_SCHEMA = 'skac.bundle/1';
 export const MAX_ASSET_BYTES = 1024 * 1024;
+const MAX_ASSET_SOURCE_BYTES = 8 * MAX_ASSET_BYTES;
 export const MAX_FEATHER = 64;
 
 export type Scalar = number | string;
@@ -202,8 +204,24 @@ function resourceMap(value: unknown, at: string, pattern: RegExp) {
     identifier(name, key);
     const match = typeof uri === 'string' ? pattern.exec(uri) : null;
     if (!match || match[0] !== uri || match[2]!.length % 4 !== 0) invalid(key, 'expected an embedded base64 data URI');
+    if (pattern === FONT_URI) {
+      const encoded = match[2]!;
+      const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+      if (!hasFontHeader(decodeBase64(encoded.slice(0, 16)), encoded.length * 3 / 4 - padding)) {
+        invalid(key, 'expected a TTF or OTF font header');
+      }
+    }
   }
   return resources;
+}
+
+export function hasFontHeader(bytes: Uint8Array, size = bytes.byteLength): boolean {
+  if (bytes.byteLength < 12) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const format = view.getUint32(0);
+  const tables = view.getUint16(4);
+  return (format === 0x00010000 || format === 0x4f54544f || format === 0x74727565 || format === 0x74797031)
+    && tables > 0 && 12 + 16 * tables <= size;
 }
 
 function checkFontLicenses(value: unknown, fonts: Record<string, unknown>, at: string): void {
@@ -507,9 +525,19 @@ function validateAsset(value: unknown): MotionAsset {
 
 /** Decode the same data file on a React Native JS thread and in the CLI. */
 export function parseAssetFile(text: string): MotionAssetFile {
-  if (typeof text !== 'string' || text.length > MAX_ASSET_BYTES) invalid('asset', 'expected a JSON asset of at most 1 MiB');
+  return parseAssetJSON(text, MAX_ASSET_BYTES);
+}
+
+/** The CLI may prune unused resources before enforcing the shipped limit. */
+export function parseAssetSource(text: string): MotionAssetFile {
+  return parseAssetJSON(text, MAX_ASSET_SOURCE_BYTES);
+}
+
+function parseAssetJSON(text: string, limit: number): MotionAssetFile {
+  const message = `expected a JSON asset of at most ${limit / MAX_ASSET_BYTES} MiB`;
+  if (typeof text !== 'string' || text.length > limit) invalid('asset', message);
   const bytes = encodeURI(text).replace(/%[0-9A-F]{2}/g, 'x').length;
-  if (bytes > MAX_ASSET_BYTES) invalid('asset', 'expected a JSON asset of at most 1 MiB');
+  if (bytes > limit) invalid('asset', message);
   const decoded: unknown = JSON.parse(text, (key, value: unknown) => {
     if (RESERVED_KEYS.has(key)) invalid(key, 'reserved field name');
     if (typeof value === 'number' && !Number.isFinite(value)) invalid(key, 'expected a finite number');

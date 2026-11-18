@@ -15,6 +15,8 @@ For app motion, start with an editable `.motion.json` scene, ship a packed `.skm
 4. Load the same file in React Native or an Expo development build with `skia-motion-runtime` and `react-native-skia` 3. Pass UTF-8 text or the result of `loadMotionAsset` to `MotionPlayer`. For Expo, add `skmotion` to Metro's `resolver.assetExts` and use `useExpoMotionAsset(require('./scene.skmotion'))` from `skia-motion-runtime/expo`. Pass the ready result's `asset` to the player. Keep app state and user actions in the host. Smoke-test on a device when native visuals or frame timing matter.
 5. Run `skac asset guide images` for embedded art and image slots. Run `skac asset guide playback` for shared-value controls and clips inside an existing Canvas. For bundles, pass `--artboard` when checking or previewing a named board.
 
+6. When upgrading an app with existing packed files, check each file before re-authoring it. Read `skac asset guide migrate` when `skac asset guide` lists it. Replay the same inputs with both versions and inspect the warnings and sampled poses.
+
 ## Custom Skia drawings and video
 
 Use `skac docs workflow` for rig authoring and `skac docs motion/skill` for motion and drawing guidance. Define the beats in the rig and honor any supplied scene spec. Use `--story`, `--stats`, and `--check` to verify the beats and diagnose failures. For video, render via Remotion with `skac <Name> --render` and inspect key frames with `--screenshot`. For a custom app component, scaffold with `skac add <Name> --draw` and export the checked component with `skac <Name> --export <app-dir>`. See `skac docs app` for Skia v3 setup.
