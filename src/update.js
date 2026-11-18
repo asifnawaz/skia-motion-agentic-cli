@@ -58,6 +58,24 @@ const readManifest = (projectDir) => {
   }
 };
 
+const fileState = (projectDir, path, wantHash, manifest, force) => {
+  const to = join(projectDir, path);
+  if (!existsSync(to)) return 'added';
+  const have = sha(readFileSync(to));
+  if (have === wantHash) return 'same';
+  return manifest?.[path] === have || force ? 'updated' : 'kept-edited';
+};
+
+/** The `update --check` state of a managed project path, without writing files or looking up versions. */
+export const managedFileCheck = (projectDir) => {
+  const manifest = readManifest(projectDir);
+  const files = managed({}, projectDir);
+  return (path) => {
+    const read = files.get(path);
+    return read ? fileState(projectDir, path, sha(read()), manifest, false) : 'unmanaged';
+  };
+};
+
 const saveManifest = (projectDir, manifest) => {
   const sorted = Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => (a < b ? -1 : 1)));
   writeFileSync(join(projectDir, MANIFEST), JSON.stringify(sorted, null, 2) + '\n');
@@ -105,19 +123,12 @@ export const update = (cfg, { force = false, check = false, runner = run, fetche
   for (const [path, read] of managed({ ...overrides, ...cfg.libs }, projectDir, fetcher)) {
     const want = read();
     const wantHash = sha(want);
-    const to = join(projectDir, path);
-    let state;
-    if (!existsSync(to)) state = 'added';
-    else {
-      const have = sha(readFileSync(to));
-      if (have === wantHash) state = 'same';
-      else if (manifest && manifest[path] === have) state = 'updated';
-      else state = force ? 'updated' : 'kept-edited';
-    }
+    const state = fileState(projectDir, path, wantHash, manifest, force);
     files.push({ path, state });
     if (state === 'kept-edited') continue;
     next[path] = wantHash;
     if (check || state === 'same') continue;
+    const to = join(projectDir, path);
     mkdirSync(dirname(to), { recursive: true });
     writeFileSync(to, want);
   }

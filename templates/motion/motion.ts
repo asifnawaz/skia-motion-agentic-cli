@@ -80,18 +80,18 @@ export type FlowKeys = readonly FlowKey[];
  */
 export function track(t: number, keys: Keys): number {
   'worklet';
-  if (t <= keys[0][0]) return keys[0][1];
+  if (t <= keys[0]![0]) return keys[0]![1];
   for (let i = 1; i < keys.length; i++) {
-    const k1 = keys[i];
+    const k1 = keys[i]!;
     if (t <= k1[0]) {
-      const k0 = keys[i - 1];
+      const k0 = keys[i - 1]!;
       const span = k1[0] - k0[0];
       const p = span > 0 ? (t - k0[0]) / span : 1;
       const e = k1[2] === 'out' ? EASE_OUT(p) : EASE_IN_OUT(p);
       return k0[1] + (k1[1] - k0[1]) * e;
     }
   }
-  return keys[keys.length - 1][1];
+  return keys[keys.length - 1]![1];
 }
 
 /**
@@ -102,13 +102,13 @@ export function track(t: number, keys: Keys): number {
 export function flow(t: number, k: FlowKeys): number {
   'worklet';
   const n = k.length;
-  if (t <= k[0][0]) return k[0][1];
-  if (t >= k[n - 1][0]) return k[n - 1][1];
+  if (t <= k[0]![0]) return k[0]![1];
+  if (t >= k[n - 1]![0]) return k[n - 1]![1];
   let i = 0;
-  while (k[i + 1][0] < t) i++;
+  while (k[i + 1]![0] < t) i++;
   const slope = (j: number) => {
     'worklet';
-    return (k[j + 1][1] - k[j][1]) / (k[j + 1][0] - k[j][0]);
+    return (k[j + 1]![1] - k[j]![1]) / (k[j + 1]![0] - k[j]![0]);
   };
   const tangent = (j: number) => {
     'worklet';
@@ -116,17 +116,17 @@ export function flow(t: number, k: FlowKeys): number {
     const a = slope(j - 1);
     const b = slope(j);
     if (a * b <= 0) return 0;
-    const h0 = k[j][0] - k[j - 1][0];
-    const h1 = k[j + 1][0] - k[j][0];
+    const h0 = k[j]![0] - k[j - 1]![0];
+    const h1 = k[j + 1]![0] - k[j]![0];
     const w0 = 2 * h1 + h0;
     const w1 = h1 + 2 * h0;
     return (w0 + w1) / (w0 / a + w1 / b);
   };
-  const h = k[i + 1][0] - k[i][0];
-  const s = (t - k[i][0]) / h;
+  const h = k[i + 1]![0] - k[i]![0];
+  const s = (t - k[i]![0]) / h;
   const s2 = s * s;
   const s3 = s2 * s;
-  return (2 * s3 - 3 * s2 + 1) * k[i][1] + (s3 - 2 * s2 + s) * h * tangent(i) + (-2 * s3 + 3 * s2) * k[i + 1][1] + (s3 - s2) * h * tangent(i + 1);
+  return (2 * s3 - 3 * s2 + 1) * k[i]![1] + (s3 - 2 * s2 + s) * h * tangent(i) + (-2 * s3 + 3 * s2) * k[i + 1]![1] + (s3 - s2) * h * tangent(i + 1);
 }
 
 /** 0 -> 1 inside the window [a, b], eased; 0 before, 1 after. One beat of a scene (rossark §2). */

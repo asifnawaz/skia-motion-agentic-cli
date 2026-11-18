@@ -10,6 +10,20 @@ test('parseEvents reads name@seconds tokens', () => {
   assert.throws(() => parseEvents('tap'), /bad event/);
 });
 
+test('parseEvents and parseCommands take machine writes and taps', () => {
+  assert.deepEqual(parseEvents('live=true@0.3 level=0.5@1,mood=glad@2 tap:120,60@1.5'), [
+    { name: 'live', to: true, at: 0.3 }, { name: 'level', to: 0.5, at: 1 }, { name: 'mood', to: 'glad', at: 2 },
+    { pointer: 'tap', x: 120, y: 60, at: 1.5 },
+  ]);
+  const f = join(tmp(), 'run.txt');
+  write(f, 'set live true 0.3\ntrigger tap 1\npointer tap@-4,12.5 2\nset mood glad 3\n');
+  assert.deepEqual(parseCommands(f).events, [
+    { name: 'live', to: true, at: 0.3 }, { name: 'tap', at: 1 }, { pointer: 'tap', x: -4, y: 12.5, at: 2 }, { name: 'mood', to: 'glad', at: 3 },
+  ]);
+  write(f, 'pointer 120,60 2\n');
+  assert.throws(() => parseCommands(f), /expected tap@x,y/);
+});
+
 test('parseCommands: inline shorthand and a commands file', () => {
   assert.deepEqual(parseCommands('tap@4.0'), { events: [{ name: 'tap', at: 4 }], captures: [] });
   const f = join(tmp(), 'run.txt');

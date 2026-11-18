@@ -1,9 +1,10 @@
 // The draft gate (owner, O-5625 and O-5626, 13 Nov 2026): the first `--check` of a scene is a draft, and so is a re-run of an unchanged one.
 // It answers `draft: true` with the two weakest beats until the rig or the drawing changes; `--export` waits for a passing check of a revised scene.
-// The state is one small file per project: .skac/drafts.json, { "<Name>": { hash, draft, ok } }, the hash being sha256 of the rig and the draw file.
+// The state is one small file per project: .skac/drafts.json, { "<Name>": { hash, draft, ok } }.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { machineSourceFiles } from './export.js';
 import { INTERFACE_SPEED_CAP, kindOf, partSpeeds, SPEED_CAP } from './rules.js';
 import { fail, round } from './util.js';
 
@@ -28,7 +29,7 @@ const writeState = (cfg, state) => {
   writeFileSync(statePath(cfg), JSON.stringify(state, null, 2) + '\n');
 };
 
-/** sha256 of the scene's rig and, when it has one, its draw file; null when the rig did not load. */
+/** sha256 of the scene's sources; null when the rig did not load. */
 const sourceHash = (cfg, name, deps) => {
   let file;
   try {
@@ -38,8 +39,15 @@ const sourceHash = (cfg, name, deps) => {
   }
   if (!file) return null;
   const h = createHash('sha256').update(readFileSync(file));
-  const draw = file.replace(/\.rig\.ts$/, '.draw.ts');
-  if (draw !== file && existsSync(draw)) h.update('\0').update(readFileSync(draw));
+  const machineSources = machineSourceFiles(cfg, name);
+  if (machineSources) {
+    for (const source of machineSources) h.update('\0').update(relative(cfg.projectDir, source)).update('\0').update(readFileSync(source));
+  } else {
+    for (const ext of ['.draw.ts', '.machine.json', '.clips.ts']) {
+      const other = file.replace(/\.rig\.ts$/, ext);
+      if (other !== file && existsSync(other)) h.update('\0').update(readFileSync(other));
+    }
+  }
   return h.digest('hex');
 };
 

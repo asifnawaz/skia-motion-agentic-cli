@@ -53,7 +53,7 @@ export function PipButton({ motionAllowed }: { motionAllowed: boolean }) {
 - `fire(name)` adds `{ name, at }` to the rig's events on the UI thread, at that frame's time; the last 8 are kept. Name them as in `meta.events`.
 - `live` (default true) advances time, and changing it pauses or resumes at any point. When false the drawing freezes where it was: pass your own reduced-motion and off-screen gate. The component never reads reduced motion itself.
 - One `<Canvas>` per component. Loops need nothing special: `rig()` is a function of absolute time.
-- Needs `@shopify/react-native-skia` 2 and `react-native-reanimated` 4 (with its peer `react-native-worklets`) in the app.
+- The app needs `@shopify/react-native-skia` 2.6+ or `react-native-skia` 2.15+ (including Skia 3), plus `react-native-reanimated` 4 and its peer `react-native-worklets`.
 
 ## Not covered yet
 

@@ -1,32 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from 'node:module';
+import { loadModules } from './helpers.js';
 
 // clock.app.ts imports react and react-native-reanimated, which skac does not install. Stub both: one render,
 // effects run at once, and the frame callback is driven by hand, as Reanimated drives it on the UI thread.
-const stub = `
-export const state = globalThis.__clock = { cb: null, active: false };
-export const useCallback = (f) => f;
-export const useEffect = (f) => { f(); };
-export const useSharedValue = (v) => ({ value: v });
-export const useFrameCallback = (cb, active) => {
-  state.cb = cb; state.active = active; state.last = null;
-  return { setActive: (a) => { state.active = a; if (!a) state.last = null; } };
-};
-export const useReducedMotion = () => false;
-export const cancelAnimation = () => {};
-export const withTiming = (v) => v;
-export const Easing = { linear: (x) => x };
-`;
-const url = 'data:text/javascript,' + encodeURIComponent(stub);
-const hook = `export async function resolve(spec, ctx, next) {
-  if (spec === 'react' || spec === 'react-native-reanimated') return { url: ${JSON.stringify(url)}, shortCircuit: true };
-  return next(spec, ctx);
-}`;
-register('data:text/javascript,' + encodeURIComponent(hook), import.meta.url);
-
-const { useLoopClock } = await import('../../templates/motion/clock.app.ts');
-const S = globalThis.__clock;
+const S = { cb: null, active: false, last: null };
+const { clock: { useLoopClock } } = loadModules({ clock: './templates/motion/clock.app.ts' }, {
+  react: {
+    useCallback: (f) => f,
+    useEffect: (f) => { f(); },
+  },
+  'react-native-reanimated': {
+    useSharedValue: (value) => ({ value }),
+    useFrameCallback(cb, active) {
+      Object.assign(S, { cb, active, last: null });
+      return { setActive: (a) => { S.active = a; if (!a) S.last = null; } };
+    },
+    useReducedMotion: () => false,
+    cancelAnimation: () => {},
+    withTiming: (v) => v,
+    Easing: { linear: (x) => x },
+  },
+});
 
 /** One display frame `dt` ms after the last, as Reanimated reports it: no previous frame after a (re)start. */
 const frame = (dt) => {

@@ -1,0 +1,43 @@
+{
+  "schema": "skac.machine/1",
+  "values": {
+    "live": { "type": "boolean", "default": false },
+    "calling": { "type": "boolean", "default": false },
+    "level": { "type": "number", "default": 0 },
+    "mood": { "type": "enum", "options": ["calm", "glad"], "default": "calm", "bind": "both" },
+    "tap": { "type": "trigger" },
+    "bounced": { "type": "boolean", "default": false, "bind": "out" }
+  },
+  "clocks": { "ambient": { "wrap_ms": 64000, "step_hz": 30 } },
+  "layers": [
+    {
+      "name": "enter",
+      "entry": "hidden",
+      "states": {
+        "hidden": { "clip": "rest" },
+        "bounce": { "clip": "bounce", "loop": "once", "on_exit": [{ "set": "bounced", "to": true }] },
+        "shown": { "blend": { "by": "level", "keys": [[0, "rest"], [1, "bounce"]] } }
+      },
+      "transitions": [
+        { "from": "hidden", "to": "bounce", "when": [["live", "==", true]] },
+        { "from": "bounce", "to": "shown", "exit_at": 1, "duration_ms": 120, "ease": "out" },
+        { "from": "shown", "to": "bounce", "when": [["tap"]] },
+        { "from": "*", "to": "hidden", "when": [["live", "==", false]] }
+      ]
+    },
+    {
+      "name": "call",
+      "clock": "ambient",
+      "entry": "quiet",
+      "states": {
+        "quiet": { "clip": "still" },
+        "calling": { "clip": "call", "loop": "loop", "reason": "asks for a tap until the screen is covered" }
+      },
+      "transitions": [
+        { "from": "quiet", "to": "calling", "when": [["calling", "==", true], ["live", "==", true]] },
+        { "from": "calling", "to": "quiet", "when": [["calling", "==", false]] }
+      ]
+    }
+  ],
+  "hits": [{ "part": "button", "on": "tap", "fire": "tap" }]
+}

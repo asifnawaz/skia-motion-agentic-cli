@@ -5,6 +5,8 @@ import { resolveLibs } from './libs.js';
 
 export const CONFIG_NAME = 'skia-motion.json';
 export const DEFAULTS = { entry: 'src/index.ts', root: 'src/Root.tsx', out: 'skia-motion-out', docs: [], gl: 'angle-egl' };
+/** The Skia module an exported scene imports unless the config's `app.skia` names another. */
+export const DEFAULT_SKIA = '@shopify/react-native-skia';
 export const GL_BACKENDS = ['angle-egl', 'angle', 'egl', 'swangle', 'swiftshader', 'vulkan'];
 
 /** Walk up from `start` to find skia-motion.json. Returns its path or null. */
@@ -21,7 +23,7 @@ export const findConfig = (start) => {
 
 /**
  * Resolve the settings. Flags beat the config file, the config file beats the defaults.
- * Relative paths in the file are relative to the file; relative paths in flags to `cwd`.
+ * Relative paths in the file are relative to the file; relative paths in flags are relative to `cwd`.
  * @param {string} cwd
  * The GL backend: --gl beats SKAC_GL beats the file's `gl` beats angle-egl.
  * @param {{entry?: string, root?: string, out?: string, docs?: string[], gl?: string}} [flags]
@@ -46,6 +48,13 @@ export const loadConfig = (cwd, flags = {}) => {
   if (rules === null || typeof rules !== 'object' || Array.isArray(rules)) {
     fail(`"rules" in ${configPath} is not an object`, 'write "rules": { "skac/speed-cap": "error", "skac/no-magic-motion": "off" }');
   }
+  // app.skia can name a package or a wrapper file. Export needs the file to exist.
+  const app = file.app ?? {};
+  if (app === null || typeof app !== 'object' || Array.isArray(app) || (app.skia !== undefined && (typeof app.skia !== 'string' || !app.skia))) {
+    fail(`"app" in ${configPath} is not {"skia": "<module or path>"}`, 'write "app": { "skia": "react-native-skia" }, or leave it out for @shopify/react-native-skia');
+  }
+  const skiaSpecifier = app.skia ?? DEFAULT_SKIA;
+  const skia = skiaSpecifier.startsWith('.') || skiaSpecifier.startsWith('/') ? abs(skiaSpecifier, projectDir) : skiaSpecifier;
   return {
     configPath,
     projectDir,
@@ -56,5 +65,6 @@ export const loadConfig = (cwd, flags = {}) => {
     gl,
     libs: resolveLibs(file.libs, projectDir, configPath), // lib name -> absolute path, from the file's "libs"; {} without one
     rules, // rule id -> 'error' | 'warn' | 'off', from the file; {} without one
+    skia, skiaSpecifier,
   };
 };

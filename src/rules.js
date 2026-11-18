@@ -730,7 +730,45 @@ const morphPathRule = {
   },
 };
 
-const ALL = [speedCap, minChange, overshoot, inFrame, idleCadence, deadHold, loopSeam, determinism, beatMoves, longFade, crossfade, abrupt, morphPathRule, ...CONTACT_RULES];
+/** Default for meta.settle_ms: how long after its last write a machine may keep drawing. */
+export const SETTLE_MS = 1000;
+
+const machineSettles = {
+  id: 'skac/machine-settles',
+  category: 'timing',
+  layer: 'rig',
+  default: 'error', // calibrated: test/unit/machine-rig.test.js fails a loop with no reason and passes the invite
+  docs: 'motion/checks',
+  needs: [],
+  check(s, meta) {
+    if (!s.machine) return [];
+    const { awake, excused, writes_ms } = s.machine;
+    const limit = meta.settle_ms ?? SETTLE_MS;
+    const lastWrite = writes_ms.length ? Math.max(...writes_ms) : 0;
+    // The first sample from which only excused layers (a loop state with a reason) stay awake, to the end.
+    let from = s.t_ms.length;
+    while (from > 0 && awake[from - 1].length === excused[from - 1].length) from--;
+    const out = [];
+    if (from === s.t_ms.length) {
+      const last = s.t_ms.length - 1;
+      const who = awake[last].filter((l) => !excused[last].includes(l));
+      out.push(mk(this, {
+        message: `the machine is still drawing at the end (${secs(s.t_ms[last])} s): layer${who.length > 1 ? 's' : ''} ${who.map((l) => `\`${l}\``).join(', ')} never rest${who.length > 1 ? '' : 's'}`,
+        fix: 'end the loop with a transition, make the clip once, or give the looping state a "reason"; a longer composition shows a late settle',
+        at_s: secs(s.t_ms[last]), layer: who[0],
+      }));
+    } else if (s.t_ms[from] > lastWrite + limit) {
+      out.push(mk(this, {
+        message: `the machine rests at ${secs(s.t_ms[from])} s, ${r3((s.t_ms[from] - lastWrite) / 1000)} s after its last write (limit ${secs(limit)} s)`,
+        fix: 'shorten the clips or mixes it plays after a write, or raise meta.settle_ms when the length is wanted',
+        at_s: secs(s.t_ms[from]), value: r3(s.t_ms[from] - lastWrite), limit,
+      }));
+    }
+    return out;
+  },
+};
+
+const ALL = [speedCap, minChange, overshoot, inFrame, idleCadence, deadHold, loopSeam, determinism, beatMoves, longFade, crossfade, abrupt, morphPathRule, machineSettles, ...CONTACT_RULES];
 
 /** What a rule judges; every finding carries one. */
 export const CATEGORIES = ['speed', 'timing', 'face', 'contact', 'framing', 'determinism', 'request'];

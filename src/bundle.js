@@ -2,7 +2,7 @@
 // declarations of the engine files they reach, followed through identifiers (TypeScript API, no regex on source).
 // A top-level name that two files share is renamed (<name>_<file>) and its references rewritten.
 import { readFileSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, isAbsolute } from 'node:path';
 import { fail } from './util.js';
 
 export const parse = (ts, abs, text = readFileSync(abs, 'utf8')) => ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true,
@@ -13,18 +13,18 @@ export const parse = (ts, abs, text = readFileSync(abs, 'utf8')) => ts.createSou
  * `import type`, `export ... from` and `export * from`. A relative `import()`, `require()` or `import('…').T`
  * is refused, because the bundle could not follow it.
  */
-export const specifiers = (ts, sf) => {
+export const specifiers = (ts, sf, { staticOnly = true } = {}) => {
   const out = [];
   const refuse = (spec) => fail(`${basename(sf.fileName)} loads ${spec} at run time or through an import type`,
     'use a static import at the top of the file, so --export can bundle it');
   const visit = (node) => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       out.push({ spec: node.moduleSpecifier.text });
-    } else if (ts.isCallExpression(node) && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])
+    } else if (staticOnly && ts.isCallExpression(node) && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])
       && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
       && node.arguments[0].text.startsWith('.')) {
       refuse(node.arguments[0].text);
-    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)
+    } else if (staticOnly && ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)
       && node.argument.literal.text.startsWith('.')) {
       refuse(node.argument.literal.text);
     }
@@ -71,15 +71,19 @@ const DECL = (ts, st) => ts.isFunctionDeclaration(st) || ts.isClassDeclaration(s
 /**
  * @param {*} ts
  * @param {string} name  the scene's name
- * @param {{rig: {abs: string, sf: *}, draw: {abs: string, sf: *}, component: {abs: string, sf: *}}} scene
- * @param {(fromAbs: string, spec: string) => string} loadEngine  absolute path of the engine file a relative import reaches (refuses what it may not copy)
- * @param {(abs: string) => string} sourceName  a file's name for the header
+ * @param {{rig?: {abs: string, sf: *}, clips?: {abs: string, sf: *}, draw: {abs: string, sf: *}, component: {abs: string, sf: *}}} scene
+ * @param {(fromAbs: string, spec: string) => string | {abs: string, sf: *} | {external: string, file: string}} loadLocal
+ *   An engine path to tree-shake, a parsed helper to keep, or an external module replacing the local file.
+ * @param {{mapExternal?: (spec: string) => string, reserved?: Set<string>}} [options]
  * @returns {{text: string, required: string[], lib: boolean, sources: string[]}}
  */
-export const bundleScene = (ts, name, scene, loadEngine) => {
+export const bundleScene = (ts, name, scene, loadLocal, { mapExternal = (spec) => spec, reserved } = {}) => {
   const modules = new Map(); // abs -> module
   const order = []; // modules in dependency order (a module after the ones it imports)
-  const sceneAbs = { rig: scene.rig.abs, draw: scene.draw.abs, component: scene.component.abs };
+  const machine = Boolean(scene.clips);
+  const primary = scene.clips ?? scene.rig;
+  const primaryKind = machine ? 'clips' : 'rig';
+  const local = (spec) => spec.startsWith('.') || (machine && isAbsolute(spec));
 
   const load = (abs, kind, sf = parse(ts, abs)) => {
     if (modules.has(abs)) return modules.get(abs);
@@ -88,21 +92,27 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     modules.set(abs, m);
     specifiers(ts, sf);
     const target = (spec) => {
-      if (spec === `./${name}.rig`) return modules.get(sceneAbs.rig) ?? load(sceneAbs.rig, 'rig', scene.rig.sf);
-      if (spec === `./${name}.draw`) return modules.get(sceneAbs.draw) ?? load(sceneAbs.draw, 'draw', scene.draw.sf);
-      return load(loadEngine(abs, spec), 'engine');
+      if (!machine || kind === 'component') {
+        if (spec === `./${name}.${primaryKind}`) return modules.get(primary.abs) ?? load(primary.abs, primaryKind, primary.sf);
+        if (spec === `./${name}.draw`) return modules.get(scene.draw.abs) ?? load(scene.draw.abs, 'draw', scene.draw.sf);
+      }
+      const dep = loadLocal(abs, spec);
+      if (typeof dep === 'string') return load(dep, 'engine');
+      if (dep.external) return dep;
+      const depKind = dep.abs === primary.abs ? primaryKind : dep.abs === scene.draw.abs ? 'draw' : 'helper';
+      return modules.get(dep.abs) ?? load(dep.abs, depKind, dep.sf);
     };
     sf.statements.forEach((st, index) => {
       if (ts.isImportDeclaration(st)) {
         const spec = st.moduleSpecifier.text;
         const clause = st.importClause;
-        const rel = spec.startsWith('.');
-        const dep = rel ? target(spec) : null;
+        const dep = local(spec) ? target(spec) : null;
         if (!clause) {
-          if (!rel) m.sideEffects = [...(m.sideEffects ?? []), spec];
+          const ext = dep ? dep.external : mapExternal(spec);
+          if (ext) m.sideEffects = [...(m.sideEffects ?? []), ext];
           return;
         }
-        const bind = (local, imported, typeOnly) => m.imports.set(local, rel ? { target: dep, imported, spec } : { ext: spec, imported, typeOnly });
+        const bind = (name, imported, typeOnly) => m.imports.set(name, dep ? { target: dep, imported, spec, typeOnly } : { ext: mapExternal(spec), imported, typeOnly });
         if (clause.name) bind(clause.name.text, 'default', clause.isTypeOnly);
         const nb = clause.namedBindings;
         if (nb && ts.isNamespaceImport(nb)) bind(nb.name.text, '*', clause.isTypeOnly);
@@ -111,8 +121,8 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
         const clause = st.exportClause;
         if (st.moduleSpecifier) {
           const spec = st.moduleSpecifier.text;
-          if (!spec.startsWith('.')) fail(`${file} re-exports from ${spec}`, 'import it where it is used; a bundled scene re-exports only its own and engine names');
-          const dep = target(spec);
+          if (!local(spec) && !machine) fail(`${file} re-exports from ${spec}`, 'import it where it is used; a bundled scene re-exports only its own and engine names');
+          const dep = local(spec) ? target(spec) : { external: mapExternal(spec), file: spec };
           if (!clause) m.stars.push(dep);
           else if (ts.isNamespaceExport(clause)) fail(`${file} has export * as ${clause.name.text}`, 'use named exports');
           else for (const el of clause.elements) m.exportsFrom.push({ exported: el.name.text, imported: (el.propertyName ?? el.name).text, target: dep, typeOnly: st.isTypeOnly || el.isTypeOnly });
@@ -123,6 +133,8 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
         fail(`${file} has a default export`, 'use named exports; a bundled scene cannot carry a default export');
       } else if (DECL(ts, st)) {
         const names = ts.isVariableStatement(st) ? st.declarationList.declarations.flatMap((d) => bindingNames(ts, d.name)) : [st.name?.text].filter(Boolean);
+        const clash = kind === 'component' ? undefined : names.find((n) => reserved?.has(n));
+        if (clash) fail(`${file} declares the reserved name ${clash}`, `rename ${clash}; the generated component declares it`);
         const exported = mods(ts, st).some((x) => x.kind === ts.SyntaxKind.ExportKeyword);
         const fns = ts.isFunctionDeclaration(st) ? names
           : ts.isVariableStatement(st) ? st.declarationList.declarations.filter((d) => ts.isIdentifier(d.name) && isFnInit(ts, d)).map((d) => d.name.text) : [];
@@ -142,9 +154,33 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     return m;
   };
 
-  const comp = load(sceneAbs.component, 'component', scene.component.sf);
-  load(sceneAbs.rig, 'rig', scene.rig.sf);
-  load(sceneAbs.draw, 'draw', scene.draw.sf);
+  const comp = load(scene.component.abs, 'component', scene.component.sf);
+  if (!modules.has(primary.abs)) load(primary.abs, primaryKind, primary.sf);
+  if (!modules.has(scene.draw.abs)) load(scene.draw.abs, 'draw', scene.draw.sf);
+  const isPublic = (m) => machine ? m === comp : m.kind !== 'engine';
+
+  const shadowed = new Set();
+  if (machine) {
+    // Bind each file in its original lexical scope before flattening the imports. Module resolution is handled below.
+    const options = { noLib: true, noResolve: true, jsx: ts.JsxEmit.Preserve };
+    const host = ts.createCompilerHost(options);
+    host.getSourceFile = (file) => modules.get(file)?.sf;
+    const checker = ts.createProgram([...modules.keys()], options, host).getTypeChecker();
+    const meaning = ts.SymbolFlags.Value | ts.SymbolFlags.Type | ts.SymbolFlags.Namespace | ts.SymbolFlags.Alias;
+    for (const m of order) {
+      const bindings = new Set([...m.byName.keys(), ...m.imports.keys()].map((name) => checker.resolveName(name, m.sf, meaning, false))
+        .filter(Boolean).map((symbol) => checker.getExportSymbolOfSymbol(symbol)));
+      for (const u of m.units) u.refs = u.refs.filter((id) => {
+        const symbol = ts.isShorthandPropertyAssignment(id.parent) && id.parent.name === id
+          ? checker.getShorthandAssignmentValueSymbol(id.parent) : checker.getSymbolAtLocation(id);
+        if (symbol && bindings.has(checker.getExportSymbolOfSymbol(symbol))) return true;
+        shadowed.add(id.text);
+        return false;
+      });
+    }
+  }
+
+  const asTypeOnly = (r, typeOnly) => r?.ext && typeOnly ? { ...r, typeOnly } : r;
 
   /** The unit that declares `exported` in a module, following re-exports. */
   const resolveExport = (m, exported, from, seen = new Set()) => {
@@ -153,6 +189,7 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     if (exported === '*' || exported === 'default') {
       fail(`${from} imports ${exported === '*' ? 'a whole module' : 'a default export'} from ${m.file}`, 'use named imports; the bundle keeps only the declarations a scene uses');
     }
+    if (m.external) return { ext: m.external, name: exported };
     const own = m.byName.get(exported);
     if (own && (own.exported || m.kind !== 'engine')) return { m, unit: own, name: exported };
     const le = m.localExports.get(exported);
@@ -160,9 +197,10 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
       const u = m.byName.get(le.local);
       if (u) return { m, unit: u, name: le.local };
       const b = m.imports.get(le.local);
-      if (b && b.target) return resolveExport(b.target, b.imported, m.file, seen);
+      if (machine && b?.ext) return { ext: b.ext, name: b.imported, typeOnly: le.typeOnly || b.typeOnly };
+      if (b?.target) return asTypeOnly(resolveExport(b.target, b.imported, m.file, seen), le.typeOnly || b.typeOnly);
     }
-    for (const e of m.exportsFrom) if (e.exported === exported) return resolveExport(e.target, e.imported, m.file, seen);
+    for (const e of m.exportsFrom) if (e.exported === exported) return asTypeOnly(resolveExport(e.target, e.imported, m.file, seen), e.typeOnly);
     for (const s of m.stars) {
       const r = resolveExport(s, exported, m.file, seen);
       if (r) return r;
@@ -182,23 +220,25 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     if (u) return include(u);
     const b = m.imports.get(ident);
     if (!b) return;
-    if (b.ext) {
-      const key = `${b.ext}\0${b.imported}`;
-      const e = ext.get(key) ?? { spec: b.ext, imported: b.imported, local: ident, typeOnly: true, locals: new Set() };
-      e.locals.add(ident);
-      ext.set(key, e);
-      return;
+    if (!b.ext) {
+      const r = resolveExport(b.target, b.imported, m.file);
+      if (!r) fail(`${m.file} imports ${b.imported} from ${b.spec}, which does not declare or export it`, 'fix the import');
+      if (!r.ext) return include(r.unit);
+      b.ext = r.ext;
+      b.imported = r.name;
+      b.typeOnly ||= r.typeOnly;
     }
-    const r = resolveExport(b.target, b.imported, m.file);
-    if (!r) fail(`${m.file} imports ${b.imported} from ${b.spec}, which does not declare or export it`, 'fix the import');
-    include(r.unit);
+    const key = `${b.ext}\0${b.imported}`;
+    const e = ext.get(key) ?? { spec: b.ext, imported: b.imported, local: ident, typeOnly: true, locals: new Set() };
+    e.locals.add(ident);
+    ext.set(key, e);
   };
 
   // Scene modules are taken whole; engine modules by reach.
   for (const m of order) if (m.kind !== 'engine') for (const u of m.units) include(u);
   // Re-exports in scene modules reach an engine name even if no code uses it.
   const reexports = [];
-  for (const m of order.filter((x) => x.kind !== 'engine')) {
+  for (const m of order.filter(isPublic)) {
     for (const e of m.exportsFrom) {
       const r = resolveExport(e.target, e.imported, m.file);
       if (!r) fail(`${m.file} re-exports ${e.imported}, which does not exist`, 'fix the export');
@@ -210,16 +250,19 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
 
   // Names: scene files keep theirs (rig, draw, component in that order); externals next; engine declarations rename on a clash.
   const taken = new Set();
-  const alloc = (want, hint) => {
+  const alloc = (want, hint, keep = false) => {
     let out = want;
-    for (let i = 2; taken.has(out); i++) out = i === 2 ? `${want}_${hint}` : `${want}_${hint}${i - 1}`;
+    for (let i = 2; taken.has(out) || (shadowed.has(out) && !(keep && out === want)); i++) {
+      out = i === 2 ? `${want}_${hint}` : `${want}_${hint}${i - 1}`;
+    }
     taken.add(out);
     return out;
   };
   const hintOf = (m) => basename(m.abs).replace(/\.(worklet\.)?tsx?$/, '').replace(/[^A-Za-z0-9_$]/g, '_');
-  const byKind = [...order].sort((a, b) => ['rig', 'draw', 'component', 'engine'].indexOf(a.kind) - ['rig', 'draw', 'component', 'engine'].indexOf(b.kind));
+  const priorities = ['rig', 'clips', 'draw', 'component', 'helper', 'engine'];
+  const byKind = [...order].sort((a, b) => priorities.indexOf(a.kind) - priorities.indexOf(b.kind));
   const allocUnits = (m) => {
-    for (const u of m.units) if (u.in) for (const n of u.names) u.outs.set(n, alloc(n, hintOf(m)));
+    for (const u of m.units) if (u.in) for (const n of u.names) u.outs.set(n, alloc(n, hintOf(m), m === comp));
   };
   for (const m of byKind.filter((x) => x.kind !== 'engine')) allocUnits(m);
   for (const m of order) for (const [local, b] of m.imports) {
@@ -249,7 +292,7 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     const keep = first ? ranges.filter((r) => full.startsWith('/**', r.pos)).slice(-1) : ranges;
     const start = keep.length ? keep[0].pos : st.getStart(m.sf);
     const edits = [];
-    if (m.kind === 'engine') {
+    if (!isPublic(m)) {
       const ex = mods(ts, st).find((x) => x.kind === ts.SyntaxKind.ExportKeyword);
       if (ex) {
         let end = ex.getEnd();
@@ -279,7 +322,7 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     const text = comments.length ? full.slice(comments[0].pos, comments[comments.length - 1].end) : head.trim();
     return text.split('\n').filter((l) => l.trim() !== '// @ts-nocheck').join('\n').trim();
   };
-  const isLib = (m) => m.kind === 'engine' && m.abs.endsWith('.worklet.ts') && basename(dirname(m.abs)) === 'lib';
+  const isLib = (m) => (m.kind === 'engine' || m.kind === 'helper') && m.abs.endsWith('.worklet.ts') && basename(dirname(m.abs)) === 'lib';
 
   const blocks = [];
   const sources = [];
@@ -294,28 +337,31 @@ export const bundleScene = (ts, name, scene, loadEngine) => {
     blocks.push({ m, text: `// ---- ${label} ----\n${head}${body}\n` });
     sources.push(m.abs);
   }
-  // Scene files last, engine first; the component is the final block.
+  // Plain rigs keep their existing block order. Machine helpers follow dependency order.
   const rank = (b) => ['engine', 'rig', 'draw', 'component'].indexOf(b.m.kind);
-  blocks.sort((a, b) => (rank(a) === 0 && rank(b) === 0 ? 0 : rank(a) - rank(b)));
+  if (!machine) blocks.sort((a, b) => (rank(a) === 0 && rank(b) === 0 ? 0 : rank(a) - rank(b)));
 
   const lines = [];
-  const sideEffects = new Set(order.flatMap((m) => m.sideEffects ?? []));
-  for (const s of sideEffects) lines.push(`import '${s}';`);
+  const quote = (spec) => machine ? JSON.stringify(spec).slice(1, -1).replaceAll("'", "\\'") : spec;
   const bySpec = new Map();
   for (const e of ext.values()) bySpec.set(e.spec, [...(bySpec.get(e.spec) ?? []), e]);
+  const sideEffects = new Set(order.flatMap((m) => m.sideEffects ?? []));
+  for (const s of sideEffects) {
+    if (!machine || !bySpec.get(s)?.some((e) => !e.typeOnly)) lines.push(`import '${quote(s)}';`);
+  }
   for (const [spec, list] of bySpec) {
     const named = list.filter((e) => e.imported !== 'default' && e.imported !== '*')
       .map((e) => `${e.typeOnly ? 'type ' : ''}${e.imported === e.out ? e.out : `${e.imported} as ${e.out}`}`);
-    for (const e of list.filter((x) => x.imported === 'default')) lines.push(`import ${e.typeOnly ? 'type ' : ''}${e.out} from '${spec}';`);
-    for (const e of list.filter((x) => x.imported === '*')) lines.push(`import ${e.typeOnly ? 'type ' : ''}* as ${e.out} from '${spec}';`);
-    if (named.length) lines.push(`import { ${named.join(', ')} } from '${spec}';`);
+    for (const e of list.filter((x) => x.imported === 'default')) lines.push(`import ${e.typeOnly ? 'type ' : ''}${e.out} from '${quote(spec)}';`);
+    for (const e of list.filter((x) => x.imported === '*')) lines.push(`import ${e.typeOnly ? 'type ' : ''}* as ${e.out} from '${quote(spec)}';`);
+    if (named.length) lines.push(`import { ${named.join(', ')} } from '${quote(spec)}';`);
   }
   const tail = [];
   for (const { exported, r, typeOnly } of reexports) {
     const out = r.unit.outs.get(r.name);
     tail.push(`export ${typeOnly ? 'type ' : ''}{ ${out === exported ? out : `${out} as ${exported}`} };`);
   }
-  for (const m of order.filter((x) => x.kind !== 'engine')) {
+  for (const m of order.filter(isPublic)) {
     for (const [exported, { local, typeOnly }] of m.localExports) {
       const out = outOf(m, local) ?? local;
       tail.push(`export ${typeOnly ? 'type ' : ''}{ ${out === exported ? out : `${out} as ${exported}`} };`);

@@ -18,11 +18,11 @@ const part = (x, y = 300) => ({ x, y, w: 40, h: 40 });
 
 // Calibrated against skac-e2e's mutation set (13 Nov): each of these is failed by the fault built to trip it and
 // passed by the base combo, so it defaults to error. The rest stay warn until a mutation proves them.
-const CALIBRATED = ['skac/min-change', 'skac/overshoot', 'skac/beat-moves', 'skac/ground', 'skac/attached', 'skac/morph-path'];
+const CALIBRATED = ['skac/min-change', 'skac/overshoot', 'skac/beat-moves', 'skac/ground', 'skac/attached', 'skac/morph-path', 'skac/machine-settles'];
 
 test('every rule is rig layer with docs and needs; calibrated rules default to error, the rest to warn', () => {
   const ids = Object.keys(RULES);
-  assert.equal(ids.length, 15);
+  assert.equal(ids.length, 16);
   for (const id of ids) {
     assert.match(id, /^skac\//);
     assert.equal(RULES[id].layer, 'rig');

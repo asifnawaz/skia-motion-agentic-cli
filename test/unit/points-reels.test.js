@@ -1,29 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from 'node:module';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join, resolve } from 'node:path';
+import { loadModules } from './helpers.js';
 
 // Golden test: templates/motion/points.ts against what it was ported from, Word Quran's reels kit (reels/_kit/morph.js and
 // pixelmotion.js, ported by their owner, NOTICE.md). Same inputs, same points, at k = 1 (far = 1000, the reels' 1080 x 1920
 // pixel scale). Skipped where the reels repository is not on disk; SKAC_REELS_KIT names its _kit folder.
-const KIT = process.env.SKAC_REELS_KIT ?? '/media/whoami/linux-data/git/word-quran-reels/reels/_kit';
+const KIT = resolve(process.env.SKAC_REELS_KIT ?? '/media/whoami/linux-data/git/word-quran-reels/reels/_kit');
 const have = existsSync(join(KIT, 'morph.js')) && existsSync(join(KIT, 'pixelmotion.js'));
 
-const kitStub = 'data:text/javascript,' + encodeURIComponent('export const W = 1080, H = 1920, font = () => "", seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));');
-const hook = `export async function resolve(spec, ctx, next) {
-  if (spec === '/reels/_kit/kit.js') return { url: ${JSON.stringify(kitStub)}, shortCircuit: true };
-  try { return await next(spec, ctx); } catch (e) {
-    if (spec.startsWith('.') && !/\\.\\w+$/.test(spec)) return next(spec + '.ts', ctx);
-    throw e;
-  }
-}`;
-register('data:text/javascript,' + encodeURIComponent(hook), import.meta.url);
-
-const P = await import('../../templates/motion/points.ts');
-const R = have ? await import(pathToFileURL(join(KIT, 'morph.js')).href) : null;
-const X = have ? await import(pathToFileURL(join(KIT, 'pixelmotion.js')).href) : null;
+const { P } = loadModules({ P: './templates/motion/points.ts' });
+const { R, X } = have ? loadModules({ R: join(KIT, 'morph.js'), X: join(KIT, 'pixelmotion.js') }, {
+  '/reels/_kit/kit.js': { W: 1080, H: 1920, font: () => '', seg: (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a))) },
+}) : {};
 const opts = { skip: have ? false : `no reels kit at ${KIT}` };
 
 // Two point sets 1000 px across, so the default scale k = 1 matches the reels' pixel distances.

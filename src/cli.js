@@ -3,10 +3,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, parseCommands } from './args.js';
 import { loadConfig } from './config.js';
-import { boxProbe, check, lint, pixelProbe, stats, story } from './blind.js';
+import { boxProbe, check, lint, pixelProbe, stats, story, trace } from './blind.js';
 import { compareVideos } from './compare.js';
 import { assertSettled, gatedCheck } from './draft.js';
 import { exportScene } from './export.js';
+import { loadClips, machineCommand } from './machine.js';
 import { doctor } from './doctor.js';
 import { docsCommand } from './docs.js';
 import * as lintModule from './lint.js';
@@ -20,9 +21,9 @@ import { update } from './update.js';
 import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
-  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw'],
+  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
-    'search', 'as', 'export', 'entry', 'root', 'out-dir', 'gl'],
+    'search', 'as', 'trace', 'export', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
 };
 
@@ -52,6 +53,8 @@ export const execute = (argv, cwd = process.cwd()) => {
         '<Name> --stats | --story | --check  (blind mode: no image; the first --check of a scene answers draft: improve the two weakest beats it names)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',
         '<Name> --probe-box=x,y,w,h --at=t  (the box\'s top 8 colours by pixel count, with share and bbox in pt)',
+        '<Name> --trace=0,300,800 | --trace=every:100  (a machine scene\'s states, values and channels at those ms)',
+        '<Name> --machine  (judge <Name>.machine.json: problems, warnings, and each layer\'s graph)',
         '<Name> --export <app-dir> [--force]  (write one <Name>.tsx into the app: the component, rig, draw and the engine parts they use; needs add --draw and a check after a change)',
         '<Name> --verify | --screenshot --at=0.5,4.0 [--sheet] | --render | --commands "tap@4.0"'],
       next: ['skac docs blind', 'skac doctor'],
@@ -97,6 +100,8 @@ const composition = (cfg, name, flags) => {
     if (times.length > 1) fail('--probe-box reads one time', 'pass one --at=<seconds>');
     return boxProbe(cfg, name, { box: flags['probe-box'], at: times[0] ?? 0, events }, DEPS);
   }
+  if (flags.trace !== undefined) return trace(cfg, name, { events, at: flags.trace }, DEPS);
+  if (flags.machine) return machineCommand(cfg, name, { clips: loadClips(cfg, name)?.clips });
   if (flags.stats) return stats(cfg, name, { events }, DEPS);
   if (flags.story) return story(cfg, name, { events }, DEPS);
   if (flags.check) return gatedCheck(cfg, name, { events }, DEPS, check);

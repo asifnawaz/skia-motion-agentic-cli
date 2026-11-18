@@ -764,6 +764,8 @@ Exit code 0.
 
 A commands file, one per line: `event <name> <seconds>`, `advance <seconds>`, `screenshot` (capture at the current time), `#` comments. Here run.txt is `event tap 1.0`, `advance 0.5`, `screenshot`, `advance 1`, `screenshot`. Events become `--props '{"events":[...]}'`; `captures` lists every PNG. Inline `--commands "tap@4.0 correct@6.5"` is shorthand for `event` lines; inline text on its own means `--render`.
 
+For a machine enum option that looks like a boolean or number, keep the double quotes in the command. Use `set mode "true" 1` in a file or `--commands 'mode="true"@1'` inline.
+
 ```
 skac Character --commands run.txt
 ```

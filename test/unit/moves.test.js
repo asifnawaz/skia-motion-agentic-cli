@@ -1,18 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from 'node:module';
+import { loadModules } from './helpers.js';
 
-// The templates import './motion' with no extension (Metro and Remotion resolve that); Node needs '.ts'.
-const hook = `export async function resolve(spec, ctx, next) {
-  try { return await next(spec, ctx); } catch (e) {
-    if (spec.startsWith('.') && !/\\.\\w+$/.test(spec)) return next(spec + '.ts', ctx);
-    throw e;
-  }
-}`;
-register('data:text/javascript,' + encodeURIComponent(hook), import.meta.url);
-
-const M = await import('../../templates/motion/moves.ts');
-const P = await import('../../templates/motion/points.ts');
+const { M, P } = loadModules({ M: './templates/motion/moves.ts', P: './templates/motion/points.ts' });
 const { MOVE } = M;
 const near = (a, b, eps = 1e-6, msg = '') => assert.ok(Math.abs(a - b) <= eps, `${msg} ${a} != ${b}`);
 

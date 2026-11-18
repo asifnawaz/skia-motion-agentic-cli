@@ -47,6 +47,22 @@ test('loadConfig rejects a config that is not JSON', () => {
   assert.throws(() => loadConfig(root), /not valid JSON/);
 });
 
+test('app.skia keeps the configured specifier and resolves paths from the config without checking for the file', () => {
+  const root = tmp();
+  const cwd = join(root, 'child');
+  const wrapper = join(root, 'wrappers', 'skia.ts');
+  write(join(cwd, 'file'), '');
+  const config = (skia) => write(join(root, 'skia-motion.json'), JSON.stringify({ app: { skia } }));
+  for (const skia of ['./wrappers/skia.ts', wrapper]) {
+    config(skia);
+    const cfg = loadConfig(cwd);
+    assert.equal(cfg.skia, wrapper);
+    assert.equal(cfg.skiaSpecifier, skia);
+  }
+  config('react-native-skia');
+  assert.equal(loadConfig(cwd).skia, 'react-native-skia');
+});
+
 test('loadConfig: gl comes from --gl, then SKAC_GL, then the file, then angle-egl; unknown values fail', () => {
   const root = tmp();
   const saved = process.env.SKAC_GL;

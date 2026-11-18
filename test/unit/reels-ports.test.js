@@ -1,34 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from 'node:module';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join, resolve } from 'node:path';
+import { loadModules } from './helpers.js';
 
 // Golden test: templates/motion/follow.ts and counts.ts against Word Quran's reels kit (reels/_kit/dynamics.js and numbers.js),
 // run live. Each port says which reels lines it came from; this compares them at several times to 1e-9. Skipped where the reels
 // repository is not on disk; SKAC_REELS_KIT names its _kit folder. Deliberate differences are listed at the bottom.
-const KIT = process.env.SKAC_REELS_KIT ?? '/media/whoami/linux-data/git/word-quran-reels/reels/_kit';
+const KIT = resolve(process.env.SKAC_REELS_KIT ?? '/media/whoami/linux-data/git/word-quran-reels/reels/_kit');
 const have = existsSync(join(KIT, 'dynamics.js')) && existsSync(join(KIT, 'numbers.js'));
 const opts = { skip: have ? false : `no reels kit at ${KIT}` };
 
-const stub = (src) => 'data:text/javascript,' + encodeURIComponent(src);
-const kitStub = stub('export const W = 1080, H = 1920, font = () => "", txt = () => ({ y0: 100, y1: 200 }), enter = (x) => 1 - Math.pow(1 - x, 3), seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));');
-const libStub = stub('export const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v)); export const mulberry = () => () => 0.5;');
-register('data:text/javascript,' + encodeURIComponent(`export async function resolve(spec, ctx, next) {
-  if (spec === '/reels/_kit/kit.js') return { url: ${JSON.stringify(kitStub)}, shortCircuit: true };
-  if (spec === '/core/lib.js') return { url: ${JSON.stringify(libStub)}, shortCircuit: true };
-  try { return await next(spec, ctx); } catch (e) {
-    if (spec.startsWith('.') && !/\\.\\w+$/.test(spec)) return next(spec + '.ts', ctx);
-    throw e;
-  }
-}`), import.meta.url);
-
-const F = await import('../../templates/motion/follow.ts');
-const C = await import('../../templates/motion/counts.ts');
-const M = await import('../../templates/motion/moves.ts');
-const D = have ? await import(pathToFileURL(join(KIT, 'dynamics.js')).href) : null;
-const N = have ? await import(pathToFileURL(join(KIT, 'numbers.js')).href) : null;
+const { F, C, M } = loadModules({ F: './templates/motion/follow.ts', C: './templates/motion/counts.ts', M: './templates/motion/moves.ts' });
+const { D, N } = have ? loadModules({ D: join(KIT, 'dynamics.js'), N: join(KIT, 'numbers.js') }, {
+  '/reels/_kit/kit.js': {
+    W: 1080, H: 1920, font: () => '', txt: () => ({ y0: 100, y1: 200 }),
+    enter: (x) => 1 - Math.pow(1 - x, 3), seg: (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a))),
+  },
+  '/core/lib.js': { clamp: (v, a = 0, b = 1) => Math.max(a, Math.min(b, v)), mulberry: () => () => 0.5 },
+}) : {};
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps, `${msg}: ${a} != ${b}`);
 
 test('follow: one home, and a spring from t = 0 that matches dynamics.js Follower (value and speed)', opts, () => {

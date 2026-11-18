@@ -119,6 +119,44 @@ export const boxProbe = (cfg, name, { box, at = 0, events } = {}, deps) => {
   return { ok: true, name, at, frame, units: 'pt', px_per_pt: R(pxPerPt), box: [x, y, w, h], pixels: total, colors, next: [`skac ${name} --probe=x,y --at=${at}`] };
 };
 
+/**
+ * `<Name> --trace=<ms,ms,...>` or `--trace=every:<ms>`: a machine scene's state at each time, from the replay, with no
+ * render: each layer's state, the values, the layers keeping it drawing, and the channels.
+ */
+/** The most rows --trace answers with; a trace an agent reads is a few dozen. */
+const TRACE_MAX_ROWS = 2000;
+
+export const trace = (cfg, name, { events, at } = {}, deps) => {
+  const loaded = deps.rig.loadRig(cfg, name);
+  if (typeof loaded.rig.inspect !== 'function') {
+    fail(`${name} is not a machine scene`, `--trace reads a rig built by machineRig() from ${name}.machine.json (skac docs machine); use --story for a plain rig`);
+  }
+  const lengthMs = (loaded.meta.frames / loaded.meta.fps) * 1000;
+  const every = /^every:(\d*\.?\d+)$/.exec(String(at));
+  // Checked before the grid is built: a step of 0 is an endless grid, a tiny one a huge answer.
+  if (every && !(Number(every[1]) > 0)) fail('--trace=every:<ms> needs a step above 0', 'like --trace=every:100');
+  if (every && lengthMs / Number(every[1]) + 1 > TRACE_MAX_ROWS) {
+    fail(`--trace=every:${every[1]} gives over ${TRACE_MAX_ROWS} rows for ${Math.round(lengthMs)} ms`, `use a step of at least ${Math.ceil(lengthMs / (TRACE_MAX_ROWS - 1))} ms, or list the times`);
+  }
+  const times = every
+    ? Array.from({ length: Math.floor(lengthMs / Number(every[1])) + 1 }, (_, i) => i * Number(every[1]))
+    : String(at).split(',').map((x) => {
+      const v = Number(x.trim());
+      if (!x.trim() || !Number.isFinite(v) || v < 0) fail(`bad --trace time ${JSON.stringify(x)}`, 'ms, like --trace=0,300,800, or --trace=every:100');
+      return v;
+    });
+  const used = eventsFor(loaded.meta, events);
+  const rows = times.map((ms) => {
+    const i = loaded.rig.inspect(ms, used);
+    const p = loaded.rig(ms, used);
+    return {
+      t_ms: ms, states: i.states, values: i.values, awake: i.awake, clocked: i.clocked,
+      channels: Object.fromEntries(Object.entries(p.channels).map(([k, v]) => [k, R(v)])),
+    };
+  });
+  return { ok: true, name, events: used, trace: rows };
+};
+
 /** `<Name> --stats`: per channel and part, the range and the fastest frame, without rendering. */
 export const stats = (cfg, name, { events } = {}, deps) => {
   const { meta, samples, events: used } = sample(cfg, name, events, deps);
@@ -248,7 +286,7 @@ const pixelLayer = (cfg, name, meta, deps) => {
  * `<Name> --check`: lint the composition and its rig, run the rig rules on the samples, add the pixel facts.
  * One report, cheapest layer first. `ok` is false only for error-severity findings.
  */
-export const check = (cfg, name, { events } = {}, deps) => {
+export const check = (cfg, name, { events, rigFor } = {}, deps) => {
   const reg = find(cfg, name);
   const severities = ruleSeverities(cfg);
   const findings = [];
@@ -262,7 +300,7 @@ export const check = (cfg, name, { events } = {}, deps) => {
     loaded = deps.rig.loadRig(cfg, name);
     rigFile = loaded.file;
     used = eventsFor(loaded.meta, events);
-    samples = deps.rig.sampleRig(loaded.rig, loaded.meta, used);
+    samples = deps.rig.sampleRig(rigFor ? rigFor(loaded.meta) : loaded.rig, loaded.meta, used);
   } catch (e) {
     if (!(e instanceof CliError)) throw e;
     findings.push({

@@ -5,6 +5,7 @@
 
 Character and UI motion drawn with [`@shopify/react-native-skia`](https://shopify.github.io/react-native-skia/),
 rendered headlessly by [Remotion](https://www.remotion.dev/), and driven by a command line built for agents.
+Requires `@shopify/react-native-skia` 2.6 or later, or `react-native-skia` 2.15 or later (including Skia 3).
 
 It follows the agent loop of the `rive` CLI: scaffold, edit, check, render, measure. Every
 command prints exactly one JSON document, so an agent never has to parse prose.
