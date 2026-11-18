@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import type { ForwardedRef, ReactElement, RefAttributes } from 'react';
 import { AppState, Pressable, StyleSheet, View, type LayoutChangeEvent, type ViewProps } from 'react-native';
 import { Canvas, Picture, Skia, createPicture, type SkCanvas } from 'react-native-skia';
-import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import { useAnimatedReaction, useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { assetMarkerEvents, type AssetMarkerEvent, type AssetSemantic } from './asset';
 import { drawAsset, type AssetImages, type DrawableAsset } from './asset-draw';
 import { loadMotionAsset, type LoadedMotionAsset } from './asset-load';
@@ -53,10 +53,10 @@ export type MotionPlayerProps<B extends MotionBindings = MotionBindings> = Pick<
 
 type LoadedProps = Omit<MotionPlayerProps, 'source'> & { loaded: LoadedMotionAsset; playerRef: ForwardedRef<MotionPlayerHandle> };
 
-function readChannels(pose: Pose, channels?: MotionSharedNumbers) {
+function readChannels(base: Pose['channels'], channels?: MotionSharedNumbers) {
   'worklet';
-  if (!channels) return pose.channels;
-  const values = { ...pose.channels };
+  if (!channels) return base;
+  const values = { ...base };
   for (const [name, shared] of Object.entries(channels)) {
     const value = shared.value;
     if (Number.isFinite(value)) values[name] = value;
@@ -64,7 +64,7 @@ function readChannels(pose: Pose, channels?: MotionSharedNumbers) {
   return values;
 }
 
-function AssetPicture({ drawing, images, pose, snapshot, readOnUI, width, height, layout, channels }: {
+function AssetPicture({ drawing, images, pose, snapshot, readOnUI, width, height, layout, channels, active }: {
   drawing: DrawableAsset;
   images: AssetImages;
   pose: SharedValue<Pose>;
@@ -74,7 +74,19 @@ function AssetPicture({ drawing, images, pose, snapshot, readOnUI, width, height
   height: number;
   layout: AssetLayoutOptions;
   channels?: MotionSharedNumbers;
+  active: boolean;
 }) {
+  const overrides = useSharedValue<Record<string, number> | undefined>(undefined);
+  useAnimatedReaction(
+    () => active ? readChannels({}, channels) : null,
+    (next, previous) => {
+      if (next === null) return;
+      const keys = Object.keys(next);
+      if (!previous || keys.length !== Object.keys(previous).length || keys.some((name) => next[name] !== previous[name])) {
+        overrides.value = next;
+      }
+    },
+  );
   const picture = useDerivedValue(() => {
     // The mapper subscribes to captured shared values, and readOnUI hides its snapshot.
     void snapshot?.value;
@@ -84,7 +96,7 @@ function AssetPicture({ drawing, images, pose, snapshot, readOnUI, width, height
       if (typeof value === 'string') values[name] = value;
     }
     return createPicture(
-      (canvas) => drawAsset(canvas, drawing, readChannels(pose.value, channels), width, height, images, values, layout),
+      (canvas) => drawAsset(canvas, drawing, { ...pose.value.channels, ...overrides.value }, width, height, images, values, layout),
       Skia.XYWHRect(0, 0, width, height),
     );
   });
@@ -151,11 +163,13 @@ function LoadedPlayer({
     if (Object.keys(labelChanges).length) setLabels((previous) => ({ ...previous, ...labelChanges }));
     if (Object.keys(appChanges).length) valuesCallback.current?.(appChanges);
   }, [observeValues, semanticNames]);
+  const active = measured && foreground && (live ?? true);
   const machine = useMachine(loaded.machine, clips, {
-    live: measured && foreground && (live ?? true),
+    live: active,
     reduced,
     frameRate,
     clocks,
+    channelDefaults: drawing.channels,
     onStateEntries: markers?.length && (onMarker || onAudio) ? onStateEntries : undefined,
     initialValues,
     observeValues: watched,
@@ -188,7 +202,7 @@ function LoadedPlayer({
       <Canvas style={StyleSheet.absoluteFill}>
         {measured && <AssetPicture drawing={drawing} images={images} pose={machine.pose} readOnUI={machine.readOnUI}
           snapshot={drawing.textBindings?.length ? machine.snapshot : undefined}
-          width={viewport.width} height={viewport.height} layout={layout} channels={channels} />}
+          width={viewport.width} height={viewport.height} layout={layout} channels={channels} active={active} />}
       </Canvas>
       {regions}
     </View>
@@ -244,7 +258,7 @@ export function drawMotionClip(
     const value = options.text?.[key] ?? asset.machine.values?.[key]?.default;
     if (typeof value === 'string') text[key] = value;
   }
-  drawAsset(canvas, asset.drawing, readChannels(clip.play(time), options.channels),
+  drawAsset(canvas, asset.drawing, readChannels(clip.play(time).channels, options.channels),
     options.width, options.height, asset.images, text, options);
 }
 

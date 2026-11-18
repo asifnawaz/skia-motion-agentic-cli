@@ -10,7 +10,28 @@ const topics = {
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample sprout'],
-    topics: ['format', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout', 'playback'],
+    topics: ['format', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout', 'playback', 'migrate'],
+  },
+  migrate: {
+    steps: [
+      'Keep the current packed asset and record the CLI and runtime versions before updating a React Native or Expo app.',
+      'Run asset check on the existing packed file. Read warnings even when ok is true. Check each artboard in a bundle with --artboard.',
+      'Replay the same commands and millisecond samples with both CLI versions. Include the first, middle, and last frame of each affected transition. Open both previews and test the exact file with the new native runtime.',
+      'A sparse blend falls back to the current lower layer or authored channel default for each missing channel. Key both clips explicitly for a different resting pose, or use a zero-duration transition for an intentional cut.',
+      'Replace a font with a valid TTF or OTF if asset check reports a font header error. Repack edited sources to a fresh output and compare before replacing the app asset.',
+      'If only the packed file is available, copy its JSON to a .motion.json file before editing. Assets discarded by the original pack are unavailable in that copy.',
+      'Test a hidden or backgrounded MotionPlayer if host shared values drive its channels. It should hold the last sampled values while paused and catch up on resume.',
+    ],
+    commands: [
+      'skac asset check scene.skmotion',
+      'skac asset check scene.skmotion --artboard=reward',
+      'skac asset trace scene.skmotion --trace=100,150,200 --commands=confirm@0.1',
+      'skac asset pack scene.motion.json --out=scene.updated.skmotion',
+    ],
+    releaseNotes: [
+      'For each fix that affects an existing packed file, name the affected fields, old and new behavior, and whether the file needs re-export.',
+      'Give agents a check, trace or native replay that demonstrates the change. Include a sample asset that reproduces the old behavior.',
+    ],
   },
   format: {
     schema: 'skac.asset/1',

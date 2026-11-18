@@ -388,13 +388,18 @@ function clipTime(loop: number, ms: number, local: number, reduced: boolean, red
   return p <= ms ? p : 2 * ms - p;
 }
 
-function lerpPose(a: Pose, b: Pose, w: number): Pose {
+function lerpPose(a: Pose, b: Pose, w: number, underneath: Readonly<Record<string, number>>): Pose {
   'worklet';
   const channels: Record<string, number> = { ...a.channels };
   for (const k of Object.keys(b.channels)) {
     const bv = b.channels[k]!;
-    const av = a.channels[k];
+    const av = a.channels[k] ?? underneath[k];
     channels[k] = av === undefined ? bv : av + (bv - av) * w;
+  }
+  for (const k of Object.keys(a.channels)) {
+    if (Object.hasOwn(b.channels, k) || !Object.hasOwn(underneath, k)) continue;
+    const av = a.channels[k]!;
+    channels[k] = av + (underneath[k]! - av) * w;
   }
   let parts: Record<string, PartBox> | undefined;
   if (a.parts || b.parts) {
@@ -413,7 +418,7 @@ function lerpPose(a: Pose, b: Pose, w: number): Pose {
 }
 
 /** State `si`'s pose `local` ms in: its clip, or its 1D blend at the current value. */
-function statePose(L: CLayer, si: number, local: number, vals: Literal[], clips: Clips, reduced: boolean): Pose {
+function statePose(L: CLayer, si: number, local: number, vals: Literal[], clips: Clips, reduced: boolean, underneath: Readonly<Record<string, number>> = {}): Pose {
   'worklet';
   const st = L.states[si]!;
   if (!st.keys) {
@@ -432,7 +437,7 @@ function statePose(L: CLayer, si: number, local: number, vals: Literal[], clips:
     if (v <= keys[i]![0]) {
       const a = keys[i - 1]!;
       const b = keys[i]!;
-      return lerpPose(at(a), at(b), (v - a[0]) / (b[0] - a[0]));
+      return lerpPose(at(a), at(b), (v - a[0]) / (b[0] - a[0]), underneath);
     }
   }
   return at(keys[keys.length - 1]!);
@@ -451,9 +456,9 @@ function ease(kind: number, p: number): number {
  * What the machine draws at `t` (at or after `s.t`, before the next instant): every layer's pose, mixes applied, a later
  * layer's channel or part over an earlier one's.
  */
-export function pose(c: Compiled, clips: Clips, s: Snapshot, t: number, clock: ClockRead, reduced = false): Pose {
+export function pose(c: Compiled, clips: Clips, s: Snapshot, t: number, clock: ClockRead, reduced = false, defaults?: Readonly<Record<string, number>>): Pose {
   'worklet';
-  const channels: Record<string, number> = {};
+  const channels: Record<string, number> = { ...defaults };
   let parts: Record<string, PartBox> | undefined;
   for (let li = 0; li < c.layers.length; li++) {
     const L = c.layers[li]!;
@@ -465,16 +470,16 @@ export function pose(c: Compiled, clips: Clips, s: Snapshot, t: number, clock: C
       const by = L.states[l.heldS]!.by;
       let vals = s.vals;
       if (by >= 0) { vals = s.vals.slice(); vals[by] = l.heldBy; }
-      p = statePose(L, l.heldS, l.held, vals, clips, reduced);
+      p = statePose(L, l.heldS, l.held, vals, clips, reduced, channels);
     } else if (l.s < 0) {
       continue;
     } else {
-      p = statePose(L, l.s, localMs(L, l, t, clock), s.vals, clips, reduced);
+      p = statePose(L, l.s, localMs(L, l, t, clock), s.vals, clips, reduced, channels);
       if (l.mixTr >= 0 && t < l.mixEnd && !reduced) {
         const from = L.states[l.mixFrom]!;
-        const fromPose = statePose(L, l.mixFrom, sinceEntry(L, l.mixAt, l.mixCAt, t, clock) * from.speed, s.vals, clips, reduced);
+        const fromPose = statePose(L, l.mixFrom, sinceEntry(L, l.mixAt, l.mixCAt, t, clock) * from.speed, s.vals, clips, reduced, channels);
         const tr = L.trans[l.mixTr]!;
-        p = lerpPose(fromPose, p, ease(tr.ease, (t - l.mixStart) / (l.mixEnd - l.mixStart)));
+        p = lerpPose(fromPose, p, ease(tr.ease, (t - l.mixStart) / (l.mixEnd - l.mixStart)), channels);
       }
     }
     for (const k of Object.keys(p.channels)) channels[k] = p.channels[k]!;

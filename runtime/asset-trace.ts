@@ -5,10 +5,11 @@ import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } f
 
 export { measureAttachments } from './asset-attachments';
 export { parseAsset };
-export { parseAssetFile, selectArtboard } from './asset';
-export { MAX_ASSET_BYTES, usedAssetImages } from './asset';
+export { parseAssetFile, parseAssetSource, selectArtboard } from './asset';
+export { hasFontHeader, MAX_ASSET_BYTES, usedAssetImages } from './asset';
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
+export { validateMachine } from './machine-schema.js';
 
 type TraceRow = {
   t_ms: number;
@@ -19,6 +20,34 @@ type TraceRow = {
   markers: AssetMarkerEvent[];
   points?: Record<string, ArtboardPoint>;
 };
+
+/** Identify authored mixes affected by the fallback to the underlying pose. */
+export function sparseBlendWarnings(asset: MotionAsset) {
+  const signature = (name: string) => Object.keys(asset.clips[name]?.tracks ?? {}).sort().join(',');
+  const warnings: { code: string; where: string; error: string; hint: string }[] = [];
+  const warn = (where: string) => warnings.push({
+    code: 'sparse-blend', where,
+    error: 'Mixes between different channel sets now interpolate against the underlying pose.',
+    hint: 'Replay this blend or transition before updating the app. See skac asset guide migrate.',
+  });
+  for (const layer of asset.machine.layers) {
+    const states = Object.entries(layer.states).map(([name, state]) => {
+      const tracks = new Set(state?.blend?.keys.map(([, clip]) => signature(clip as string))
+        ?? [signature(state?.clip ?? '')]);
+      if (tracks.size > 1) warn(`machine.layers.${layer.name}.states.${name}.blend`);
+      return { name, tracks };
+    });
+    for (const [index, transition] of (layer.transitions ?? []).entries()) {
+      if (!transition.duration_ms || transition.to === 'exit') continue;
+      const destination = states.find(({ name }) => name === transition.to);
+      const sources = states.filter(({ name }) => transition.from === '*' ? name !== transition.to : name === transition.from);
+      if (destination && sources.some(({ tracks }) =>
+        tracks.size > 1 || destination.tracks.size > 1 || [...tracks].some((key) => !destination.tracks.has(key)),
+      )) warn(`machine.layers.${layer.name}.transitions[${index}]`);
+    }
+  }
+  return warnings;
+}
 
 export function traceAsset(asset: MotionAsset, times: number[], events: MachineEvent[], reduced: boolean, viewport?: AssetViewport) {
   const clips = assetClips(asset);
@@ -44,7 +73,7 @@ export function traceAsset(asset: MotionAsset, times: number[], events: MachineE
       return [layer.name, current >= 0 ? layer.states[current]!.name : 'exit'];
     }));
     const values = Object.fromEntries(machine.values.map((value, i): [string, Literal] => [value.name, state.vals[i]!]));
-    const channels = { ...asset.channels, ...pose(machine, clips, state, ms, clock, reduced).channels };
+    const channels = pose(machine, clips, state, ms, clock, reduced, asset.channels).channels;
     const points = tracePoints ? assetPoints(asset, channels, viewport) : undefined;
     samples.set(ms, {
       t_ms: ms, states, values, channels,

@@ -92,7 +92,8 @@ test('artboard bundles pack every board and expose bound text, semantics, audio 
   const label = 'مرحبا';
   visual.machine.values.title = { type: 'string', default: label };
   visual.machine.layers[0].states.idle.on_enter = [{ set: 'title', to: 'constructor' }];
-  visual.fonts = { label: 'data:font/ttf;base64,AAEAAA==' };
+  const font = new URL('../../templates/fonts/allo-1.0.3/Allo-Regular.otf', import.meta.url);
+  visual.fonts = { label: `data:font/otf;base64,${readFileSync(font).toString('base64')}` };
   const cue = join(cwd, 'reveal.wav');
   writeFileSync(cue, Buffer.from('RIFF\0\0\0\0WAVE', 'binary'));
   visual.audio = { cue: run('resource', cue).uri };
@@ -223,6 +224,61 @@ test('SVG trim restarts dash phase and shares opacity across closed contours', (
   const svg = readFileSync(run('frame', file).file, 'utf8');
   assert.match(svg, /stroke="#0099FF" stroke-dasharray="8 8" stroke-dashoffset="-17"[^>]+mask=/);
   assert.match(svg, /<g opacity="0\.5"><path d="M 10 30 L 30 30 Z"[^>]+stroke-dashoffset="-0\.5"\/><path d="M 10 30 L 10 70"[^>]+stroke-dashoffset="0"\/><\/g>/);
+});
+
+test('sparse transition tracks blend through artwork defaults and lower layers', () => {
+  const { file, run } = fixture('sprout');
+  const asset = {
+    schema: 'skac.asset/1', name: 'BlendAudit',
+    artboard: { width: 100, height: 100, nodes: [{ kind: 'ellipse', x: 'x', y: 'y', width: 10, height: 10, fill: '#FFFFFF' }] },
+    channels: { x: 0, y: 0 },
+    clips: {
+      underneath: { ms: 0, tracks: { x: [[0, 20]] } },
+      before: { ms: 1000, tracks: { x: [[0, 80]] } },
+      after: { ms: 1000, tracks: { y: [[0, 40]] } },
+    },
+    machine: { schema: 'skac.machine/1', values: { go: { type: 'trigger' } }, layers: [
+      { name: 'underneath', entry: 'rest', states: { rest: { clip: 'underneath' } } },
+      {
+        name: 'main', entry: 'before', states: { before: { clip: 'before' }, after: { clip: 'after' } },
+        transitions: [{ from: 'before', to: 'after', when: [['go']], duration_ms: 100, ease: 'linear' }],
+      },
+    ] },
+  };
+  write(file, JSON.stringify(asset));
+  const packed = run('pack', file).file;
+  assert.ok(run('check', packed).warnings.some(({ code, where }) =>
+    code === 'sparse-blend' && where === 'machine.layers.main.transitions[0]'));
+  const { trace } = run('trace', packed, '--trace=9,10,60,110', '--commands=go@0.01');
+  assert.deepEqual(trace.map(({ channels: { x, y } }) => [x, y]), [[80, 0], [80, 0], [50, 20], [20, 40]]);
+});
+
+test('packed checks report clock warnings and reject invalid font headers', () => {
+  const { file, cwd, run } = fixture('sprout');
+  const asset = JSON.parse(readFileSync(file, 'utf8'));
+  asset.machine.clocks = { beat: { wrap_ms: 1500, step_hz: 100 } };
+  asset.clips.pulse = { ms: 1000, tracks: {} };
+  asset.machine.layers.push({
+    name: 'clocked', clock: 'beat', entry: 'pulse',
+    states: { pulse: { clip: 'pulse', loop: 'loop', reason: 'Check the clock boundary.' } },
+  });
+  write(file, JSON.stringify(asset));
+  assert.ok(run('check', run('pack', file).file).warnings.some(({ error }) => /does not divide beat.wrap_ms/.test(error)));
+  write(join(cwd, 'invalid.ttf'), 'Plain text posing as a font');
+  assert.throws(() => run('resource', 'invalid.ttf'), /invalid TTF or OTF font header/);
+  asset.fonts = { broken: 'data:font/ttf;base64,AAEAAA==' };
+  write(file, JSON.stringify(asset));
+  assert.throws(() => run('check', file), /fonts.broken: expected a TTF or OTF font header/);
+});
+
+test('pack compacts larger authoring sources while keeping the runtime size limit', () => {
+  const { file, cwd, run } = fixture('sprout');
+  const text = readFileSync(file, 'utf8').padStart(1024 * 1024 + 1, ' ');
+  write(file, text);
+  assert.equal(run('check', file).ok, true);
+  assert.ok(run('pack', file).bytes < 10_000);
+  write(join(cwd, 'large.skmotion'), text);
+  assert.throws(() => run('check', 'large.skmotion'), /at most 1 MiB/);
 });
 
 test('Versus HUD binds the timer and meters and animates feathering on impact', () => {

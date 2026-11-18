@@ -137,6 +137,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     './machine-schema.js': validator,
     '../templates/motion/motion': motion,
     './asset-image': load('runtime/asset-image.ts', { './base64': load('runtime/base64.ts', {}, 'production') }, 'production'),
+    './base64': load('runtime/base64.ts', {}, 'production'),
   }, 'production');
   const asset = runtime.parseAsset(readFileSync(new URL('../../templates/assets/sprout.json', import.meta.url), 'utf8'));
   asset.artboard.nodes[0].feather = 5;

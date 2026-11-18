@@ -97,7 +97,7 @@ function render() {
     width: width.validity.valid && width.value ? width.valueAsNumber : size[0],
     height: height.validity.valid && height.value ? height.valueAsNumber : size[1],
   };
-  const channels = { ...asset.channels, ...pose(machine, clips, snapshot, time, clock, reduced.checked).channels };
+  const channels = pose(machine, clips, snapshot, time, clock, reduced.checked, asset.channels).channels;
   const values = Object.fromEntries(machine.values.map(({ name }, index) => [name, snapshot.vals[index]]));
   const drawingKey = JSON.stringify([viewport, channels, values]);
   if (drawingKey !== lastDrawing) {
