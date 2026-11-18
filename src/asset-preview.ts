@@ -1,24 +1,30 @@
-import { assetClips, parseAsset } from '../runtime/asset';
+import { assetClips, parseDrawableAsset } from '../runtime/asset';
+import type { AssetResource } from '../runtime/asset-binary';
+import { decodeBase64 } from '../runtime/base64';
 import { assetSVG } from '../runtime/asset-svg';
 import { advance, compile, pose, simulatedClock, start, writeProblem, type Literal, type Write } from '../templates/motion/machine';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const { source, size, reduced: initialReduced, artboard } = JSON.parse(element('scene').textContent!) as {
+const { source, size, reduced: initialReduced, artboard, binary } = JSON.parse(element('scene').textContent!) as {
   source: string;
   size: [number, number];
   reduced: boolean;
   artboard?: string;
+  binary?: boolean;
 };
-const asset = parseAsset(source, artboard);
-const resourceURLs = new Map<string, string>();
-function resourceURL(uri: string): string {
-  let url = resourceURLs.get(uri);
+const asset = parseDrawableAsset(binary ? decodeBase64(source) : source, artboard);
+const resourceURLs = new Map<AssetResource, string>();
+function resourceURL(resource: AssetResource): string {
+  let url = resourceURLs.get(resource);
   if (url === undefined) {
-    const [header, encoded] = uri.split(',') as [string, string];
-    const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
-    const type = header.slice(5, -7);
-    url = URL.createObjectURL(new Blob([bytes], { type }));
-    resourceURLs.set(uri, url);
+    if (typeof resource === 'string') {
+      const [header, encoded] = resource.split(',') as [string, string];
+      const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+      url = URL.createObjectURL(new Blob([bytes], { type: header.slice(5, -7) }));
+    } else {
+      url = URL.createObjectURL(new Blob([new Uint8Array(resource.bytes)], { type: resource.mime }));
+    }
+    resourceURLs.set(resource, url);
   }
   return url;
 }
@@ -28,7 +34,7 @@ fontStyles.textContent = Object.entries(asset.fonts ?? {}).map(([name, uri]) =>
   `@font-face{font-family:${name};src:url(${resourceURL(uri)})}`,
 ).join('');
 document.head.append(fontStyles);
-const drawing = { ...asset, images, fonts: undefined, fontLicenses: undefined };
+const drawing = { ...asset, images, fonts: undefined, fontLicenses: undefined, audio: undefined };
 const clips = assetClips(asset);
 const machine = compile(asset.machine, clips);
 const clock = simulatedClock(asset.machine);

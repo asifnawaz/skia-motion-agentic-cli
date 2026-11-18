@@ -21,7 +21,10 @@ export function previewHTML(source, size, reduced, artboard) {
   };
   const template = readFileSync(new URL('./asset-preview.html', import.meta.url), 'utf8')
     .replace('/* skac-ui-font */', `@font-face { font-family: "Allo"; src: url("data:font/woff2;base64,${typeface.data}") format("woff2"); font-style: normal; font-weight: 400 }`);
-  const data = JSON.stringify({ source, size, reduced, artboard }).replaceAll('<', '\\u003c');
+  const binary = typeof source !== 'string';
+  const data = JSON.stringify({
+    source: binary ? source.toString('base64') : source, size, reduced, artboard, ...(binary && { binary }),
+  }).replaceAll('<', '\\u003c');
   const license = JSON.stringify(typeface.license).replaceAll('<', '\\u003c');
   return `${template}<script id="font-license" type="application/json">${license}</script>
 <script id="scene" type="application/json">${data}</script>

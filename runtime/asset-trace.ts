@@ -6,7 +6,8 @@ import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } f
 export { measureAttachments } from './asset-attachments';
 export { parseAsset };
 export { parseAssetFile, parseAssetSource, selectArtboard } from './asset';
-export { hasFontHeader, MAX_ASSET_BYTES, usedAssetImages } from './asset';
+export { hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages } from './asset';
+export { encodeBinaryAsset, isBinaryAsset, mapFileResources } from './asset-binary';
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
 export { validateMachine } from './machine-schema.js';

@@ -97,4 +97,19 @@ test('asset loading shares pending resources, aborts released sources, and ignor
   await setImmediate();
   assert.notEqual(use(appC, 'photo', colorVariant).asset, photoA);
   for (const consumer of [appA, appB, appC]) consumer.cleanup();
+
+  const bytes = Uint8Array.of(83, 75, 77, 79);
+  const binaryA = {};
+  const binaryB = {};
+  const binaryC = {};
+  use(binaryA, bytes);
+  use(binaryB, bytes);
+  const separate = bytes.slice();
+  use(binaryC, separate);
+  await setImmediate();
+  const packed = use(binaryA, bytes).asset;
+  assert.equal(packed.text, bytes);
+  assert.equal(use(binaryB, bytes).asset, packed);
+  assert.notEqual(use(binaryC, separate).asset, packed);
+  for (const consumer of [binaryA, binaryB, binaryC]) consumer.cleanup();
 });

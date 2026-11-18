@@ -24,7 +24,7 @@ import { CliError, errorDoc, fail, toJson } from './util.js';
 const SPEC = {
   bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
-    'search', 'as', 'trace', 'artboard', 'export', 'entry', 'root', 'out-dir', 'gl'],
+    'search', 'as', 'trace', 'artboard', 'format', 'export', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
 };
 
@@ -51,7 +51,7 @@ export const execute = (argv, cwd = process.cwd()) => {
       ok: true, name: 'skac', version: version(),
       commands: ['--version', 'doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name> [--draw]', 'samples [name] [dir]', 'schema [Name]',
         'inspect [Name]', 'compare <mp4...>', 'lint [files...] [--fix]', 'update [--force] [--check]',
-        'asset guide | sample | image | resource | check | trace | frame | preview | types | pack',
+        'asset guide | sample | image | resource | check | trace | frame | preview | types | pack | unpack',
         '<Name> --stats | --story | --check  (blind mode: no image; the first --check of a scene answers draft: improve the two weakest beats it names)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',
         '<Name> --probe-box=x,y,w,h --at=t  (the box\'s top 8 colours by pixel count, with share and bbox in pt)',

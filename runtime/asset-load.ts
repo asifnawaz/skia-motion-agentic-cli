@@ -1,5 +1,6 @@
 import type { SkImage } from 'react-native-skia';
-import { assetClips, bindAssetPalette, parseAsset, type MotionAsset } from './asset';
+import { assetClips, bindAssetPalette, parseDrawableAsset, type MotionAsset } from './asset';
+import { resourceDataUri, type MotionAssetData } from './asset-binary';
 import { decodeAssetImages, prepareAssetDrawing, rebindAssetMeshShaders, type AssetImages, type DrawableAsset } from './asset-draw';
 
 let nextAssetKey = 0;
@@ -18,8 +19,8 @@ export type LoadedMotionAsset = Readonly<{
 /** Prepare one file for reuse by independent player instances. Keep the result while those players are mounted. */
 export type MotionPrepareOptions = { artboard?: string; imageSlots?: AssetImages; palette?: Readonly<Record<string, string>> };
 
-export function loadMotionAsset(source: string, { artboard, imageSlots, palette }: MotionPrepareOptions = {}): LoadedMotionAsset {
-  const asset = bindAssetPalette(parseAsset(source, artboard), palette);
+export function loadMotionAsset(source: MotionAssetData, { artboard, imageSlots, palette }: MotionPrepareOptions = {}): LoadedMotionAsset {
+  const asset = bindAssetPalette(parseDrawableAsset(source, artboard), palette);
   const images = decodeAssetImages(asset, imageSlots);
   return {
     key: nextAssetKey++,
@@ -29,7 +30,7 @@ export function loadMotionAsset(source: string, { artboard, imageSlots, palette 
     images,
     clips: assetClips(asset),
     semantics: asset.semantics,
-    audio: asset.audio,
+    audio: asset.audio && Object.fromEntries(Object.entries(asset.audio).map(([name, resource]) => [name, resourceDataUri(resource)])),
   };
 }
 
@@ -38,10 +39,10 @@ export function loadMotionAsset(source: string, { artboard, imageSlots, palette 
  * that work off the JS thread. Upload is opt-in and can retain textures until the file is released.
  */
 export async function preloadMotionAsset(
-  source: string | LoadedMotionAsset,
+  source: MotionAssetData | LoadedMotionAsset,
   { uploadImages = false, ...options }: MotionPrepareOptions & { uploadImages?: boolean } = {},
 ): Promise<LoadedMotionAsset> {
-  const loaded = typeof source === 'string' ? loadMotionAsset(source, options) : source;
+  const loaded = typeof source === 'string' || source instanceof Uint8Array ? loadMotionAsset(source, options) : source;
   const warmed = new Map<SkImage, SkImage>();
   const images: [string, SkImage][] = [];
   let changed = false;

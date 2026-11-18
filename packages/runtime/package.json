@@ -24,6 +24,7 @@
   "files": [
     "LICENSE",
     "NOTICE.md",
+    "runtime/asset-binary.ts",
     "runtime/asset-draw.ts",
     "runtime/asset-image.ts",
     "runtime/asset-layout.ts",

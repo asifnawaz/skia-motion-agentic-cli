@@ -1,7 +1,11 @@
 import { decodeBase64 } from './base64';
+import { isResourceBytes } from './asset-binary';
 
 /** Check the embedded image header before passing its bytes to a renderer. */
 export function imageSize(uri: unknown): { width: number; height: number } | null {
+  if (isResourceBytes(uri)) {
+    return uri.mime.startsWith('image/') ? imageFileSize(uri.mime.slice(6), uri.bytes) : null;
+  }
   if (typeof uri !== 'string') return null;
   const match = /^data:image\/(png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(uri);
   if (!match || match[0] !== uri || match[2]!.length % 4 !== 0) return null;
