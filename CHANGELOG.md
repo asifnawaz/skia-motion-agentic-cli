@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.0.0...v3.1.0) (2026-11-18)
+
+
+### Features
+
+* add interactive motion previews and native asset bindings ([9040642](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/904064252a133ffb26ebe7ad8333c7331d333744))
+
 # [3.0.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v2.1.0...v3.0.0) (2026-11-18)
 
 
