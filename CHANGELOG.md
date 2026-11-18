@@ -1,3 +1,11 @@
+# [1.3.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.2.0...v1.3.0) (2026-11-18)
+
+
+### Features
+
+* interface motion, a one-file --export behind a draft gate, and project libs ([89c8c62](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/89c8c62b066af0e0ff4464650782447203436fe8))
+* state machines for interface motion (M1), exported as one Name.tsx that imports the runtime ([ba7be25](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/ba7be2538b5cc52693093456b1cf56813f1ef124))
+
 # [1.2.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.1.2...v1.2.0) (2026-11-13)
 
 
