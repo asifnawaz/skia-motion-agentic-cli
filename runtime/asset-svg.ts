@@ -35,13 +35,16 @@ function pathContours(commands: readonly ResolvedCommand[]) {
   const contours: { commands: ResolvedCommand[]; length: number }[] = [];
   let x = 0;
   let y = 0;
+  let closed = false;
   for (const command of commands) {
     const [op, ...points] = command;
     if (op === 'M') {
       [x, y] = points as [number, number];
       contours.push({ commands: [command], length: 0 });
+      closed = false;
       continue;
     }
+    if (closed && op !== 'Z') contours.push({ commands: [['M', x, y]], length: 0 });
     const contour = contours.at(-1)!;
     const nextX = op === 'Z' ? contour.commands[0]![1]! : points.at(-2)!;
     const nextY = op === 'Z' ? contour.commands[0]![2]! : points.at(-1)!;
@@ -49,17 +52,18 @@ function pathContours(commands: readonly ResolvedCommand[]) {
     contour.commands.push(command);
     x = nextX;
     y = nextY;
+    closed = op === 'Z';
   }
   return contours;
 }
 
-function trimmedContours(commands: readonly ResolvedCommand[], start: number, end: number) {
+function trimmedContours(commands: readonly ResolvedCommand[], start: number, end: number, measureLength: boolean) {
   // A normalized dash restarts at each SVG subpath. Allocate the trim interval
   // over the same combined contour length that Skia's trim effect uses.
-  const contours = commands.filter(([op]) => op === 'M').length === 1
-    ? [{ commands, length: 1 }] : pathContours(commands);
+  const compound = commands.slice(1).some(([op], index) => op === 'M' || commands[index]![0] === 'Z');
+  const contours = compound || measureLength ? pathContours(commands) : [{ commands, length: 1 }];
   const total = contours.reduce((sum, contour) => sum + contour.length, 0);
-  const spans: { path: string; trim: string }[] = [];
+  const spans: { path: string; trim: string; distance: number }[] = [];
   let offset = 0;
   for (const contour of contours) {
     if (!contour.length) continue;
@@ -69,7 +73,7 @@ function trimmedContours(commands: readonly ResolvedCommand[], start: number, en
     if (to <= from) continue;
     const trim = from === 0 && to === 1 ? ''
       : ` pathLength="1" stroke-dasharray="${to - from} ${1 - to + from}" stroke-dashoffset="${-from}"`;
-    spans.push({ path: pathData(contour.commands), trim });
+    spans.push({ path: pathData(contour.commands), trim, distance: from * contour.length });
   }
   return spans;
 }
@@ -130,25 +134,28 @@ export function assetSVG(
     const end = opacity(read(stroke.trim?.end, 1));
     if (!(width > 0) || end <= start) return '';
     const trimmed = start > 0 || end < 1;
-    const spans = trimmed ? trimmedContours(commands, start, end) : [];
     const style = `fill="none" stroke-width="${width}" stroke-linecap="${stroke.cap ?? 'butt'}" stroke-linejoin="${stroke.join ?? 'miter'}"`;
     const color = resolveAssetColor(stroke.color, asset.palette ?? {});
+    const strokeAlpha = color.length === 9 ? parseInt(color.slice(7), 16) / 255 : 1;
+    const group = (paths: string) => `<g opacity="${alpha * strokeAlpha}"${filter}>${paths}</g>`;
     const strokeTag = (path: string, dash = '') =>
-      `<path d="${path}" ${style} stroke="${color}" opacity="${alpha}"${dash}${filter}/>`;
-    if (trimmed && !stroke.dash) return spans.map(({ path, trim }) => strokeTag(path, trim)).join('');
-    let mask = '';
-    if (trimmed && stroke.dash) {
-      const id = `stroke-trim-${defs.length}`;
-      const [x, y, w, h] = bounds as [number, number, number, number];
-      const pad = width * 2;
-      const paths = spans.map(({ path, trim }) => `<path d="${path}" ${style} stroke="#fff"${trim}/>`).join('');
-      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${x - pad}" y="${y - pad}" width="${w + 2 * pad}" height="${h + 2 * pad}">${paths}</mask>`);
-      mask = ` mask="url(#${id})"`;
-    }
-    const dash = stroke.dash
-      ? ` stroke-dasharray="${stroke.dash.intervals.join(' ')}" stroke-dashoffset="${read(stroke.dash.phase)}"`
+      `<path d="${path}" ${style} stroke="${color.slice(0, 7)}"${dash}/>`;
+    const phase = read(stroke.dash?.phase);
+    const dash = (offset: number) => stroke.dash
+      ? ` stroke-dasharray="${stroke.dash.intervals.join(' ')}" stroke-dashoffset="${offset}"`
       : '';
-    return strokeTag(pathData(commands), dash + mask);
+    if (!trimmed) return group(strokeTag(pathData(commands), dash(phase)));
+    const spans = trimmedContours(commands, start, end, Boolean(stroke.dash));
+    if (!stroke.dash) return group(spans.map(({ path, trim }) => strokeTag(path, trim)).join(''));
+
+    const [x, y, w, h] = bounds as [number, number, number, number];
+    const pad = width * 2;
+    return group(spans.map(({ path, trim, distance }) => {
+      if (!trim) return strokeTag(path, dash(phase));
+      const id = `stroke-trim-${defs.length}`;
+      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${x - pad}" y="${y - pad}" width="${w + 2 * pad}" height="${h + 2 * pad}"><path d="${path}" ${style} stroke="#fff"${trim}/></mask>`);
+      return strokeTag(path, `${dash(phase - distance)} mask="url(#${id})"`);
+    }).join(''));
   };
   const draw = (node: AssetNode, paddingX = 0, paddingY = 0): string => {
     if (node.kind === 'group') {

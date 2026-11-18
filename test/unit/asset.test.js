@@ -208,6 +208,23 @@ test('packed asset preview embeds the exact checked source and preserves it on r
   assert.throws(() => run('preview', packed.file, `--out=${packed.file}`, '--force'), /same file/);
 });
 
+test('SVG trim restarts dash phase and shares opacity across closed contours', () => {
+  const { file, run } = fixture('sprout');
+  const asset = JSON.parse(readFileSync(file, 'utf8'));
+  asset.artboard.nodes = [
+    { kind: 'path', commands: [['M', 10, 20], ['L', 110, 20]], stroke: {
+      color: '#0099FF', width: 4, trim: { start: 0.2, end: 0.75 }, dash: { intervals: [8, 8], phase: 3 },
+    } },
+    { kind: 'path', commands: [['M', 10, 30], ['L', 30, 30], ['Z'], ['L', 10, 70]], opacity: 0.5, stroke: {
+      color: '#002244', width: 4, trim: { start: 0.25, end: 0.75 },
+    } },
+  ];
+  write(file, JSON.stringify(asset));
+  const svg = readFileSync(run('frame', file).file, 'utf8');
+  assert.match(svg, /stroke="#0099FF" stroke-dasharray="8 8" stroke-dashoffset="-17"[^>]+mask=/);
+  assert.match(svg, /<g opacity="0\.5"><path d="M 10 30 L 30 30 Z"[^>]+stroke-dashoffset="-0\.5"\/><path d="M 10 30 L 10 70"[^>]+stroke-dashoffset="0"\/><\/g>/);
+});
+
 test('Versus HUD binds the timer and meters and animates feathering on impact', () => {
   const { file, cwd, run } = fixture('versus-hud');
   const inputs = '--commands=leftHealth=0.48@0.1 leftHit@0.1 timerTens=1@0.1 timerOnes=2@0.1 rightSuper=1@0.2';
