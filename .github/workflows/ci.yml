@@ -41,15 +41,21 @@ jobs:
             shopt -s nullglob
             packages=("$cache/"*.deb)
             if (( ! ${#packages[@]} )); then
-              archives="$RUNNER_TEMP/ffmpeg-archives"
-              mkdir -p "$archives" "$cache"
+              # APT creates a restricted partial directory. Keep it outside
+              # the runner's artifact search and let _apt reach the archives.
+              archives="$(mktemp -d /tmp/skac-ffmpeg.XXXXXX)"
+              chmod 755 "$archives"
+              mkdir -p "$cache"
               sudo apt-get -o Acquire::Languages=none update
               sudo apt-get -o "Dir::Cache::archives=$archives" \
                 install --download-only --no-install-recommends -y ffmpeg
               cp "$archives/"*.deb "$cache/"
               packages=("$cache/"*.deb)
             fi
-            sudo apt-get install --no-download --no-install-recommends -y "${packages[@]}"
+            # APT still acquires local files. Disable repositories for this
+            # install so it can read the cached files without using the network.
+            sudo apt-get -o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=- \
+              install --no-install-recommends -y "${packages[@]}"
           fi
           ffmpeg -version | sed -n '1p'
           ffprobe -version | sed -n '1p'
