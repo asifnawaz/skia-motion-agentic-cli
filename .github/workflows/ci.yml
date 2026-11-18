@@ -25,7 +25,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Identify the FFmpeg package cache
+        id: ffmpeg-image
+        run: printf 'key=%s-%s\n' "$ImageOS" "$ImageVersion" >> "$GITHUB_OUTPUT"
+      - name: Cache Ubuntu FFmpeg packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/skac/ffmpeg-debs
+          key: ffmpeg-debs-v1-${{ runner.arch }}-${{ steps.ffmpeg-image.outputs.key }}
+      - name: Set up FFmpeg
+        shell: bash
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            cache="$HOME/.cache/skac/ffmpeg-debs"
+            shopt -s nullglob
+            packages=("$cache/"*.deb)
+            if (( ! ${#packages[@]} )); then
+              archives="$RUNNER_TEMP/ffmpeg-archives"
+              mkdir -p "$archives" "$cache"
+              sudo apt-get -o Acquire::Languages=none update
+              sudo apt-get -o "Dir::Cache::archives=$archives" \
+                install --download-only --no-install-recommends -y ffmpeg
+              cp "$archives/"*.deb "$cache/"
+              packages=("$cache/"*.deb)
+            fi
+            sudo apt-get install --no-download --no-install-recommends -y "${packages[@]}"
+          fi
+          ffmpeg -version | sed -n '1p'
+          ffprobe -version | sed -n '1p'
       - uses: actions/cache@v4
         with:
           path: |
