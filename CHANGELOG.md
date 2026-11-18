@@ -1,3 +1,18 @@
+# [3.0.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v2.1.0...v3.0.0) (2026-11-18)
+
+
+### Features
+
+* ship a standalone React Native and Expo runtime ([c365786](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/c36578626ee4018333ca7bbc2d9697eab391b7a1))
+
+
+### BREAKING CHANGES
+
+* New machine exports import
+`skia-motion-runtime/machine`. Install the matching app runtime release
+before regenerating machine components. Existing `.skmotion` files
+work with the standalone player.
+
 # [2.1.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v2.0.0...v2.1.0) (2026-11-18)
 
 
