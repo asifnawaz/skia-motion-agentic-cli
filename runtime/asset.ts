@@ -3,12 +3,13 @@ import { EASE_IN, EASE_IN_OUT, EASE_OUT } from '../templates/motion/motion';
 import type { Clips, Machine, StateEntry } from '../templates/motion/machine';
 import type { AssetAnchor } from './asset-layout';
 import { imageSize } from './asset-image';
+import type { MeshNode, MeshVertex } from './asset-mesh';
 
 export const ASSET_SCHEMA = 'skac.asset/1';
 export const MAX_ASSET_BYTES = 1024 * 1024;
 export const MAX_FEATHER = 64;
 
-type Scalar = number | string;
+export type Scalar = number | string;
 type Ease = 'linear' | 'in' | 'out' | 'inOut' | 'hold';
 type Key = readonly [ms: number, value: number, ease?: Ease];
 type Track = readonly Key[];
@@ -37,7 +38,7 @@ type ImageNode = {
   x: Scalar; y: Scalar; width: Scalar; height: Scalar;
 };
 
-export type AssetNode = Group | Shape | ImageNode;
+export type AssetNode = Group | Shape | ImageNode | MeshNode;
 export type AssetMarker = { name: string; layer: string; state: string };
 export type AssetMarkerEvent = AssetMarker & { at: number };
 export type AssetAttachment = { from: string; to: string; maxDistance: number };
@@ -116,6 +117,59 @@ type NodeValidation = {
   points: Set<string>;
 };
 
+function registerPoint(name: string, at: string, points: Set<string>): void {
+  identifier(name, at);
+  if (points.has(name)) invalid(at, 'duplicate point name');
+  points.add(name);
+}
+
+function checkChildren(value: unknown, at: string, context: NodeValidation, depth: number): void {
+  if (depth >= 16) invalid(at, 'nodes are nested more than 16 levels');
+  list(value, at, 256).forEach((child, i) => checkNode(child, `${at}[${i}]`, context, depth + 1));
+}
+
+function checkMesh(node: Record<string, unknown>, at: string, context: NodeValidation, depth: number): void {
+  record(node, at, ['kind', 'image', 'vertices', 'indices', 'opacity', 'pins']);
+  const vertices = list(node.vertices, `${at}.vertices`, 1024).map((value, i) => {
+    const key = `${at}.vertices[${i}]`;
+    const vertex = list(value, key, 4);
+    if (vertex.length !== 4) invalid(key, 'expected [x, y, u, v]');
+    scalar(vertex[0], `${key}[0]`, context.channels);
+    scalar(vertex[1], `${key}[1]`, context.channels);
+    number(vertex[2], `${key}[2]`, 0, 1);
+    number(vertex[3], `${key}[3]`, 0, 1);
+    return vertex as unknown as MeshVertex;
+  });
+  if (vertices.length < 3) invalid(`${at}.vertices`, 'expected at least three vertices');
+  const indices = list(node.indices, `${at}.indices`, 6144).map((value, i) => {
+    const key = `${at}.indices[${i}]`;
+    const index = number(value, key, 0, vertices.length - 1);
+    if (!Number.isInteger(index)) invalid(key, 'expected an integer vertex index');
+    return index;
+  });
+  if (!indices.length || indices.length % 3 !== 0) invalid(`${at}.indices`, 'expected index triples');
+  for (let i = 0; i < indices.length; i += 3) {
+    const [, , au, av] = vertices[indices[i]!]!;
+    const [, , bu, bv] = vertices[indices[i + 1]!]!;
+    const [, , cu, cv] = vertices[indices[i + 2]!]!;
+    const area = (bu - au) * (cv - av) - (bv - av) * (cu - au);
+    if (Math.abs(area) < 1e-9) invalid(`${at}.indices[${i}]`, 'triangle needs three non-collinear texture coordinates');
+  }
+  if (node.pins === undefined) return;
+  for (const [name, value] of Object.entries(record(node.pins, `${at}.pins`))) {
+    const key = `${at}.pins.${name}`;
+    registerPoint(name, key, context.points);
+    const pin = record(value, key, ['triangle', 'weights', 'children']);
+    const triangle = number(pin.triangle, `${key}.triangle`, 0, indices.length / 3 - 1);
+    if (!Number.isInteger(triangle)) invalid(`${key}.triangle`, 'expected an integer triangle index');
+    const weights = list(pin.weights, `${key}.weights`, 3);
+    if (weights.length !== 3) invalid(`${key}.weights`, 'expected one weight per vertex');
+    const sum = weights.reduce<number>((total, value, i) => total + number(value, `${key}.weights[${i}]`, 0, 1), 0);
+    if (Math.abs(sum - 1) > 1e-6) invalid(`${key}.weights`, 'weights must add up to 1');
+    if (pin.children !== undefined) checkChildren(pin.children, `${key}.children`, context, depth);
+  }
+}
+
 function checkNode(value: unknown, at: string, context: NodeValidation, depth: number): void {
   const { channels, images, points } = context;
   const node = record(value, at);
@@ -127,9 +181,7 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     if (node.points !== undefined) {
       for (const [name, rawPoint] of Object.entries(record(node.points, `${at}.points`))) {
         const key = `${at}.points.${name}`;
-        identifier(name, key);
-        if (points.has(name)) invalid(key, 'duplicate point name');
-        points.add(name);
+        registerPoint(name, key, points);
         const point = record(rawPoint, key, ['x', 'y']);
         scalar(point.x, `${key}.x`, channels);
         scalar(point.y, `${key}.y`, channels);
@@ -147,16 +199,19 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
         invalid(`${at}.anchor.y`, 'expected top, center or bottom');
       }
     }
-    if (depth >= 16) invalid(at, 'groups are nested more than 16 levels');
-    list(node.children, `${at}.children`, 256).forEach((child, i) => checkNode(child, `${at}.children[${i}]`, context, depth + 1));
+    checkChildren(node.children, `${at}.children`, context, depth);
     return;
   }
-  if (node.kind === 'image') {
-    record(node, at, ['kind', 'image', 'x', 'y', 'width', 'height', 'opacity']);
+  if (node.kind === 'image' || node.kind === 'mesh') {
     if (typeof node.image !== 'string' || !Object.hasOwn(images, node.image)) invalid(`${at}.image`, 'expected a name from images');
-    for (const key of ['x', 'y']) scalar(node[key], `${at}.${key}`, channels);
-    for (const key of ['width', 'height']) scalar(node[key], `${at}.${key}`, channels, 0);
     if (node.opacity !== undefined) scalar(node.opacity, `${at}.opacity`, channels, 0, 1);
+    if (node.kind === 'mesh') {
+      checkMesh(node, at, context, depth);
+    } else {
+      record(node, at, ['kind', 'image', 'x', 'y', 'width', 'height', 'opacity']);
+      for (const key of ['x', 'y']) scalar(node[key], `${at}.${key}`, channels);
+      for (const key of ['width', 'height']) scalar(node[key], `${at}.${key}`, channels, 0);
+    }
     return;
   }
   if (node.kind === 'path') {
@@ -169,7 +224,7 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     for (const key of ['x', 'y', 'width', 'height']) scalar(node[key], `${at}.${key}`, channels, key === 'x' || key === 'y' ? undefined : 0);
     if (node.kind === 'roundRect') scalar(node.radius, `${at}.radius`, channels, 0);
   } else {
-    invalid(`${at}.kind`, 'expected ellipse, roundRect, path, image or group');
+    invalid(`${at}.kind`, 'expected ellipse, roundRect, path, image, mesh or group');
   }
   if (node.opacity !== undefined) scalar(node.opacity, `${at}.opacity`, channels, 0, 1);
   if (node.feather !== undefined) scalar(node.feather, `${at}.feather`, channels, 0, MAX_FEATHER);
@@ -299,8 +354,13 @@ export function parseAsset(text: string): MotionAsset {
 /** Image names used by the drawing. Unreferenced library entries can be omitted from playback. */
 export function usedAssetImages(nodes: readonly AssetNode[], names = new Set<string>()): Set<string> {
   for (const node of nodes) {
-    if (node.kind === 'image') names.add(node.image);
-    else if (node.kind === 'group') usedAssetImages(node.children, names);
+    if (node.kind === 'image' || node.kind === 'mesh') names.add(node.image);
+    if (node.kind === 'group') usedAssetImages(node.children, names);
+    if (node.kind === 'mesh') {
+      for (const pin of Object.values(node.pins ?? {})) {
+        if (pin.children) usedAssetImages(pin.children, names);
+      }
+    }
   }
   return names;
 }

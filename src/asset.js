@@ -15,7 +15,7 @@ const SAMPLES = {
 };
 
 const USAGE = [
-  'skac asset guide [workflow|format|hud|character|lighting|feathering|images|masking|attachments|layout]',
+  'skac asset guide [workflow|format|hud|character|lighting|feathering|images|mesh|masking|attachments|layout]',
   'skac asset sample [game-hud|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset check <file> [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',

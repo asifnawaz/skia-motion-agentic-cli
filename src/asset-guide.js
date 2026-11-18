@@ -9,7 +9,7 @@ const topics = {
       'Run asset pack and pass the resulting file text to MotionPlayer from skia-motion-agentic-cli/runtime/mobile.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample sprout'],
-    topics: ['format', 'hud', 'character', 'lighting', 'feathering', 'images', 'masking', 'attachments', 'layout'],
+    topics: ['format', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout'],
   },
   format: {
     schema: 'skac.asset/1',
@@ -22,7 +22,7 @@ const topics = {
       machine: 'skac.machine/1 with frame-clock layers and host input',
       markers: '[{name,layer,state}]',
       images: 'optional map of image names to embedded PNG or WebP data URIs',
-      attachments: 'optional [{from,to,maxDistance}] checks for named group points',
+      attachments: 'optional [{from,to,maxDistance}] checks for named group points and mesh pins',
     },
     drawOrder: 'Nodes and group children draw from first to last.',
     nodeTypes: {
@@ -30,6 +30,7 @@ const topics = {
       roundRect: { kind: 'roundRect', x: 12, y: 12, width: 'fillWidth', height: 12, radius: 6, fill: '#78E7C1' },
       path: { kind: 'path', fill: '#263344', commands: [['M', 0, 0], ['Q', 12, -20, 24, 0], ['Z']] },
       image: { kind: 'image', image: 'face', x: 12, y: 10, width: 80, height: 120, opacity: 'faceAlpha' },
+      mesh: { kind: 'mesh', image: 'face', vertices: [[0, 0, 0, 0], [20, 0, 1, 0], [0, 20, 0, 1]], indices: [0, 1, 2] },
       group: { kind: 'group', x: 45, y: 52, scaleX: 1, scaleY: 1, rotation: 'tilt', children: [] },
     },
     rules: [
@@ -66,6 +67,7 @@ const topics = {
       'Build the large masses with ovals or paths. Group connected parts and set the body pivot at its contact point.',
       'Change the eyes and mouth before the weight shifts. Sketch a rest, anticipation, peak, and landing pose.',
       'Check the resting silhouette, the peak of the reaction, and the interrupted pose at actual display size.',
+      'For a painted character, keep the source textures. Put parts that bend on meshes and mount details like eyes and a bill hinge on mesh pins. Run skac asset guide mesh.',
     ],
     commands: [
       'skac asset sample sprout',
@@ -121,9 +123,33 @@ const topics = {
       children: [{ kind: 'roundRect', x: 0, y: 0, width: 120, height: 16, radius: 8, fill: '#78E7C1' }],
     },
   },
+  mesh: {
+    drawing: [
+      'Embed a PNG or WebP with skac asset image, then reference its name from a mesh node.',
+      'Each vertex is [x,y,u,v]. x and y are artboard coordinates or numeric channels. u and v are fixed texture coordinates from 0 to 1, measured from the upper left.',
+      'Each triple in indices draws one triangle. Share vertices along connected edges. Give every triangle an area in texture space.',
+      'Animate just the vertices that bend. Pose tracks move their x and y without changing the underlying texture.',
+      'A pin belongs to a zero-based triangle. Its weights are ordered like that triangle’s indices and sum to 1.',
+      'Optional pin children translate with the pin. Use a child group to animate their rotation. The mesh opacity controls the texture, and each child controls its own opacity.',
+      'Replay movement with asset trace and compare a pin with another named point using attachments. Render key poses with asset frame before packing.',
+    ],
+    channels: { browY: 0 },
+    node: {
+      kind: 'mesh', image: 'face',
+      vertices: [[0, 0, 0, 0], [60, 'browY', 1, 0], [0, 60, 0, 1], [60, 60, 1, 1]],
+      indices: [0, 1, 2, 1, 3, 2],
+      pins: {
+        eyeSocket: {
+          triangle: 0, weights: [0.2, 0.6, 0.2],
+          children: [{ kind: 'ellipse', x: -3, y: -3, width: 6, height: 6, fill: '#261D19' }],
+        },
+      },
+    },
+  },
   attachments: {
     drawing: [
       'Give each point a unique name. Store it on the group whose transform the point follows.',
+      'A named mesh pin is also an attachment point. It follows the triangle as its vertices move.',
       'Use group-local coordinates or declared channels for x and y.',
       'Add an attachment rule to limit the distance between two points in artboard units.',
       'Replay the input cue and sample the whole motion with asset check. On failure, it reports the greatest sampled gap and its time for the first failing rule.',

@@ -1,21 +1,32 @@
-import { BlurStyle, ClipOp, FilterMode, MipmapMode, Skia, TileMode, type SkCanvas, type SkData, type SkImage, type SkPaint, type SkPath } from 'react-native-skia';
+import { BlendMode, BlurStyle, ClipOp, FilterMode, MipmapMode, Skia, TileMode, VertexMode, type SkCanvas, type SkData, type SkImage, type SkPaint, type SkPath, type SkShader } from 'react-native-skia';
 import { MAX_FEATHER, usedAssetImages, type AssetNode, type MotionAsset, type PathCommand } from './asset';
 import { anchorOffset, layoutAsset } from './asset-layout';
+import { meshPinPosition, meshPosition, type MeshNode, type MeshPin } from './asset-mesh';
 
 type Channels = Readonly<Record<string, number>>;
+type Point = ReturnType<typeof meshPosition>;
+type DrawablePin = Omit<MeshPin, 'children'> & { children: readonly DrawableNode[] };
+type DrawableMesh = Omit<MeshNode, 'pins'> & {
+  pins?: readonly DrawablePin[];
+  fixedPositions?: Point[];
+  textureCoords?: Point[];
+};
 type DrawableNode =
   | (Omit<Extract<AssetNode, { kind: 'group' }>, 'children'> & {
       children: readonly DrawableNode[];
       preparedClip?: SkPath;
     })
+  | DrawableMesh
   | (DrawableShape & { preparedPath?: SkPath; preparedPaint?: SkPaint });
 
-type DrawableShape = Exclude<AssetNode, { kind: 'group' }>;
+type DrawableShape = Exclude<AssetNode, { kind: 'group' | 'mesh' }>;
 
 export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
   artboard: Omit<MotionAsset['artboard'], 'nodes'> & { nodes: readonly DrawableNode[] };
+  meshShaders?: AssetMeshShaders;
 };
 export type AssetImages = Readonly<Record<string, SkImage>>;
+export type AssetMeshShaders = Readonly<Record<string, SkShader>>;
 
 /** Decode on the JS thread once per loaded file. Only the native images enter the UI worklet. */
 export function decodeAssetImages(asset: MotionAsset): AssetImages {
@@ -97,24 +108,82 @@ function preparePaint(node: DrawableShape): SkPaint | undefined {
   return makePaint(node, node.opacity ?? 1, {});
 }
 
-function prepareNode(node: AssetNode): DrawableNode {
+function meshTextureCoords(node: MeshNode | DrawableMesh, image: SkImage): Point[] {
+  'worklet';
+  const width = image.width();
+  const height = image.height();
+  return node.vertices.map(([, , u, v]) => ({ x: u * width, y: v * height }));
+}
+
+function meshShader(image: SkImage): SkShader {
+  'worklet';
+  return image.makeShaderOptions(TileMode.Decal, TileMode.Decal, FilterMode.Linear, MipmapMode.None);
+}
+
+function prepareNode(node: AssetNode, images: AssetImages, shaders: Record<string, SkShader>, shadersByImage: Map<SkImage, SkShader>): DrawableNode {
   const commands = node.kind === 'group' ? node.clip : node.kind === 'path' ? node.commands : undefined;
   const prepared = commands?.every(([, ...coordinates]) => coordinates.every((value) => typeof value === 'number'))
     ? makePath(commands, {})
     : undefined;
   if (node.kind === 'group') {
     const { points: _points, ...drawing } = node;
-    return { ...drawing, preparedClip: prepared, children: node.children.map(prepareNode) };
+    return { ...drawing, preparedClip: prepared, children: node.children.map((child) => prepareNode(child, images, shaders, shadersByImage)) };
+  }
+  if (node.kind === 'mesh') {
+    const image = images[node.image];
+    if (image && !Object.hasOwn(shaders, node.image)) {
+      const shader = shadersByImage.get(image) ?? meshShader(image);
+      shadersByImage.set(image, shader);
+      shaders[node.image] = shader;
+    }
+    const pins = node.pins && Object.values(node.pins).filter((pin) => pin.children?.length).map((pin) => ({
+      ...pin,
+      children: pin.children!.map((child) => prepareNode(child, images, shaders, shadersByImage)),
+    }));
+    const fixed = node.vertices.every(([x, y]) => typeof x === 'number' && typeof y === 'number');
+    return {
+      ...node, pins,
+      fixedPositions: fixed ? node.vertices.map((vertex) => meshPosition(vertex, {})) : undefined,
+      textureCoords: image ? meshTextureCoords(node, image) : undefined,
+    };
   }
   return { ...node, preparedPath: prepared, preparedPaint: preparePaint(node) };
 }
 
 /** Build fixed geometry and paints once. Channel-driven paths and clips are still evaluated for each pose. */
-export function prepareAssetDrawing(asset: MotionAsset): DrawableAsset {
-  return { channels: asset.channels, artboard: { ...asset.artboard, nodes: asset.artboard.nodes.map(prepareNode) } };
+export function prepareAssetDrawing(asset: MotionAsset, images: AssetImages = {}): DrawableAsset {
+  const shaders: Record<string, SkShader> = {};
+  const shadersByImage = new Map<SkImage, SkShader>();
+  const nodes = asset.artboard.nodes.map((node) => prepareNode(node, images, shaders, shadersByImage));
+  return { channels: asset.channels, artboard: { ...asset.artboard, nodes }, meshShaders: shaders };
 }
 
-function drawNodes(canvas: SkCanvas, nodes: readonly DrawableNode[], channels: Channels, images: AssetImages, insetX = 0, insetY = 0): void {
+/** Warmed images may be different native objects. Prepare their shaders with the same geometry. */
+export function rebindAssetMeshShaders(drawing: DrawableAsset, images: AssetImages): DrawableAsset {
+  const names = Object.keys(drawing.meshShaders ?? {});
+  if (!names.length) return drawing;
+  const byImage = new Map<SkImage, SkShader>();
+  const meshShaders = Object.fromEntries(names.map((name) => {
+    const image = images[name]!;
+    const shader = byImage.get(image) ?? meshShader(image);
+    byImage.set(image, shader);
+    return [name, shader];
+  }));
+  return { ...drawing, meshShaders };
+}
+
+function drawMesh(canvas: SkCanvas, node: DrawableMesh, channels: Channels, image: SkImage, alpha: number, shader: SkShader | undefined) {
+  'worklet';
+  const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
+  const textures = node.textureCoords ?? meshTextureCoords(node, image);
+  const paint = Skia.Paint();
+  paint.setAlphaf(alpha);
+  paint.setShader(shader ?? meshShader(image));
+  const mesh = Skia.MakeVertices(VertexMode.Triangles, positions, textures, undefined, node.indices as number[]);
+  canvas.drawVertices(mesh, BlendMode.SrcOver, paint);
+}
+
+function drawNodes(canvas: SkCanvas, nodes: readonly DrawableNode[], channels: Channels, images: AssetImages, shaders: AssetMeshShaders, insetX = 0, insetY = 0): void {
   'worklet';
   for (const node of nodes) {
     if (node.kind === 'group') {
@@ -124,11 +193,25 @@ function drawNodes(canvas: SkCanvas, nodes: readonly DrawableNode[], channels: C
       canvas.rotate(read(node.rotation, channels), 0, 0);
       canvas.scale(read(node.scaleX, channels, 1), read(node.scaleY, channels, 1));
       if (node.clip) canvas.clipPath(node.preparedClip ?? makePath(node.clip, channels), ClipOp.Intersect, true);
-      drawNodes(canvas, node.children, channels, images);
+      drawNodes(canvas, node.children, channels, images, shaders);
       canvas.restore();
       continue;
     }
     const alpha = Math.min(1, Math.max(0, read(node.opacity, channels, 1)));
+    if (node.kind === 'mesh') {
+      const image = images[node.image];
+      if (image && alpha) drawMesh(canvas, node, channels, image, alpha, shaders[node.image]);
+      if (node.pins) {
+        for (const pin of node.pins) {
+          const { x, y } = meshPinPosition(node, pin, channels);
+          canvas.save();
+          canvas.translate(x, y);
+          drawNodes(canvas, pin.children, channels, images, shaders);
+          canvas.restore();
+        }
+      }
+      continue;
+    }
     if (!alpha) continue;
     const paint = node.preparedPaint ?? makePaint(node, alpha, channels);
     if (node.kind === 'image') {
@@ -174,6 +257,6 @@ export function drawAsset(canvas: SkCanvas, asset: DrawableAsset, pose: Channels
     ? Skia.XYWHRect(-insetX, -insetY, board.width + 2 * insetX, board.height + 2 * insetY)
     : Skia.XYWHRect(0, 0, board.width, board.height);
   canvas.clipRect(bounds, ClipOp.Intersect, true);
-  drawNodes(canvas, board.nodes, { ...asset.channels, ...pose }, images, insetX, insetY);
+  drawNodes(canvas, board.nodes, { ...asset.channels, ...pose }, images, asset.meshShaders ?? {}, insetX, insetY);
   canvas.restore();
 }
