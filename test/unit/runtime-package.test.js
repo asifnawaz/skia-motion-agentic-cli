@@ -8,6 +8,7 @@ import { buildSync } from 'esbuild';
 import { prepare } from '../../scripts/pack-runtime.js';
 
 const cli = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+const definition = JSON.parse(readFileSync(new URL('../../packages/runtime/package.json', import.meta.url), 'utf8'));
 
 test('the released player installs without CLI dependencies and both app imports bundle', () => {
   const directory = mkdtempSync(join(tmpdir(), 'skac-runtime-test-'));
@@ -34,7 +35,10 @@ test('the released player installs without CLI dependencies and both app imports
     const lock = readJson('package-lock.json');
     assert.deepEqual(Object.keys(lock.packages).sort(), ['', 'node_modules/skia-motion-runtime']);
     const manifest = readJson('node_modules/skia-motion-runtime/package.json');
+    assert.equal(manifest.name, definition.name);
     assert.equal(manifest.version, cli.version);
+    assert.deepEqual(manifest.exports, definition.exports);
+    assert.equal(manifest.private, undefined);
     assert.deepEqual(manifest.peerDependencies, cli.peerDependencies);
     assert.equal(manifest.bin, undefined);
 

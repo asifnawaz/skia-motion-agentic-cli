@@ -1,7 +1,8 @@
 # Skia Motion for React Native, Expo, and coding agents
 
 [![CI](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/skia-motion-agentic-cli.svg)](https://www.npmjs.com/package/skia-motion-agentic-cli)
+[![CLI on npm](https://img.shields.io/npm/v/skia-motion-agentic-cli?label=npm%20CLI)](https://www.npmjs.com/package/skia-motion-agentic-cli)
+[![Runtime on npm](https://img.shields.io/npm/v/skia-motion-runtime?label=npm%20runtime)](https://www.npmjs.com/package/skia-motion-runtime)
 
 Skia Motion is a free, open-source Rive alternative for creating interactive game HUDs, animated
 mascots, and mobile UI with coding agents. Author vector shapes and painted PNG or WebP layers in
@@ -57,13 +58,16 @@ For offline Remotion renders, keep using the CLI's video workflow with its own p
 
 ## Play an asset in React Native or Expo
 
-Install `skia-motion-runtime` from a pinned release in your app. The runtime package contains the player,
+Install `skia-motion-runtime` in your React Native or Expo app. The runtime contains the player,
 with React, React Native, Skia, Reanimated and Worklets supplied by the app.
-[Skia Motion releases](https://github.com/asifnawaz/skia-motion-agentic-cli/releases)
+[Runtime package on npm](https://www.npmjs.com/package/skia-motion-runtime)
 
 ```sh
-npm install https://github.com/asifnawaz/skia-motion-agentic-cli/releases/download/v3.0.0/skia-motion-runtime.tgz
+npm install --save-exact skia-motion-runtime@3.0.0
 ```
+
+You can also install the runtime archive from the matching GitHub release.
+[Skia Motion releases](https://github.com/asifnawaz/skia-motion-agentic-cli/releases)
 
 The package exposes one shared player for all your `.skmotion` files. Read the file as UTF-8
 text and pass it to `MotionPlayer`. The player measures its React Native view. By default it fills
@@ -97,7 +101,8 @@ export function VersusHUD({ source }: { source: string }) {
 ```
 
 The player package also exposes `skia-motion-runtime/machine` for generated machine components
-and shared motion helpers.
+and shared motion helpers. Use a runtime version at least as new as the release that generated
+the component.
 
 Use `onMarker` for app-side sound or haptics. The UI can pause when hidden, and the player
 handles system reduced motion and backgrounding. In Expo, use a development build for

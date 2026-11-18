@@ -1,0 +1,30 @@
+{
+  "name": "skia-motion-runtime",
+  "private": true,
+  "description": "React Native and Expo player for interactive .skmotion assets",
+  "type": "module",
+  "main": "./runtime/mobile.tsx",
+  "types": "./runtime/mobile.tsx",
+  "exports": {
+    ".": "./runtime/mobile.tsx",
+    "./machine": "./runtime/index.ts"
+  },
+  "files": [
+    "LICENSE",
+    "NOTICE.md",
+    "runtime/asset-draw.ts",
+    "runtime/asset-image.ts",
+    "runtime/asset-layout.ts",
+    "runtime/asset-mesh.ts",
+    "runtime/asset.ts",
+    "runtime/index.ts",
+    "runtime/machine-schema.d.ts",
+    "runtime/machine-schema.js",
+    "runtime/mobile.tsx",
+    "runtime/useMachine.ts",
+    "runtime/version.ts",
+    "templates/motion/face.ts",
+    "templates/motion/machine.ts",
+    "templates/motion/motion.ts"
+  ]
+}
