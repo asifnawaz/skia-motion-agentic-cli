@@ -29,6 +29,9 @@ function compareVersions(a: string, b: string): number {
 
 export function assertRuntimeVersion(exportedBy: string): void {
   if (compareVersions(runtimeVersion, exportedBy) < 0) {
-    throw new Error(`This machine was exported by skia-motion-agentic-cli@${exportedBy}, but the installed runtime is ${runtimeVersion}. Install skia-motion-agentic-cli@${exportedBy} or newer.`);
+    const install = packageJson.name === 'skia-motion-runtime'
+      ? `Install the app runtime for ${exportedBy} or newer from ${packageJson.homepage}/releases.`
+      : `Install ${packageJson.name}@${exportedBy} or newer.`;
+    throw new Error(`This machine was exported by Skia Motion ${exportedBy}, but the installed runtime is ${runtimeVersion}. ${install}`);
   }
 }

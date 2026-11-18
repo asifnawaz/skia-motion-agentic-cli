@@ -206,7 +206,9 @@ export const exportScene = (cfg, name, { dir, force, version, gate }, deps, chec
 
 /** Engine files the runtime package carries: an exported machine scene imports them from it instead of copying them. */
 const IN_RUNTIME = new Set(['motion.ts', 'face.ts', 'machine.ts']);
-export const RUNTIME_MODULE = 'skia-motion-agentic-cli/runtime';
+export const RUNTIME_MODULE = 'skia-motion-runtime/machine';
+const runtimeRelease = (version) =>
+  `https://github.com/asifnawaz/skia-motion-agentic-cli/releases/download/v${version}/skia-motion-runtime.tgz`;
 const isRuntimeEngine = (abs) => basename(dirname(abs)) === 'motion' && IN_RUNTIME.has(basename(abs));
 const isLocal = (spec) => spec.startsWith('.') || isAbsolute(spec);
 const machineEntries = (cfg, name) => [clipsFile(cfg, name), findSource(cfg, `${name}.draw.ts`)];
@@ -332,8 +334,13 @@ const exportMachine = (cfg, name, { outDir, skia, force, version, mfile, gate, s
   const tmpl = join(PACKAGE_ROOT, 'templates', 'app', 'machine-component.tsx.tmpl');
   if (!existsSync(tmpl)) fail('templates/app/machine-component.tsx.tmpl is missing from this package', 'reinstall skia-motion-agentic-cli');
 
-  const tokens = { __NAME__: name, __EXPORTED_BY__: JSON.stringify(version), __MACHINE__: JSON.stringify(m, null, 2) };
-  const component = readFileSync(tmpl, 'utf8').replace(/__NAME__|__EXPORTED_BY__|__MACHINE__/g, (token) => tokens[token]);
+  const tokens = {
+    __NAME__: name,
+    __EXPORTED_BY__: JSON.stringify(version),
+    __MACHINE__: JSON.stringify(m, null, 2),
+    __RUNTIME_MODULE__: RUNTIME_MODULE,
+  };
+  const component = readFileSync(tmpl, 'utf8').replace(/__NAME__|__EXPORTED_BY__|__MACHINE__|__RUNTIME_MODULE__/g, (token) => tokens[token]);
   const compAbs = join(dirname(drawAbs), `${name}.tsx`);
   const loadLocal = (from, spec) => {
     const hit = modules.get(from)?.imports.get(spec);
@@ -366,7 +373,10 @@ const exportMachine = (cfg, name, { outDir, skia, force, version, mfile, gate, s
       `<${name} ref={ref} width={200} height={200} live={visible} />`,
       `ref.current?.set('<value>', true);`,
     ].join('\n'),
-    needs: [`skia-motion-agentic-cli@${version} (the runtime)`, skia.need, 'react-native-reanimated >= 4', 'react-native-worklets (Reanimated 4 peer)'],
+    needs: [
+      `skia-motion-runtime@${version} (${runtimeRelease(version)})`,
+      skia.need, 'react-native-reanimated >= 4', 'react-native-worklets (Reanimated 4 peer)',
+    ],
     ...(skia.warning && { warnings: [skia.warning] }),
   };
 };

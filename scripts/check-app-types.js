@@ -21,7 +21,7 @@ const dir = mkdtempSync(join(PKG, '.scratch', 'apptypes-'));
 const fixture = join(PKG, 'test', 'fixtures', 'machines', 'invite.machine.json');
 const bindings = join(dir, 'bindings.ts');
 writeFileSync(bindings, `
-import { machineRig, useMachine, type Clips, type Machine } from 'skia-motion-agentic-cli/runtime';
+import { machineRig, useMachine, type Clips, type Machine } from 'skia-motion-runtime/machine';
 import json from ${JSON.stringify(fixture)};
 
 const machine = ${readFileSync(fixture, 'utf8').trim()} as const satisfies Machine;
@@ -56,7 +56,10 @@ writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({
   extends: join(appDir, 'tsconfig.json'),
   compilerOptions: {
     noEmit: true, skipLibCheck: true,
-    paths: { 'skia-motion-agentic-cli/runtime': [join(PKG, 'runtime', 'index.ts')] },
+    paths: {
+      'skia-motion-runtime/machine': [join(PKG, 'runtime', 'index.ts')],
+      'skia-motion-agentic-cli/runtime': [join(PKG, 'runtime', 'index.ts')],
+    },
     // The app's `types` resolve from its own folder; here the files import what they use, so none are loaded globally.
     types: [],
   },

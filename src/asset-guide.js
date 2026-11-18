@@ -6,7 +6,7 @@ const topics = {
       'Draw the important poses before adding in-betweens. Use a shared pivot for connected parts and hold the endpoint long enough to read.',
       'Wire game or app inputs to named states. Place visual cues on state entry. Keep score, answers, ammo and other authoritative data in the host.',
       'Run asset check, replay repeated and interrupted inputs with asset trace, then open selected asset frame SVGs and refine.',
-      'Run asset pack and pass the resulting file text to MotionPlayer from skia-motion-agentic-cli/runtime/mobile.',
+      'Run asset pack and pass the resulting file text to MotionPlayer from skia-motion-runtime.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample sprout'],
     topics: ['format', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout'],

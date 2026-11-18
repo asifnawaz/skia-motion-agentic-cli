@@ -1,5 +1,5 @@
 // __NAME__.tsx: the app component for the machine scene __NAME__. It plays the machine through
-// skia-motion-agentic-cli/runtime and draws with the same draw() the video uses.
+// the shared app runtime and draws with the same draw() the video uses.
 //   const ref = useRef<__NAME__Handle>(null);
 //   <__NAME__ ref={ref} width={200} height={200} live={visible} />
 //   ref.current?.set('calling', true);
@@ -7,7 +7,7 @@ import { forwardRef, useImperativeHandle } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { Canvas, Picture, Skia, createPicture } from 'react-native-skia';
 import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
-import { useMachine, type Machine, type MachineHandle, type MachineProbe } from 'skia-motion-agentic-cli/runtime';
+import { useMachine, type Machine, type MachineHandle, type MachineProbe } from '__RUNTIME_MODULE__';
 import { clips } from './__NAME__.clips';
 import { draw } from './__NAME__.draw';
 

@@ -3,11 +3,11 @@
 [![CI](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/skia-motion-agentic-cli.svg)](https://www.npmjs.com/package/skia-motion-agentic-cli)
 
-Skia Motion is an open-source animation CLI and runtime for interactive game HUDs, animated
-mascots, and mobile UI. Author vector shapes and painted PNG or WebP layers in JSON, add animated
-masks and state machines, then ship the art and motion in one `.skmotion` file. Play it in
-React Native and Expo development builds with Skia v3. The CLI returns structured JSON for coding
-agents and CI.
+Skia Motion is a free, open-source Rive alternative for creating interactive game HUDs, animated
+mascots, and mobile UI with coding agents. Author vector shapes and painted PNG or WebP layers in
+JSON, add animated masks and state machines, then ship the art and motion in one `.skmotion` file.
+Play it in React Native and Expo development builds with Skia v3. The CLI returns structured JSON
+for coding agents and CI.
 
 ![Night Circuit fighting-game HUD with health bars, a round timer, and feathered super meters](docs/media/versus-hud.webp)
 
@@ -15,7 +15,7 @@ The [Versus HUD sample](templates/assets/versus-hud.json) draws this original fi
 Its health bars, super meters, round timer, and win indicators are driven by app values. A hit
 trigger flashes a feathered highlight and emits a marker.
 
-## Quick start
+## Author a motion asset
 
 Install the CLI and try the fighting HUD:
 
@@ -57,6 +57,14 @@ For offline Remotion renders, keep using the CLI's video workflow with its own p
 
 ## Play an asset in React Native or Expo
 
+Install `skia-motion-runtime` from a pinned release in your app. The runtime package contains the player,
+with React, React Native, Skia, Reanimated and Worklets supplied by the app.
+[Skia Motion releases](https://github.com/asifnawaz/skia-motion-agentic-cli/releases)
+
+```sh
+npm install https://github.com/asifnawaz/skia-motion-agentic-cli/releases/download/v3.0.0/skia-motion-runtime.tgz
+```
+
 The package exposes one shared player for all your `.skmotion` files. Read the file as UTF-8
 text and pass it to `MotionPlayer`. The player measures its React Native view. By default it fills
 the available width and derives height from the file's artboard aspect ratio. You can supply a
@@ -68,7 +76,7 @@ import { Button } from 'react-native';
 import {
   MotionPlayer,
   type MotionPlayerHandle,
-} from 'skia-motion-agentic-cli/runtime/mobile';
+} from 'skia-motion-runtime';
 
 export function VersusHUD({ source }: { source: string }) {
   const player = useRef<MotionPlayerHandle>(null);
@@ -88,6 +96,9 @@ export function VersusHUD({ source }: { source: string }) {
 }
 ```
 
+The player package also exposes `skia-motion-runtime/machine` for generated machine components
+and shared motion helpers.
+
 Use `onMarker` for app-side sound or haptics. The UI can pause when hidden, and the player
 handles system reduced motion and backgrounding. In Expo, use a development build for
 Skia v3. To bundle the file, add `skmotion` to Metro's asset extensions, load it through
@@ -105,7 +116,7 @@ For an asset bundled by Metro, load its UTF-8 text and prepare it once for playb
 ```ts
 import { Asset } from 'expo-asset';
 import { File } from 'expo-file-system';
-import { loadMotionAsset } from 'skia-motion-agentic-cli/runtime/mobile';
+import { loadMotionAsset } from 'skia-motion-runtime';
 
 export async function loadVersusHUD() {
   const asset = await Asset.fromModule(require('./versus-hud.skmotion')).downloadAsync();
@@ -233,6 +244,7 @@ and [app export guide](docs/app.md) for flags and configuration, including `skia
 - Preview video uses Remotion and FFmpeg. Resizing embedded images also uses FFmpeg.
 
 Run `npm test` for unit tests or `npm run test:e2e` for CLI and render flows.
+Run `npm run pack:runtime -- <directory>` to build the standalone player tarball.
 See [Contributing](CONTRIBUTING.md) and [Changelog](CHANGELOG.md).
 
 MIT licence.
