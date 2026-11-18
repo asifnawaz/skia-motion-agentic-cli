@@ -1,3 +1,20 @@
+# [2.0.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.3.0...v2.0.0) (2026-11-18)
+
+
+### Features
+
+* ship single-file Skia Motion assets for React Native and Expo ([1136d7b](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/1136d7b05dd9f4fc6829ffe381260fd7458568ce))
+
+
+### BREAKING CHANGES
+
+* Mobile playback and generated app components require
+`react-native-skia` 3.0.0 or later. Upgrade Skia in the host app, rebuild
+the native app or Expo development client, and regenerate existing
+components with `skac <Name> --export <dir>`. Pin Skia Motion to `1.3.0`
+if the app still needs Skia v2. Offline Remotion renders keep using
+the CLI's pinned renderer.
+
 # [1.3.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.2.0...v1.3.0) (2026-11-18)
 
 
