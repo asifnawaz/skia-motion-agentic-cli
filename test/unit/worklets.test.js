@@ -95,11 +95,27 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const pose = core.pose(compiled, clips, state, 740, clock);
   asset.artboard.nodes.push({ kind: 'image', image: 'painted', x: 1, y: 2, width: 18, height: 20, opacity: 0.5 });
   asset.artboard.nodes.push({ kind: 'image', image: 'duplicate', x: 0, y: 0, width: 18, height: 20, opacity: 0 });
+  asset.artboard.nodes.push({
+    kind: 'mesh', image: 'painted', opacity: 0.75,
+    vertices: [[0, 0, 0, 0], ['lightX', 0, 1, 0], [0, 20, 0, 1]],
+    indices: [0, 1, 2],
+    pins: {
+      tip: {
+        triangle: 0, weights: [0, 0.5, 0.5],
+        children: [{ kind: 'ellipse', x: 0, y: 0, width: 2, height: 2, fill: '#000000' }],
+      },
+    },
+  });
   asset.images = {
     painted: 'data:image/webp;base64,painted', duplicate: 'data:image/webp;base64,painted', unused: 'data:image/webp;base64,unused',
   };
-  const image = { width: () => 2, height: () => 3 };
+  const shaders = [];
+  const image = {
+    width: () => 2, height: () => 3,
+    makeShaderOptions(...options) { shaders.push(options); return 'source-texture'; },
+  };
   const imageDraws = [];
+  const meshDraws = [];
   const decodes = [];
   const gradients = [];
   const filters = [];
@@ -119,7 +135,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     Image: { MakeImageFromEncoded(data) { decodes.push(data); return image; } },
     Paint: () => ({
       setAntiAlias() {}, setColor() {}, setAlphaf(alpha) { this.alpha = alpha; },
-      setShader() {}, setMaskFilter(filter) { filters.push(filter); },
+      setShader(shader) { this.shader = shader; }, setMaskFilter(filter) { filters.push(filter); },
     }),
     Color: () => [0, 0, 0, 1],
     PathBuilder: { Make: pathBuilder },
@@ -127,6 +143,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     MaskFilter: { MakeBlur: (...args) => args },
     XYWHRect: (...xywh) => xywh,
     RRectXY: (rect) => rect,
+    MakeVertices: (mode, positions, textures, _colors, indices) => ({ mode, positions, textures, indices }),
   };
   const canvas = {
     save() {}, restore() {}, translate(x, y) { translations.push([x, y]); }, scale() {}, rotate() {}, clipRect() {},
@@ -135,15 +152,22 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     drawImageRectOptions(image, src, dest, filter, mipmap, paint) {
       imageDraws.push({ image, src, dest, filter, mipmap, alpha: paint.alpha });
     },
+    drawVertices(vertices, blend, paint) {
+      meshDraws.push({ ...JSON.parse(JSON.stringify(vertices)), blend, alpha: paint.alpha, shader: paint.shader });
+    },
   };
-  const { decodeAssetImages, drawAsset, prepareAssetDrawing } = load('runtime/asset-draw.ts', {
+  const { decodeAssetImages, drawAsset, prepareAssetDrawing, rebindAssetMeshShaders } = load('runtime/asset-draw.ts', {
     './asset': runtime,
     './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
-    'react-native-skia': { Skia: skia, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0 }, FilterMode: { Linear: 1 }, MipmapMode: { None: 0 }, ClipOp: { Intersect: 1 } },
+    './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
+    'react-native-skia': {
+      Skia: skia, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0, Decal: 3 }, FilterMode: { Linear: 1 },
+      MipmapMode: { None: 0 }, ClipOp: { Intersect: 1 }, VertexMode: { Triangles: 0 }, BlendMode: { SrcOver: 3 },
+    },
   }, 'production');
   assert.equal(typeof drawAsset.__workletHash, 'number');
   const images = decodeAssetImages(asset);
-  const drawing = prepareAssetDrawing(asset);
+  const drawing = prepareAssetDrawing(asset, images);
   const fixedPaths = pathBuilds;
   assert.ok(fixedPaths > 0);
   drawAsset(canvas, drawing, pose.channels, 320, 260, images);
@@ -156,4 +180,16 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   assert.ok(gradients.includes(44));
   assert.deepEqual(filters, [[0, 5, true]]);
   assert.deepEqual(translations.slice(0, 2), [[40, 0], [80, 223]]);
+  assert.ok(translations.some(([x, y]) => x === 22 && y === 10));
+  assert.deepEqual(shaders, [[3, 3, 1, 0]]);
+  assert.deepEqual(meshDraws, [{
+    mode: 0, positions: [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 0, y: 20 }],
+    textures: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 3 }],
+    indices: [0, 1, 2], alpha: 0.75, blend: 3, shader: 'source-texture',
+  }]);
+  const warmed = { ...image, makeShaderOptions: () => 'warmed-texture' };
+  const rebound = rebindAssetMeshShaders(drawing, { ...images, painted: warmed });
+  drawAsset(canvas, rebound, { ...pose.channels, lightX: 30 }, 320, 260, { ...images, painted: warmed });
+  assert.deepEqual(meshDraws[1].positions[1], { x: 30, y: 0 });
+  assert.equal(meshDraws[1].shader, 'warmed-texture');
 });

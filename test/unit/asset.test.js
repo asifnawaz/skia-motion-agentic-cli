@@ -20,6 +20,58 @@ test('agent guide covers the format and the drawing workflows', () => {
   assert.equal(run('guide', 'format').schema, 'skac.asset/1');
 });
 
+test('painted meshes pack their textures, deform in preview and move named pin children', () => {
+  const { cwd, file, run } = fixture('sprout');
+  const asset = JSON.parse(readFileSync(file, 'utf8'));
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAFklEQVR4nGP8z8CwkYGBgYGJAQrgDAAqOQG2ps3ojQAAAABJRU5ErkJggg==';
+  asset.images = { painting: png, eye: png, unused: png };
+  asset.channels.bendY = 0;
+  asset.clips.correct.tracks.bendY = [[0, 0], [200, 18]];
+  asset.artboard.nodes = [{
+    kind: 'group', x: 12, y: 20,
+    children: [{
+      kind: 'mesh', image: 'painting',
+      vertices: [[0, 0, 0, 0], [40, 'bendY', 1, 0], [0, 30, 0, 1], [40, 30, 1, 1]],
+      indices: [0, 1, 2, 1, 3, 2],
+      pins: {
+        hinge: {
+          triangle: 0, weights: [0, 1, 0],
+          children: [
+            { kind: 'group', points: { bill: { x: 0, y: 0 } }, children: [] },
+            { kind: 'image', image: 'eye', x: 0, y: 0, width: 2, height: 3 },
+          ],
+        },
+      },
+    }],
+  }];
+  asset.attachments = [{ from: 'hinge', to: 'bill', maxDistance: 0 }];
+  write(file, JSON.stringify(asset));
+  const cue = '--commands=correct@0';
+  const { trace } = run('trace', file, '--trace=0,200', cue);
+  assert.deepEqual(trace.map((row) => row.points.hinge), [{ x: 52, y: 20 }, { x: 52, y: 38 }]);
+  assert.deepEqual(trace[1].points.hinge, trace[1].points.bill);
+  assert.equal(run('check', file, '--trace=0:200:20', cue).attachments[0].distance, 0);
+  const packed = run('pack', file);
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(packed.file, 'utf8')).images), ['painting', 'eye']);
+  const svg = readFileSync(run('frame', packed.file, '--trace=200', cue).file, 'utf8');
+  assert.match(svg, /matrix\(40 18 0 30 0 0\)/);
+  assert.match(svg, /<polygon points="0,0 40,18 0,30"\/>/);
+  assert.match(svg, /translate\(40 18\)/);
+
+  const mesh = asset.artboard.nodes[0].children[0];
+  mesh.indices[0] = 9;
+  write(join(cwd, 'invalid.json'), JSON.stringify(asset));
+  assert.throws(() => run('check', 'invalid.json'), /indices\[0\]: expected a number from 0 to 3/);
+  mesh.indices[0] = 0;
+  mesh.pins.hinge.weights = [0, 0.9, 0];
+  write(join(cwd, 'invalid.json'), JSON.stringify(asset));
+  assert.throws(() => run('check', 'invalid.json'), /weights must add up to 1/);
+  mesh.pins.hinge.weights = [0, 1, 0];
+  mesh.vertices[1][2] = 0;
+  write(join(cwd, 'invalid.json'), JSON.stringify(asset));
+  assert.throws(() => run('check', 'invalid.json'), /non-collinear texture coordinates/);
+});
+
 test('the samples load as one repeatable packaged file', () => {
   for (const name of ['game-hud', 'sprout', 'versus-hud']) {
     const { run, file } = fixture(name);

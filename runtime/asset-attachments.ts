@@ -1,12 +1,15 @@
 import { anchorOffset, layoutAsset } from './asset-layout';
 import type { AssetAttachment, AssetNode, MotionAsset } from './asset';
+import { meshPinPosition } from './asset-mesh';
 
 export type AssetViewport = { width: number; height: number };
 export type ArtboardPoint = { x: number; y: number };
 type TransformPoint = (x: number, y: number) => ArtboardPoint;
 
 export function hasAssetPoints(nodes: readonly AssetNode[]): boolean {
-  return nodes.some((node) => node.kind === 'group' && (Boolean(node.points) || hasAssetPoints(node.children)));
+  return nodes.some((node) =>
+    (node.kind === 'group' && (Boolean(node.points) || hasAssetPoints(node.children))) ||
+    (node.kind === 'mesh' && Object.keys(node.pins ?? {}).length > 0));
 }
 
 export function assetPoints(
@@ -18,6 +21,14 @@ export function assetPoints(
     typeof value === 'string' ? channels[value]! : value ?? fallback;
   const visit = (nodes: readonly AssetNode[], parent: TransformPoint) => {
     for (const node of nodes) {
+      if (node.kind === 'mesh' && node.pins) {
+        points ??= {};
+        for (const [name, pin] of Object.entries(node.pins)) {
+          const { x, y } = meshPinPosition(node, pin, channels);
+          points[name] = parent(x, y);
+          if (pin.children) visit(pin.children, (px, py) => parent(x + px, y + py));
+        }
+      }
       if (node.kind !== 'group') continue;
       const offset = anchorOffset(node.anchor, insetX, insetY);
       const x = read(node.x) + offset.x;

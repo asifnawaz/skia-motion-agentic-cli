@@ -4,7 +4,7 @@ import { AppState, StyleSheet, View, type LayoutChangeEvent, type StyleProp, typ
 import { Canvas, Picture, Skia, createPicture, type SkImage } from 'react-native-skia';
 import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import { assetClips, assetMarkerEvents, parseAsset, type MotionAsset, type AssetMarkerEvent } from './asset';
-import { decodeAssetImages, drawAsset, prepareAssetDrawing, type AssetImages, type DrawableAsset } from './asset-draw';
+import { decodeAssetImages, drawAsset, prepareAssetDrawing, rebindAssetMeshShaders, type AssetImages, type DrawableAsset } from './asset-draw';
 import { useMachine, type MachineHandle } from './useMachine';
 import type { Pose, StateEntry } from '../templates/motion/machine';
 
@@ -24,12 +24,13 @@ export type LoadedMotionAsset = Readonly<{
 /** Prepare one file for reuse by independent player instances. Keep the result while those players are mounted. */
 export function loadMotionAsset(source: string): LoadedMotionAsset {
   const asset = parseAsset(source);
+  const images = decodeAssetImages(asset);
   return {
     key: nextAssetKey++,
     machine: asset.machine,
     markers: asset.markers,
-    drawing: prepareAssetDrawing(asset),
-    images: decodeAssetImages(asset),
+    drawing: prepareAssetDrawing(asset, images),
+    images,
     clips: assetClips(asset),
   };
 }
@@ -45,6 +46,7 @@ export async function preloadMotionAsset(
   const loaded = typeof source === 'string' ? loadMotionAsset(source) : source;
   const warmed = new Map<SkImage, SkImage>();
   const images: [string, SkImage][] = [];
+  let changed = false;
   for (const [name, image] of Object.entries(loaded.images)) {
     let ready = warmed.get(image);
     if (!ready) {
@@ -62,8 +64,11 @@ export async function preloadMotionAsset(
       warmed.set(image, ready);
     }
     images.push([name, ready]);
+    changed ||= ready !== image;
   }
-  return warmed.size ? { ...loaded, images: Object.fromEntries(images) } : loaded;
+  if (!warmed.size) return loaded;
+  const ready = Object.fromEntries(images);
+  return { ...loaded, images: ready, drawing: changed ? rebindAssetMeshShaders(loaded.drawing, ready) : loaded.drawing };
 }
 
 export type MotionPlayerHandle = Pick<MachineHandle, 'set' | 'fire' | 'setOnUI' | 'readOnUI'>;
