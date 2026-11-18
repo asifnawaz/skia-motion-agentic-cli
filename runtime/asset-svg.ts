@@ -1,9 +1,78 @@
-import { MAX_FEATHER, type AssetNode, type MotionAsset, type PathCommand } from './asset';
+import { MAX_FEATHER, resolveAssetColor, type AssetNode, type AssetStroke, type MotionAsset, type PathCommand } from './asset';
 import { anchorOffset, layoutAsset } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshVertex, type MeshNode } from './asset-mesh';
 
 const opacity = (value: number) => Math.max(0, Math.min(1, value));
 type Point = ReturnType<typeof meshPosition>;
+type ResolvedCommand = readonly [PathCommand[0], ...number[]];
+
+function pathData(commands: readonly ResolvedCommand[]): string {
+  return commands.map((command) => command.join(' ')).join(' ');
+}
+
+function bezierLength(x: number, y: number, points: readonly number[]): number {
+  const [x1, y1, x2, y2, x3, y3] = points;
+  let length = 0;
+  let previousX = x;
+  let previousY = y;
+  for (let step = 1; step <= 24; step++) {
+    const t = step / 24;
+    const u = 1 - t;
+    const nextX = x3 === undefined
+      ? u * u * x + 2 * u * t * x1! + t * t * x2!
+      : u ** 3 * x + 3 * u * u * t * x1! + 3 * u * t * t * x2! + t ** 3 * x3;
+    const nextY = y3 === undefined
+      ? u * u * y + 2 * u * t * y1! + t * t * y2!
+      : u ** 3 * y + 3 * u * u * t * y1! + 3 * u * t * t * y2! + t ** 3 * y3;
+    length += Math.hypot(nextX - previousX, nextY - previousY);
+    previousX = nextX;
+    previousY = nextY;
+  }
+  return length;
+}
+
+function pathContours(commands: readonly ResolvedCommand[]) {
+  const contours: { commands: ResolvedCommand[]; length: number }[] = [];
+  let x = 0;
+  let y = 0;
+  for (const command of commands) {
+    const [op, ...points] = command;
+    if (op === 'M') {
+      [x, y] = points as [number, number];
+      contours.push({ commands: [command], length: 0 });
+      continue;
+    }
+    const contour = contours.at(-1)!;
+    const nextX = op === 'Z' ? contour.commands[0]![1]! : points.at(-2)!;
+    const nextY = op === 'Z' ? contour.commands[0]![2]! : points.at(-1)!;
+    contour.length += op === 'C' || op === 'Q' ? bezierLength(x, y, points) : Math.hypot(nextX - x, nextY - y);
+    contour.commands.push(command);
+    x = nextX;
+    y = nextY;
+  }
+  return contours;
+}
+
+function trimmedContours(commands: readonly ResolvedCommand[], start: number, end: number) {
+  // A normalized dash restarts at each SVG subpath. Allocate the trim interval
+  // over the same combined contour length that Skia's trim effect uses.
+  const contours = commands.filter(([op]) => op === 'M').length === 1
+    ? [{ commands, length: 1 }] : pathContours(commands);
+  const total = contours.reduce((sum, contour) => sum + contour.length, 0);
+  const spans: { path: string; trim: string }[] = [];
+  let offset = 0;
+  for (const contour of contours) {
+    if (!contour.length) continue;
+    const from = opacity((start * total - offset) / contour.length);
+    const to = opacity((end * total - offset) / contour.length);
+    offset += contour.length;
+    if (to <= from) continue;
+    const trim = from === 0 && to === 1 ? ''
+      : ` pathLength="1" stroke-dasharray="${to - from} ${1 - to + from}" stroke-dashoffset="${-from}"`;
+    spans.push({ path: pathData(contour.commands), trim });
+  }
+  return spans;
+}
 
 function triangleMatrix(source: readonly MeshVertex[], target: readonly Point[]): number[] {
   const [[, , u0, v0], [, , u1, v1], [, , u2, v2]] = source as readonly [MeshVertex, MeshVertex, MeshVertex];
@@ -36,17 +105,51 @@ function meshSVG(node: MeshNode, channels: Record<string, number>, alpha: number
 }
 
 /** Draw a seekable CLI preview from the same validated scene and pose used by the mobile renderer. */
-export function assetSVG(asset: MotionAsset, channels: Record<string, number>, size = { width: asset.artboard.width, height: asset.artboard.height }): string {
+export function assetSVG(
+  asset: MotionAsset, channels: Record<string, number>,
+  size = { width: asset.artboard.width, height: asset.artboard.height },
+  values: Readonly<Record<string, unknown>> = {},
+): string {
   const { artboard } = asset;
   const { insetX, insetY } = layoutAsset(artboard, size.width, size.height);
   const defs: string[] = [];
+  let hasText = false;
+  const licenses = Object.values(asset.fontLicenses ?? {});
+  const notices = licenses.length ? `<metadata>${licenses.join('\n').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</metadata>` : '';
+  const fonts = Object.entries(asset.fonts ?? {}).map(([name, uri]) => `@font-face{font-family:${name};src:url(${uri})}`);
+  if (fonts.length) defs.push(`<style>${fonts.join('')}</style>`);
   const meshImages = new Map<string, string>();
+  const imageUri = (name: string) => asset.images![asset.imageSlots?.[name] ?? name]!;
   const read = (value: number | string | undefined, fallback = 0) =>
     typeof value === 'string' ? channels[value]! : value ?? fallback;
   const resolvePath = (commands: readonly PathCommand[]) =>
     commands.map(([op, ...coords]) => [op, ...coords.map((coord) => read(coord))] as const);
-  const pathData = (commands: ReturnType<typeof resolvePath>) =>
-    commands.map((command) => command.join(' ')).join(' ');
+  const strokePath = (commands: readonly ResolvedCommand[], stroke: AssetStroke, bounds: number[], alpha: number, filter: string) => {
+    const width = Math.min(4096, read(stroke.width));
+    const start = opacity(read(stroke.trim?.start));
+    const end = opacity(read(stroke.trim?.end, 1));
+    if (!(width > 0) || end <= start) return '';
+    const trimmed = start > 0 || end < 1;
+    const spans = trimmed ? trimmedContours(commands, start, end) : [];
+    const style = `fill="none" stroke-width="${width}" stroke-linecap="${stroke.cap ?? 'butt'}" stroke-linejoin="${stroke.join ?? 'miter'}"`;
+    const color = resolveAssetColor(stroke.color, asset.palette ?? {});
+    const strokeTag = (path: string, dash = '') =>
+      `<path d="${path}" ${style} stroke="${color}" opacity="${alpha}"${dash}${filter}/>`;
+    if (trimmed && !stroke.dash) return spans.map(({ path, trim }) => strokeTag(path, trim)).join('');
+    let mask = '';
+    if (trimmed && stroke.dash) {
+      const id = `stroke-trim-${defs.length}`;
+      const [x, y, w, h] = bounds as [number, number, number, number];
+      const pad = width * 2;
+      const paths = spans.map(({ path, trim }) => `<path d="${path}" ${style} stroke="#fff"${trim}/>`).join('');
+      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="${x - pad}" y="${y - pad}" width="${w + 2 * pad}" height="${h + 2 * pad}">${paths}</mask>`);
+      mask = ` mask="url(#${id})"`;
+    }
+    const dash = stroke.dash
+      ? ` stroke-dasharray="${stroke.dash.intervals.join(' ')}" stroke-dashoffset="${read(stroke.dash.phase)}"`
+      : '';
+    return strokeTag(pathData(commands), dash + mask);
+  };
   const draw = (node: AssetNode, paddingX = 0, paddingY = 0): string => {
     if (node.kind === 'group') {
       let clip = '';
@@ -60,9 +163,25 @@ export function assetSVG(asset: MotionAsset, channels: Record<string, number>, s
       const transform = `translate(${read(node.x) + offset.x} ${read(node.y) + offset.y}) rotate(${read(node.rotation)}) scale(${read(node.scaleX, 1)} ${read(node.scaleY, 1)})`;
       return `<g transform="${transform}"${clip}>${node.children.map((child) => draw(child)).join('')}</g>`;
     }
+    if (node.kind === 'text') {
+      hasText = true;
+      const value = typeof node.text === 'string' ? node.text : values[node.text.value] ?? asset.machine.values?.[node.text.value]?.default;
+      if (typeof value !== 'string' || !value) return '';
+      const content = value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      const direction = node.direction ?? 'ltr';
+      const alignment = node.align ?? 'start';
+      const shift = alignment === 'center' ? 0.5 : (alignment === 'end') === (direction === 'ltr') ? 1 : 0;
+      const anchor = alignment === 'center' ? 'middle' : alignment;
+      const family = node.fonts?.length ? node.fonts.join(',') : 'sans-serif';
+      const x = read(node.x);
+      const y = read(node.y);
+      const clip = `text-width-${defs.length}`;
+      defs.push(`<clipPath id="${clip}"><rect x="${x}" y="${y - node.fontSize}" width="${node.width}" height="${3 * node.fontSize}"/></clipPath>`);
+      return `<text x="${x + node.width * shift}" y="${y}" dominant-baseline="hanging" text-anchor="${anchor}" direction="${direction}" font-family="${family}" font-size="${node.fontSize}" fill="${node.fill}" clip-path="url(#${clip})">${content}</text>`;
+    }
     const alpha = opacity(read(node.opacity, 1));
     if (node.kind === 'mesh') {
-      const uri = asset.images![node.image]!;
+      const uri = imageUri(node.image);
       let id = meshImages.get(uri);
       if (!id && alpha) {
         id = `mesh-image-${defs.length}`;
@@ -81,9 +200,10 @@ export function assetSVG(asset: MotionAsset, channels: Record<string, number>, s
       const width = read(node.width);
       const height = read(node.height);
       if (width <= 0 || height <= 0) return '';
-      return `<image href="${asset.images![node.image]}" x="${read(node.x)}" y="${read(node.y)}" width="${width}" height="${height}" opacity="${alpha}" preserveAspectRatio="none"/>`;
+      return `<image href="${imageUri(node.image)}" x="${read(node.x)}" y="${read(node.y)}" width="${width}" height="${height}" opacity="${alpha}" preserveAspectRatio="none"/>`;
     }
-    let fill = node.fill;
+    let fill = node.fill ?? 'none';
+    if (typeof fill !== 'string' && 'palette' in fill) fill = resolveAssetColor(fill, asset.palette ?? {});
     if (typeof fill !== 'string') {
       const id = `light-${defs.length}`;
       const center = `cx="${read(fill.x)}" cy="${read(fill.y)}" r="${Math.max(0.001, read(fill.radius))}"`;
@@ -106,16 +226,21 @@ export function assetSVG(asset: MotionAsset, channels: Record<string, number>, s
     if (node.kind === 'path') {
       const commands = resolvePath(node.commands);
       let filter = '';
-      if (feather > 0) {
+      const bounds = [0, 0, 0, 0];
+      if (feather > 0 || (node.stroke?.trim && node.stroke.dash)) {
         // Bézier curves stay within their control points, so these bounds include the entire shape.
         const coordinates = commands.flatMap(([, ...points]) => points);
         const xs = coordinates.filter((_, i) => i % 2 === 0);
         const ys = coordinates.filter((_, i) => i % 2 === 1);
         const x = Math.min(...xs);
         const y = Math.min(...ys);
-        filter = edge(x, y, Math.max(...xs) - x, Math.max(...ys) - y);
+        bounds.splice(0, 4, x, y, Math.max(...xs) - x, Math.max(...ys) - y);
+        const strokePad = node.stroke ? 2 * Math.max(0, Math.min(4096, read(node.stroke.width))) : 0;
+        filter = edge(x - strokePad, y - strokePad, bounds[2]! + 2 * strokePad, bounds[3]! + 2 * strokePad);
       }
-      return `<path d="${pathData(commands)}" ${style}${filter}/>`;
+      const path = pathData(commands);
+      return (node.fill ? `<path d="${path}" ${style}${filter}/>` : '') +
+        (node.stroke ? strokePath(commands, node.stroke, bounds, alpha, filter) : '');
     }
     const x = read(node.x);
     const y = read(node.y);
@@ -133,5 +258,6 @@ export function assetSVG(asset: MotionAsset, channels: Record<string, number>, s
     defs.push(`<clipPath id="artboard"><rect width="${width}" height="${height}"/></clipPath>`);
     shapes = `<g clip-path="url(#artboard)">${shapes}</g>`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}" viewBox="${-insetX} ${-insetY} ${width + 2 * insetX} ${height + 2 * insetY}"><defs>${defs.join('')}</defs>${shapes}</svg>\n`;
+  const description = hasText ? '<desc>Single-line SVG text preview. Native Skia draws wrapping and ellipsis.</desc>' : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}" viewBox="${-insetX} ${-insetY} ${width + 2 * insetX} ${height + 2 * insetY}">${description}${notices}<defs>${defs.join('')}</defs>${shapes}</svg>\n`;
 }

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src blob: data:; img-src blob: data:; base-uri 'none'">
+<title>Skac preview</title>
+<style>
+  /* skac-ui-font */
+  :root { color-scheme: dark; font: 15px/1.5 Allo, system-ui, sans-serif; color: #f5f3ef; background: #16181c }
+  * { box-sizing: border-box }
+  body { margin: 0 }
+  main { max-width: 1140px; margin: auto; padding: 28px clamp(16px, 4vw, 48px) }
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px }
+  h1, h2, p { margin: 0 }
+  h1 { font-size: 1.5rem; overflow-wrap: anywhere }
+  h2 { font-size: 1rem }
+  small, #states { color: #b4bac4; overflow-wrap: anywhere }
+  #stage { background: #dbdce0; min-height: 180px; border-radius: 14px; padding: 16px; display: grid; place-items: center }
+  #stage svg { display: block; max-width: 100%; max-height: 58vh; width: auto; height: auto }
+  #stage[data-theme="dark"] { background: #272b35 }
+  .controls, .inputs { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center }
+  .controls { padding: 14px 0 }
+  .timeline { display: flex; gap: 8px; align-items: center; flex: 1 1 240px }
+  #seek { flex: 1 }
+  #time { min-width: 62px; text-align: right; font-variant-numeric: tabular-nums }
+  label { display: inline-flex; gap: 6px; align-items: center }
+  button, input, select { font: inherit; accent-color: #9fb5ff }
+  button, input[type="number"], input[type="text"], select { border: 1px solid #555d6e; padding: 4px 9px; border-radius: 6px; background: #242933; color: inherit }
+  button { cursor: pointer }
+  button:hover { background: #393f50 }
+  input[type="number"] { width: 90px }
+  #inputs { margin: 8px 0 14px }
+  #states { font: 0.85rem/1.5 ui-monospace, monospace }
+</style>
+<body>
+<main>
+  <header>
+    <h1 id="name">Skac preview</h1>
+    <small title="SVG clips text to its width on one line. Check wrapping and ellipsis in native Skia.">Browser preview · SVG renderer</small>
+  </header>
+  <div id="stage"></div>
+  <div class="controls">
+    <button id="play" type="button">Play</button>
+    <button id="reset" type="button">Reset</button>
+    <label class="timeline"><span>Seek</span><input id="seek" type="range" min="0" step="1"><output id="time"></output></label>
+  </div>
+  <div class="controls">
+    <label>Width <input id="width" type="number" min="1" max="4096" step="any"></label>
+    <label>Height <input id="height" type="number" min="1" max="4096" step="any"></label>
+    <label><input id="reduced" type="checkbox"> Reduced motion</label>
+    <label><input id="dark" type="checkbox"> Dark background</label>
+  </div>
+  <section id="machine">
+    <h2>Inputs</h2>
+    <div id="inputs" class="inputs"></div>
+  </section>
+  <p id="states"></p>
+</main>

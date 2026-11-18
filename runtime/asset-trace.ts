@@ -1,15 +1,14 @@
-import { advance, compile, pose, settled, start, writeProblem, type Literal, type MachineEvent, type StateEntry, type Write } from '../templates/motion/machine';
+import { advance, compile, pose, settled, simulatedClock, start, writeProblem, type Literal, type MachineEvent, type StateEntry, type Write } from '../templates/motion/machine';
 import { assetClips, assetMarkerEvents, parseAsset, type AssetMarkerEvent, type MotionAsset } from './asset';
 
 import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } from './asset-attachments';
 
 export { measureAttachments } from './asset-attachments';
 export { parseAsset };
+export { parseAssetFile, selectArtboard } from './asset';
 export { MAX_ASSET_BYTES, usedAssetImages } from './asset';
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
-
-const clock = (_name: string, ms: number) => ms;
 
 type TraceRow = {
   t_ms: number;
@@ -24,6 +23,7 @@ type TraceRow = {
 export function traceAsset(asset: MotionAsset, times: number[], events: MachineEvent[], reduced: boolean, viewport?: AssetViewport) {
   const clips = assetClips(asset);
   const machine = compile(asset.machine, clips);
+  const clock = simulatedClock(asset.machine);
   const writes: Write[] = events.map(({ at, name, to = true }) => {
     if (name === undefined) throw new Error('asset commands take host value writes and triggers');
     const problem = writeProblem(machine, name, to);

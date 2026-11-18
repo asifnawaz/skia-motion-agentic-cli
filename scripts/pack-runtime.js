@@ -26,7 +26,7 @@ export function packRuntime(destination, expectedVersion) {
       repository: cli.repository,
       homepage: cli.homepage,
       bugs: cli.bugs,
-      peerDependencies: cli.peerDependencies,
+      peerDependencies: { ...cli.peerDependencies, ...definition.peerDependencies },
     };
     writeFileSync(join(stage, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
     for (const file of manifest.files) {

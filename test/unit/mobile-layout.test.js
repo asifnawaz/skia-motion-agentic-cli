@@ -86,12 +86,14 @@ test('MotionPlayer derives its default aspect ratio from the asset and draws at 
   const app = harness();
   let view = app.render();
   assert.deepEqual(Object.assign({}, ...view.props.style), { width: '100%', aspectRatio: 360 / 138 });
-  assert.equal(view.props.children, false);
+  const initialCanvas = view.props.children[0];
+  assert.equal(initialCanvas.type, 'Canvas');
+  assert.equal(initialCanvas.props.children, false);
   assert.equal(app.live(), false);
 
   app.layout(view, 300, 115);
   view = app.render();
-  const canvas = view.props.children;
+  const canvas = view.props.children[0];
   assert.equal(canvas.type, 'Canvas');
   assert.equal(canvas.props.children.props.width, 300);
   assert.equal(canvas.props.children.props.height, 115);
@@ -99,10 +101,10 @@ test('MotionPlayer derives its default aspect ratio from the asset and draws at 
 
   app.layout(view, 540, 207);
   view = app.render();
-  assert.equal(view.props.children.props.children.props.width, 540);
-  assert.equal(view.props.children.props.children.props.height, 207);
+  assert.equal(view.props.children[0].props.children.props.width, 540);
+  assert.equal(view.props.children[0].props.children.props.height, 207);
   app.layout(view, 540, 0);
-  assert.equal(app.render().props.children, false);
+  assert.equal(app.render().props.children[0].props.children, false);
   assert.equal(app.live(), false);
 });
 

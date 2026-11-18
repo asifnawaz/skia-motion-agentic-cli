@@ -20,7 +20,8 @@ const load = (path, imports = {}, envName = 'development') => {
   });
   // Evaluate CommonJS in Node and mirror Metro's var bindings for factory initializers.
   const { outputText } = ts.transpileModule(code, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES5 },
+    fileName: filename,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES5, jsx: ts.JsxEmit.ReactJSX },
   });
   const exports = {};
   runInNewContext(outputText, {
@@ -69,6 +70,65 @@ test('Worklets 0.13.0 initializes machine helpers before capturing them', () => 
   Object.values(core).forEach(checkCaptures);
 });
 
+test('mobile binding initializes before the first pose and applies batches between capped frames', () => {
+  const core = load('templates/motion/machine.ts', { './motion': load('templates/motion/motion.ts') });
+  const reactions = [];
+  let tick;
+  const { useMachine } = load('runtime/useMachine.ts', {
+    '../templates/motion/machine': core,
+    './version': {},
+    react: { useCallback: (fn) => fn, useMemo: (fn) => fn(), useEffect: (fn) => fn() },
+    'react-native-worklets': {
+      scheduleOnUI: (fn, ...args) => fn(...args), scheduleOnRN: (fn, ...args) => fn(...args),
+    },
+    'react-native-reanimated': {
+      useSharedValue: (value) => ({ value }), useReducedMotion: () => false,
+      useFrameCallback: (callback) => { tick = callback; return { setActive() {} }; },
+      useAnimatedReaction: (prepare, apply) => {
+        let previous;
+        reactions.push(() => { const next = prepare(); apply(next, previous); previous = next; });
+      },
+    },
+  }, 'production');
+  const machine = {
+    schema: 'skac.machine/1',
+    values: { title: { type: 'string', default: 'Default' }, visible: { type: 'boolean', default: false } },
+    layers: [{
+      name: 'main', entry: [{ to: 'show', when: [['visible', '==', true]] }, { to: 'hide' }],
+      states: { show: { clip: 'moving' }, hide: { clip: 'hidden' } },
+    }],
+  };
+  const changes = [];
+  const handle = useMachine(machine, {
+    moving: { ms: 100, play: (time) => ({ channels: { position: 10 + time } }) },
+    hidden: { ms: 0, play: () => ({ channels: { position: 0 } }) },
+  }, { initialValues: { title: 'Ready', visible: true }, frameRate: 25, observeValues: ['title', 'visible'],
+    onValuesChange: (values) => changes.push({ ...values }) });
+  assert.equal(handle.pose.value.channels.position, 10);
+  const frame = (ms) => { tick({ timeSincePreviousFrame: ms }); reactions.forEach((reaction) => reaction()); };
+  frame(10);
+  assert.equal(handle.pose.value.channels.position, 10);
+  handle.setValues({ title: 'Playing', visible: false });
+  frame(10);
+  assert.equal(handle.pose.value.channels.position, 30);
+  assert.deepEqual(changes, [{ title: 'Ready', visible: true }, { title: 'Playing', visible: false }]);
+  frame(10);
+  assert.equal(changes.length, 2);
+  assert.throws(() => handle.setValues({ title: 4, visible: true }), /takes a string/);
+  assert.equal(handle.readOnUI('visible'), false);
+
+  const beat = { value: 2400 };
+  const clocked = useMachine({
+    schema: 'skac.machine/1',
+    clocks: { beat: { step_hz: 60 } },
+    layers: [{ name: 'pulse', clock: 'beat', entry: 'on', states: { on: { clip: 'moving', loop: 'loop' } } }],
+  }, { moving: { ms: 1000, play: (time) => ({ channels: { progress: time } }) } }, { clocks: { beat } });
+  assert.equal(clocked.pose.value.channels.progress, 0);
+  beat.value = 2640;
+  reactions.forEach((reaction) => reaction());
+  assert.equal(clocked.pose.value.channels.progress, 240);
+});
+
 test('production Worklets transform preserves asset tracks, marker crossings and the Skia v3 draw calls', async () => {
   const validator = await import('../../runtime/machine-schema.js');
   const motion = load('templates/motion/motion.ts', {}, 'production');
@@ -76,7 +136,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const runtime = load('runtime/asset.ts', {
     './machine-schema.js': validator,
     '../templates/motion/motion': motion,
-    './asset-image': load('runtime/asset-image.ts', {}, 'production'),
+    './asset-image': load('runtime/asset-image.ts', { './base64': load('runtime/base64.ts', {}, 'production') }, 'production'),
   }, 'production');
   const asset = runtime.parseAsset(readFileSync(new URL('../../templates/assets/sprout.json', import.meta.url), 'utf8'));
   asset.artboard.nodes[0].feather = 5;
@@ -93,10 +153,15 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   ], clock, entries);
   assert.equal(runtime.assetMarkerEvents(asset, entries)[0].name, 'rewardLanded');
   const pose = core.pose(compiled, clips, state, 740, clock);
+  asset.fonts = { ui: 'data:font/ttf;base64,font' };
+  asset.artboard.nodes.push({
+    kind: 'text', text: { value: 'title' }, x: 8, y: 10, width: 120, fontSize: 16,
+    fonts: ['ui'], direction: 'rtl', align: 'end', fill: '#FFFFFF',
+  });
   asset.artboard.nodes.push({ kind: 'image', image: 'painted', x: 1, y: 2, width: 18, height: 20, opacity: 0.5 });
   asset.artboard.nodes.push({ kind: 'image', image: 'duplicate', x: 0, y: 0, width: 18, height: 20, opacity: 0 });
   asset.artboard.nodes.push({
-    kind: 'mesh', image: 'painted', opacity: 0.75,
+    kind: 'mesh', image: 'portrait', opacity: 0.75,
     vertices: [[0, 0, 0, 0], ['lightX', 0, 1, 0], [0, 20, 0, 1]],
     indices: [0, 1, 2],
     pins: {
@@ -109,6 +174,13 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   asset.images = {
     painted: 'data:image/webp;base64,painted', duplicate: 'data:image/webp;base64,painted', unused: 'data:image/webp;base64,unused',
   };
+  asset.imageSlots = { portrait: 'painted' };
+  asset.palette = { accent: '#0D7654' };
+  const strokePath = [['M', 1, 2], ['L', 80, 2]];
+  asset.artboard.nodes.push({ kind: 'path', commands: strokePath, stroke: {
+    color: { palette: 'accent' }, width: 4, cap: 'round', join: 'bevel',
+    trim: { start: 0.2, end: 0.75 }, dash: { intervals: [5, 3], phase: 'lightX' },
+  } });
   const shaders = [];
   const image = {
     width: () => 2, height: () => 3,
@@ -119,8 +191,12 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const decodes = [];
   const gradients = [];
   const filters = [];
+  const fonts = [];
+  const paragraphs = [];
   const translations = [];
   const clipsDrawn = [];
+  const clipRects = [];
+  const strokes = [];
   let pathBuilds = 0;
   const pathBuilder = () => {
     pathBuilds++;
@@ -132,12 +208,34 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   };
   const skia = {
     Data: { fromBase64: (data) => data },
+    Typeface: { MakeFreeTypeFaceFromData: (data) => data },
+    TypefaceFontProvider: { Make: () => ({ registerFont: (...args) => fonts.push(args) }) },
+    ParagraphBuilder: { Make(style, provider) {
+      assert.ok(provider);
+      let text;
+      let width;
+      return {
+        pushStyle(attributes) { assert.deepEqual(Array.from(attributes.fontFamilies), ['ui']); },
+        addText(value) { text = value; },
+        build() {
+          return {
+            layout(value) { width = value; },
+            paint(_canvas, x, y) { paragraphs.push([text, x, y, width, style.textDirection, style.textAlign]); },
+          };
+        },
+      };
+    } },
     Image: { MakeImageFromEncoded(data) { decodes.push(data); return image; } },
     Paint: () => ({
-      setAntiAlias() {}, setColor() {}, setAlphaf(alpha) { this.alpha = alpha; },
+      setAntiAlias() {}, setColor(color) { this.color = color; }, setAlphaf(alpha) { this.alpha = alpha; },
       setShader(shader) { this.shader = shader; }, setMaskFilter(filter) { filters.push(filter); },
+      setStyle(style) { this.style = style; }, setStrokeWidth(width) { this.width = width; },
+      setStrokeCap(cap) { this.cap = cap; }, setStrokeJoin(join) { this.join = join; },
+      setPathEffect(effect) { this.effect = effect; },
     }),
-    Color: () => [0, 0, 0, 1],
+    Color: (hex) => Object.assign([0, 0, 0, 1], { hex }),
+    Path: { Trim: (...args) => args },
+    PathEffect: { MakeDash: (...args) => args },
     PathBuilder: { Make: pathBuilder },
     Shader: { MakeRadialGradient(center) { gradients.push(center.x); } },
     MaskFilter: { MakeBlur: (...args) => args },
@@ -146,9 +244,15 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     MakeVertices: (mode, positions, textures, _colors, indices) => ({ mode, positions, textures, indices }),
   };
   const canvas = {
-    save() {}, restore() {}, translate(x, y) { translations.push([x, y]); }, scale() {}, rotate() {}, clipRect() {},
+    save() {}, restore() {}, translate(x, y) { translations.push([x, y]); }, scale() {}, rotate() {},
+    clipRect(rect) { clipRects.push(rect); },
     clipPath(path, op, antiAlias) { clipsDrawn.push({ path, op, antiAlias }); },
-    drawPath() {}, drawOval() {}, drawRRect() {},
+    drawPath(path, paint) {
+      if (paint.style === 1) strokes.push(JSON.parse(JSON.stringify({
+        path, color: paint.color.hex, width: paint.width, cap: paint.cap, join: paint.join, effect: paint.effect,
+      })));
+    },
+    drawOval() {}, drawRRect() {},
     drawImageRectOptions(image, src, dest, filter, mipmap, paint) {
       imageDraws.push({ image, src, dest, filter, mipmap, alpha: paint.alpha });
     },
@@ -163,6 +267,8 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     'react-native-skia': {
       Skia: skia, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0, Decal: 3 }, FilterMode: { Linear: 1 },
       MipmapMode: { None: 0 }, ClipOp: { Intersect: 1 }, VertexMode: { Triangles: 0 }, BlendMode: { SrcOver: 3 },
+      TextDirection: { RTL: 0, LTR: 1 }, TextAlign: { Start: 4, End: 5, Center: 2 },
+      PaintStyle: { Stroke: 1 }, StrokeCap: { Round: 1 }, StrokeJoin: { Bevel: 2 },
     },
   }, 'production');
   assert.equal(typeof drawAsset.__workletHash, 'number');
@@ -170,10 +276,13 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const drawing = prepareAssetDrawing(asset, images);
   const fixedPaths = pathBuilds;
   assert.ok(fixedPaths > 0);
-  drawAsset(canvas, drawing, pose.channels, 320, 260, images);
+  drawAsset(canvas, drawing, pose.channels, 320, 260, images, { title: 'مرحبا' });
+  assert.deepEqual(fonts, [['font', 'ui']]);
+  assert.deepEqual(paragraphs, [['مرحبا', 8, 10, 120, 0, 5]]);
   assert.equal(pathBuilds, fixedPaths + 1, 'the channel-driven clip is the only path rebuilt');
   assert.deepEqual(decodes, ['painted']);
   assert.equal(images.duplicate, images.painted);
+  assert.equal(images.portrait, images.painted);
   assert.equal(Object.hasOwn(images, 'unused'), false);
   assert.deepEqual(clipsDrawn, [{ path: [[-40, -150], [44, -150], [44, 20]], op: 1, antiAlias: true }]);
   assert.deepEqual(imageDraws, [{ image, src: [0, 0, 2, 3], dest: [1, 2, 18, 20], filter: 1, mipmap: 0, alpha: 0.5 }]);
@@ -182,14 +291,68 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   assert.deepEqual(translations.slice(0, 2), [[40, 0], [80, 223]]);
   assert.ok(translations.some(([x, y]) => x === 22 && y === 10));
   assert.deepEqual(shaders, [[3, 3, 1, 0]]);
+  assert.deepEqual(strokes, [{
+    path: [[[1, 2], [80, 2]], 0.2, 0.75, false],
+    color: '#0D7654', width: 4, cap: 1, join: 2, effect: [[5, 3], 44],
+  }]);
   assert.deepEqual(meshDraws, [{
     mode: 0, positions: [{ x: 0, y: 0 }, { x: 44, y: 0 }, { x: 0, y: 20 }],
     textures: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 3 }],
     indices: [0, 1, 2], alpha: 0.75, blend: 3, shader: 'source-texture',
   }]);
   const warmed = { ...image, makeShaderOptions: () => 'warmed-texture' };
-  const rebound = rebindAssetMeshShaders(drawing, { ...images, painted: warmed });
-  drawAsset(canvas, rebound, { ...pose.channels, lightX: 30 }, 320, 260, { ...images, painted: warmed });
+  const rebound = rebindAssetMeshShaders(drawing, { ...images, portrait: warmed });
+  drawAsset(canvas, rebound, { ...pose.channels, lightX: 30 }, 320, 260, { ...images, portrait: warmed });
   assert.deepEqual(meshDraws[1].positions[1], { x: 30, y: 0 });
   assert.equal(meshDraws[1].shader, 'warmed-texture');
+  const replacement = { ...warmed, width: () => 27, height: () => 31 };
+  const overridden = decodeAssetImages(asset, { portrait: replacement });
+  assert.equal(overridden.portrait, replacement);
+  drawAsset(canvas, prepareAssetDrawing(asset, overridden), pose.channels, 320, 260, overridden);
+  assert.deepEqual(meshDraws[2].textures, [{ x: 0, y: 0 }, { x: 27, y: 0 }, { x: 0, y: 31 }]);
+  assert.throws(() => decodeAssetImages(asset, { invalid: replacement }), /Unknown motion image slot/);
+  clipRects.length = 0;
+  drawAsset(canvas, drawing, pose.channels, 240, 100, images, {}, { fit: 'cover' });
+  assert.deepEqual(clipRects[0], [0, 0, 240, 100]);
+});
+
+test('drawing a clip in the host canvas supports absolute time and direct shared values', () => {
+  const renders = [];
+  const { drawMotionClip } = load('runtime/mobile.tsx', {
+    'react': { forwardRef: (render) => render },
+    'react/jsx-runtime': {},
+    'react-native': {},
+    'react-native-skia': {},
+    'react-native-reanimated': {},
+    './asset': {},
+    './asset-draw': { drawAsset: (...args) => renders.push(args) },
+    './asset-load': {},
+    './asset-layout': {},
+    './useMachine': {},
+    './useMotionAsset': {},
+  }, 'production');
+  assert.equal(typeof drawMotionClip.__workletHash, 'number');
+  const canvas = {};
+  const images = {};
+  const drawing = { textBindings: ['title'] };
+  const asset = {
+    drawing, images, machine: { values: { title: { default: 'Ready' } } },
+    clips: { pulse: { ms: 120, reducedAt: 50, play: (time) => ({ channels: { time, glow: 0 } }) } },
+  };
+  const glow = { value: 0.25 };
+  const options = { width: 120, height: 80, channels: { glow } };
+  drawMotionClip(canvas, asset, 'pulse', 60, options);
+  glow.value = 0.5;
+  drawMotionClip(canvas, asset, 'pulse', 250, options);
+  drawMotionClip(canvas, asset, 'pulse', -20, { ...options, text: { title: 'Back' } });
+  drawMotionClip(canvas, asset, 'pulse', 90, { ...options, reduced: true });
+  assert.deepEqual(renders.map(([target, scene, channels, width, height, resources, values]) => {
+    assert.equal(target, canvas);
+    assert.equal(scene, drawing);
+    assert.equal(resources, images);
+    assert.equal(width, 120);
+    assert.equal(height, 80);
+    return [channels.time, channels.glow, values.title];
+  }), [[60, 0.25, 'Ready'], [120, 0.5, 'Ready'], [0, 0.5, 'Back'], [50, 0.5, 'Ready']]);
+  assert.throws(() => drawMotionClip(canvas, asset, 'missing', 0, options), /Unknown motion clip/);
 });

@@ -1,6 +1,6 @@
 // The schema and graph validator are shared by the CLI and the mobile asset loader.
 export const SCHEMA = 'skac.machine/1';
-export const VALUE_TYPES = ['boolean', 'number', 'enum', 'trigger'];
+export const VALUE_TYPES = ['boolean', 'number', 'enum', 'trigger', 'string'];
 export const BINDS = ['in', 'out', 'both'];
 export const LOOPS = ['once', 'loop', 'pingpong'];
 export const EASES = ['linear', 'out', 'inOut', 'in'];
@@ -58,7 +58,7 @@ export const validateMachine = (m, { clips, clipNames = clips && Object.keys(cli
     const where = `values.${name}`;
     if (!isObj(v)) { bad(where, 'a value is not an object', 'like {"type": "boolean", "default": false}'); continue; }
     unknownKeys(v, KEYS.value, where);
-    if (!VALUE_TYPES.includes(v.type)) { bad(where, `type ${JSON.stringify(v.type)} is not one of ${VALUE_TYPES.join(', ')}`, 'string, colour, image and list values are not in skac.machine/1'); continue; }
+    if (!VALUE_TYPES.includes(v.type)) { bad(where, `type ${JSON.stringify(v.type)} is not one of ${VALUE_TYPES.join(', ')}`, 'choose a supported value type'); continue; }
     if (v.bind !== undefined && !BINDS.includes(v.bind)) bad(where, `bind ${JSON.stringify(v.bind)} is not one of ${BINDS.join(', ')}`, '"in": the app writes it; "out": the machine writes it and the app reads it; "both"');
     if (v.type === 'enum') {
       if (!Array.isArray(v.options) || v.options.length < 2 || !v.options.every((o) => typeof o === 'string')) {
@@ -89,7 +89,7 @@ export const validateMachine = (m, { clips, clipNames = clips && Object.keys(cli
   // A literal or a value name on the right of a condition or action, checked against the type it must have.
   const operand = (rhs, type, where, options, assignment = false) => {
     const enumOptions = type === 'enum' && Array.isArray(options) ? options : undefined;
-    if (typeof rhs === 'string' && values[rhs] !== undefined && !enumOptions?.includes(rhs)) {
+    if (typeof rhs === 'string' && Object.hasOwn(values, rhs) && !enumOptions?.includes(rhs)) {
       if (valueType(rhs) !== type) bad(where, `"${rhs}" is a ${valueType(rhs)}, compared with a ${type}`, 'compare values of one type');
       else if (assignment && enumOptions && Array.isArray(values[rhs].options)) {
         const missing = values[rhs].options.filter((option) => !enumOptions.includes(option));

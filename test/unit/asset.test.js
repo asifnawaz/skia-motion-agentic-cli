@@ -86,6 +86,128 @@ test('the samples load as one repeatable packaged file', () => {
   }
 });
 
+test('artboard bundles pack every board and expose bound text, semantics, audio and declarations', () => {
+  const { file, cwd, run } = fixture('sprout');
+  const visual = JSON.parse(readFileSync(file, 'utf8'));
+  const label = 'مرحبا';
+  visual.machine.values.title = { type: 'string', default: label };
+  visual.machine.layers[0].states.idle.on_enter = [{ set: 'title', to: 'constructor' }];
+  visual.fonts = { label: 'data:font/ttf;base64,AAEAAA==' };
+  const cue = join(cwd, 'reveal.wav');
+  writeFileSync(cue, Buffer.from('RIFF\0\0\0\0WAVE', 'binary'));
+  visual.audio = { cue: run('resource', cue).uri };
+  visual.markers[0].audio = 'cue';
+  visual.semantics = [{ name: 'play', label: { value: 'title' }, role: 'button', bounds: [0, 0, 44, 44], trigger: 'correct' }];
+  visual.artboard.nodes.push({
+    kind: 'text', text: { value: 'title' }, x: 8, y: 2, width: 90, fontSize: 16, fill: '#f0f0f0',
+    fonts: ['label'], direction: 'rtl',
+  });
+  const other = JSON.parse(readFileSync(file, 'utf8'));
+  other.name = 'Thumbnail';
+  const bundle = { schema: 'skac.bundle/1', name: 'MobileVisuals', defaultArtboard: 'reward',
+    fonts: visual.fonts, audio: visual.audio, artboards: { reward: visual, thumbnail: other } };
+  delete visual.fonts;
+  delete visual.audio;
+  write(file, JSON.stringify(bundle));
+  const packed = run('pack', file);
+  assert.deepEqual(packed.artboards, ['reward', 'thumbnail']);
+  const packedBundle = JSON.parse(readFileSync(packed.file, 'utf8'));
+  assert.equal(packedBundle.audio.cue, bundle.audio.cue);
+  assert.equal(packedBundle.artboards.reward.audio, undefined);
+  assert.equal(run('check', packed.file, '--artboard=thumbnail').name, 'Thumbnail');
+  assert.throws(() => run('check', packed.file, '--artboard=missing'), /unknown artboard/);
+  const typesFile = run('types', packed.file).file;
+  const declarations = readFileSync(typesFile, 'utf8');
+  assert.match(declarations, /readonly "title": \{ readonly type: "string" \}/);
+  assert.match(declarations, /readonly markers: "rewardLanded"/);
+  assert.equal(run('types', packed.file, '--check').file, typesFile);
+  assert.throws(() => run('types', packed.file, '--check', '--artboard=thumbnail'), /missing or stale/);
+  const [trace] = run('trace', packed.file, '--trace=850', '--commands=correct@0.1').trace;
+  assert.equal(trace.markers[0].audio, 'cue');
+  assert.equal(run('trace', packed.file, '--trace=0').trace[0].values.title, 'constructor');
+  const frame = run('frame', packed.file, '--trace=100', '--commands=title=<new>@0.001');
+  const svg = readFileSync(frame.file, 'utf8');
+  assert.match(svg, /direction="rtl"[^>]+clip-path="url\(#text-width-\d+\)">&lt;new&gt;<\/text>/);
+  assert.match(svg, /<clipPath id="text-width-\d+"><rect x="8" y="-14" width="90"/);
+  visual.semantics[0].trigger = 'title';
+  write(file, JSON.stringify(bundle));
+  assert.throws(() => run('check', file), /writable trigger/);
+});
+
+test('packed artboards share Allo and preview image slots and host-clock strokes', () => {
+  const { file, run } = fixture('sprout');
+  const visual = JSON.parse(readFileSync(file, 'utf8'));
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAFklEQVR4nGP8z8CwkYGBgYGJAQrgDAAqOQG2ps3ojQAAAABJRU5ErkJggg==';
+  visual.images = { sample: png, unused: png };
+  visual.imageSlots = { portrait: 'sample' };
+  visual.palette = { accent: '#1A9876' };
+  visual.channels.progress = 0;
+  visual.machine.clocks = { beat: { step_hz: 60 } };
+  visual.clips.pulse = { ms: 1000, tracks: { progress: [[0, 0], [1000, 1]] } };
+  visual.machine.layers.push({
+    name: 'beatLayer', clock: 'beat', entry: 'run',
+    states: { run: { clip: 'pulse', loop: 'loop', reason: 'Show externally controlled progress.' } },
+  });
+  visual.artboard.nodes.push(
+    { kind: 'image', image: 'portrait', x: 0, y: 0, width: 18, height: 20 },
+    { kind: 'path', commands: [['M', 4, 4], ['L', 80, 4]], stroke: {
+      color: { palette: 'accent' }, width: 3, cap: 'round', join: 'bevel', trim: { end: 'progress' }, dash: { intervals: [5, 3], phase: 3 },
+    } },
+    { kind: 'path', commands: [['M', 3, 8], ['L', 33, 8], ['M', 3, 18], ['L', 33, 18]], stroke: {
+      color: '#102030', width: 3, trim: { end: 'progress' },
+    } },
+    { kind: 'text', text: 'Good work', x: 8, y: 4, width: 120, fontSize: 20, fill: '#FFFFFF' },
+  );
+  const thumbnail = structuredClone(visual);
+  thumbnail.name = 'Thumbnail';
+  thumbnail.artboard.nodes.push({ ...thumbnail.artboard.nodes.at(-1), fonts: [] });
+  const bundle = {
+    schema: 'skac.bundle/1', name: 'ProgressViews', defaultArtboard: 'full', artboards: { full: visual, thumbnail },
+  };
+  write(file, JSON.stringify(bundle));
+  const { file: packedFile } = run('pack', file);
+  const packed = JSON.parse(readFileSync(packedFile, 'utf8'));
+  assert.equal(Object.keys(packed.fonts).length, 1);
+  const [family] = Object.keys(packed.fonts);
+  const fontSource = new URL('../../templates/fonts/allo-1.0.3/Allo-Regular.otf', import.meta.url);
+  assert.deepEqual(Buffer.from(packed.fonts[family].split(',')[1], 'base64'), readFileSync(fontSource));
+  assert.match(packed.fontLicenses[family], /SIL OPEN FONT LICENSE/);
+  assert.deepEqual(Object.keys(packed.artboards.full.images), ['sample']);
+  assert.deepEqual(packed.artboards.full.artboard.nodes.at(-1).fonts, [family]);
+  assert.deepEqual(packed.artboards.thumbnail.artboard.nodes.at(-2).fonts, [family]);
+  assert.deepEqual(packed.artboards.thumbnail.artboard.nodes.at(-1).fonts, []);
+  assert.equal(run('check', packedFile).selectedArtboard, 'full');
+  assert.equal(run('preview', packedFile, '--artboard=thumbnail').selectedArtboard, 'thumbnail');
+  assert.equal(run('trace', packedFile, '--trace=508').trace[0].channels.progress, 0.5);
+  const svg = readFileSync(run('frame', packedFile, '--trace=500').file, 'utf8');
+  assert.ok(svg.includes(png));
+  assert.match(svg, /stroke="#1A9876"[^>]+stroke-dasharray="5 3" stroke-dashoffset="3"[^>]+mask=/);
+  assert.match(svg, /pathLength="1" stroke-dasharray="0\.5 0\.5"/);
+  assert.match(svg, /d="M 3 8 L 33 8"[^>]+stroke="#102030"/);
+  assert.doesNotMatch(svg, /M 3 18 L 33 18/);
+});
+
+test('packed asset preview embeds the exact checked source and preserves it on regeneration', () => {
+  const { file, run } = fixture('sprout');
+  const asset = JSON.parse(readFileSync(file, 'utf8'));
+  const option = '</script><p>literal enum option</p>';
+  asset.machine.values.label = { type: 'enum', options: ['default', option] };
+  write(file, JSON.stringify(asset));
+  const packed = run('pack', file);
+  const preview = run('preview', packed.file, '--size=390x844', '--reduced');
+  const html = readFileSync(preview.file, 'utf8');
+  const data = html.match(/<script id="scene" type="application\/json">(.*?)<\/script>/s)[1];
+  assert.equal(preview.renderer, 'svg');
+  assert.equal(JSON.parse(data).source, readFileSync(packed.file, 'utf8'));
+  assert.deepEqual(JSON.parse(data).size, [390, 844]);
+  assert.equal(JSON.parse(data).reduced, true);
+  assert.ok(!html.includes(option));
+  assert.throws(() => run('preview', packed.file), /cannot write/);
+  run('preview', packed.file, '--size=390x844', '--reduced', '--force');
+  assert.equal(readFileSync(preview.file, 'utf8'), html);
+  assert.throws(() => run('preview', packed.file, `--out=${packed.file}`, '--force'), /same file/);
+});
+
 test('Versus HUD binds the timer and meters and animates feathering on impact', () => {
   const { file, cwd, run } = fixture('versus-hud');
   const inputs = '--commands=leftHealth=0.48@0.1 leftHit@0.1 timerTens=1@0.1 timerOnes=2@0.1 rightSuper=1@0.2';

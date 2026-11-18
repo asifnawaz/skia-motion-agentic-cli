@@ -7,7 +7,19 @@
   "types": "./runtime/mobile.tsx",
   "exports": {
     ".": "./runtime/mobile.tsx",
-    "./machine": "./runtime/index.ts"
+    "./machine": "./runtime/index.ts",
+    "./expo": "./runtime/expo.ts",
+    "./expo-audio": "./runtime/expo-audio.ts"
+  },
+  "peerDependencies": {
+    "expo-asset": ">=12",
+    "expo-audio": ">=1",
+    "expo-file-system": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "expo-asset": { "optional": true },
+    "expo-audio": { "optional": true },
+    "expo-file-system": { "optional": true }
   },
   "files": [
     "LICENSE",
@@ -15,13 +27,18 @@
     "runtime/asset-draw.ts",
     "runtime/asset-image.ts",
     "runtime/asset-layout.ts",
+    "runtime/asset-load.ts",
     "runtime/asset-mesh.ts",
     "runtime/asset.ts",
+    "runtime/base64.ts",
+    "runtime/expo.ts",
+    "runtime/expo-audio.ts",
     "runtime/index.ts",
     "runtime/machine-schema.d.ts",
     "runtime/machine-schema.js",
     "runtime/mobile.tsx",
     "runtime/useMachine.ts",
+    "runtime/useMotionAsset.ts",
     "runtime/version.ts",
     "templates/motion/face.ts",
     "templates/motion/machine.ts",

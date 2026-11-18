@@ -10,7 +10,7 @@ import { prepare } from '../../scripts/pack-runtime.js';
 const cli = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 const definition = JSON.parse(readFileSync(new URL('../../packages/runtime/package.json', import.meta.url), 'utf8'));
 
-test('the released player installs without CLI dependencies and both app imports bundle', () => {
+test('the released player installs without CLI dependencies and its app imports bundle', () => {
   const directory = mkdtempSync(join(tmpdir(), 'skac-runtime-test-'));
   try {
     const release = { cwd: directory, logger: { log() {} }, nextRelease: { version: '999.0.0' } };
@@ -39,14 +39,16 @@ test('the released player installs without CLI dependencies and both app imports
     assert.equal(manifest.version, cli.version);
     assert.deepEqual(manifest.exports, definition.exports);
     assert.equal(manifest.private, undefined);
-    assert.deepEqual(manifest.peerDependencies, cli.peerDependencies);
+    assert.deepEqual(manifest.peerDependencies, { ...cli.peerDependencies, ...definition.peerDependencies });
     assert.equal(manifest.bin, undefined);
 
     const bundled = buildSync({
       stdin: {
         contents: `
-          export { MotionPlayer, loadMotionAsset, preloadMotionAsset } from 'skia-motion-runtime';
+          export { MotionPlayer, loadMotionAsset, preloadMotionAsset, useMotionAsset } from 'skia-motion-runtime';
           export { useMachine, runtimeVersion } from 'skia-motion-runtime/machine';
+          export { useExpoMotionAsset } from 'skia-motion-runtime/expo';
+          export { useExpoMotionAudio } from 'skia-motion-runtime/expo-audio';
         `,
         resolveDir: app,
       },
@@ -54,7 +56,7 @@ test('the released player installs without CLI dependencies and both app imports
       bundle: true,
       format: 'esm',
       platform: 'neutral',
-      external: Object.keys(cli.peerDependencies),
+      external: Object.keys(manifest.peerDependencies),
       write: false,
     });
     assert.match(bundled.outputFiles[0].text, /function loadMotionAsset\(/);

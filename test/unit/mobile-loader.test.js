@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { setImmediate } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+import { buildSync } from 'esbuild';
+
+const bundle = buildSync({
+  entryPoints: [fileURLToPath(new URL('../../runtime/useMotionAsset.ts', import.meta.url))],
+  bundle: true, write: false, platform: 'node', format: 'cjs', external: ['react', './asset-load'],
+}).outputFiles[0].text;
+
+test('asset loading shares pending resources, aborts released sources, and ignores late results', async () => {
+  let current;
+  const prepared = [];
+  const modules = {
+    react: {
+      useMemo: (compute) => compute(),
+      useState: () => {
+        const consumer = current;
+        return [consumer.state, (value) => {
+          consumer.state = typeof value === 'function' ? value(consumer.state) : value;
+        }];
+      },
+      useEffect: (effect, [key]) => {
+        if (current.key === key) return;
+        current.cleanup?.();
+        current.key = key;
+        current.cleanup = effect();
+      },
+    },
+    './asset-load': {
+      async preloadMotionAsset(text, options) {
+        const asset = { text, options };
+        prepared.push(asset);
+        return asset;
+      },
+    },
+  };
+  const module = { exports: {} };
+  new Function('module', 'require', bundle)(module, (name) => modules[name]);
+  const use = (consumer, source, options) => {
+    current = consumer;
+    return module.exports.useMotionAsset(source, options);
+  };
+  const pending = [];
+  const source = {
+    key: 'custom',
+    read: (signal) => new Promise((resolve) => pending.push({ resolve, signal })),
+  };
+  const left = {};
+  const right = {};
+  assert.equal(use(left, source).status, 'loading');
+  assert.equal(use(right, source).status, 'loading');
+  await setImmediate();
+  assert.equal(pending.length, 1);
+  pending[0].resolve('first');
+  await setImmediate();
+  const loaded = use(left, source).asset;
+  assert.equal(loaded, use(right, source).asset);
+  assert.equal(prepared.length, 1);
+
+  assert.equal(use(left, source, { artboard: 'wide' }).status, 'loading');
+  await setImmediate();
+  assert.equal(pending.length, 2);
+  use(left, 'next');
+  await setImmediate();
+  assert.equal(pending[1].signal.aborted, true);
+  assert.equal(pending[0].signal.aborted, false);
+  pending[1].resolve('stale');
+  await setImmediate();
+  assert.equal(use(left, 'next').asset.text, 'next');
+  assert.deepEqual(prepared.map(({ text }) => text), ['first', 'next']);
+  right.cleanup();
+  assert.equal(pending[0].signal.aborted, true);
+  left.cleanup();
+
+  const firstImage = {};
+  const secondImage = {};
+  const appA = {};
+  const appB = {};
+  const appC = {};
+  const variant = (portrait, accent) => ({ imageSlots: { portrait }, palette: { accent } });
+  const firstVariant = variant(firstImage, '#FFAA00');
+  const secondVariant = variant(secondImage, '#FFAA00');
+  use(appA, 'photo', firstVariant);
+  use(appB, 'photo', secondVariant);
+  use(appC, 'photo', variant(firstImage, '#FFAA00'));
+  await setImmediate();
+  const photoA = use(appA, 'photo', firstVariant).asset;
+  const photoB = use(appB, 'photo', secondVariant).asset;
+  assert.notEqual(photoA, photoB);
+  assert.equal(photoA.options.imageSlots.portrait, firstImage);
+  assert.equal(photoB.options.imageSlots.portrait, secondImage);
+  assert.equal(photoA, use(appC, 'photo', firstVariant).asset);
+  const colorVariant = variant(firstImage, '#00AAFF');
+  assert.equal(use(appC, 'photo', colorVariant).status, 'loading');
+  await setImmediate();
+  assert.notEqual(use(appC, 'photo', colorVariant).asset, photoA);
+  for (const consumer of [appA, appB, appC]) consumer.cleanup();
+});

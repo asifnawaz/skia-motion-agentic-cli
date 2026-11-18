@@ -1,21 +1,4 @@
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-function decodeBase64Slice(encoded: string): Uint8Array {
-  const bytes = new Uint8Array(encoded.length * 3 / 4);
-  let length = 0;
-  let bits = 0;
-  let value = 0;
-  for (const char of encoded) {
-    if (char === '=') break;
-    value = (value << 6) | ALPHABET.indexOf(char);
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes[length++] = (value >>> bits) & 255;
-    }
-  }
-  return bytes.subarray(0, length);
-}
+import { decodeBase64 } from './base64';
 
 /** Check the embedded image header before passing its bytes to a renderer. */
 export function imageSize(uri: unknown): { width: number; height: number } | null {
@@ -25,8 +8,8 @@ export function imageSize(uri: unknown): { width: number; height: number } | nul
   const encoded = match[2]!;
   const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
   const size = encoded.length * 3 / 4 - padding;
-  const prefix = decodeBase64Slice(encoded.slice(0, 40));
-  const suffix = decodeBase64Slice(encoded.slice(-20)).subarray(-12);
+  const prefix = decodeBase64(encoded.slice(0, 40));
+  const suffix = decodeBase64(encoded.slice(-20)).subarray(-12);
   return sizeFromParts(match[1]!, prefix, suffix, size);
 }
 
