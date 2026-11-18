@@ -43,6 +43,30 @@ export const EASE_OUT = bezier(0.23, 1, 0.32, 1);
 /** Only things leaving or falling away. Never something the eye is waiting on (rossark §2). */
 export const EASE_IN = bezier(0.55, 0, 1, 0.45);
 
+/**
+ * The hand-over curve: inOut cubic, the Welcome seal's (word-quran WelcomeScreen.tsx, CARRY_MS 600,
+ * Easing.inOut(Easing.cubic), owner O-4578, 9 Nov 2026) and the reels' morph (reels/_kit/morph.js easeIO). Its speed
+ * rises and falls smoothly enough that a carry of a phone's width passes skac/abrupt at 30 fps; EASE_IN_OUT (a steep
+ * bezier) halves its speed within one 30 fps frame at its peak, which pathcheck reads as a kink.
+ */
+export function CUBIC_IN_OUT(p: number): number {
+  'worklet';
+  const q = Math.min(1, Math.max(0, p));
+  return q < 0.5 ? 4 * q * q * q : 1 - Math.pow(-2 * q + 2, 3) / 2;
+}
+/** Out cubic, the reels' easeOut (reels/_kit/pixelmotion.js): a point set's arrival. */
+export function CUBIC_OUT(p: number): number {
+  'worklet';
+  const q = Math.min(1, Math.max(0, p));
+  return 1 - Math.pow(1 - q, 3);
+}
+/** In cubic, the reels' easeIn (reels/_kit/pixelmotion.js): a point set replaying its arrival backwards. */
+export function CUBIC_IN(p: number): number {
+  'worklet';
+  const q = Math.min(1, Math.max(0, p));
+  return q * q * q;
+}
+
 /** A keyframe: time (ms), value, and the curve of the segment ARRIVING here ('out', or ease-in-out). */
 export type Key = readonly [number, number, 'out'?];
 export type Keys = readonly Key[];
@@ -56,18 +80,18 @@ export type FlowKeys = readonly FlowKey[];
  */
 export function track(t: number, keys: Keys): number {
   'worklet';
-  if (t <= keys[0][0]) return keys[0][1];
+  if (t <= keys[0]![0]) return keys[0]![1];
   for (let i = 1; i < keys.length; i++) {
-    const k1 = keys[i];
+    const k1 = keys[i]!;
     if (t <= k1[0]) {
-      const k0 = keys[i - 1];
+      const k0 = keys[i - 1]!;
       const span = k1[0] - k0[0];
       const p = span > 0 ? (t - k0[0]) / span : 1;
       const e = k1[2] === 'out' ? EASE_OUT(p) : EASE_IN_OUT(p);
       return k0[1] + (k1[1] - k0[1]) * e;
     }
   }
-  return keys[keys.length - 1][1];
+  return keys[keys.length - 1]![1];
 }
 
 /**
@@ -78,13 +102,13 @@ export function track(t: number, keys: Keys): number {
 export function flow(t: number, k: FlowKeys): number {
   'worklet';
   const n = k.length;
-  if (t <= k[0][0]) return k[0][1];
-  if (t >= k[n - 1][0]) return k[n - 1][1];
+  if (t <= k[0]![0]) return k[0]![1];
+  if (t >= k[n - 1]![0]) return k[n - 1]![1];
   let i = 0;
-  while (k[i + 1][0] < t) i++;
+  while (k[i + 1]![0] < t) i++;
   const slope = (j: number) => {
     'worklet';
-    return (k[j + 1][1] - k[j][1]) / (k[j + 1][0] - k[j][0]);
+    return (k[j + 1]![1] - k[j]![1]) / (k[j + 1]![0] - k[j]![0]);
   };
   const tangent = (j: number) => {
     'worklet';
@@ -92,17 +116,17 @@ export function flow(t: number, k: FlowKeys): number {
     const a = slope(j - 1);
     const b = slope(j);
     if (a * b <= 0) return 0;
-    const h0 = k[j][0] - k[j - 1][0];
-    const h1 = k[j + 1][0] - k[j][0];
+    const h0 = k[j]![0] - k[j - 1]![0];
+    const h1 = k[j + 1]![0] - k[j]![0];
     const w0 = 2 * h1 + h0;
     const w1 = h1 + 2 * h0;
     return (w0 + w1) / (w0 / a + w1 / b);
   };
-  const h = k[i + 1][0] - k[i][0];
-  const s = (t - k[i][0]) / h;
+  const h = k[i + 1]![0] - k[i]![0];
+  const s = (t - k[i]![0]) / h;
   const s2 = s * s;
   const s3 = s2 * s;
-  return (2 * s3 - 3 * s2 + 1) * k[i][1] + (s3 - 2 * s2 + s) * h * tangent(i) + (-2 * s3 + 3 * s2) * k[i + 1][1] + (s3 - s2) * h * tangent(i + 1);
+  return (2 * s3 - 3 * s2 + 1) * k[i]![1] + (s3 - 2 * s2 + s) * h * tangent(i) + (-2 * s3 + 3 * s2) * k[i + 1]![1] + (s3 - s2) * h * tangent(i + 1);
 }
 
 /** 0 -> 1 inside the window [a, b], eased; 0 before, 1 after. One beat of a scene (rossark §2). */

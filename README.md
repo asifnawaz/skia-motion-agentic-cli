@@ -5,6 +5,7 @@
 
 Character and UI motion drawn with [`@shopify/react-native-skia`](https://shopify.github.io/react-native-skia/),
 rendered headlessly by [Remotion](https://www.remotion.dev/), and driven by a command line built for agents.
+Requires `@shopify/react-native-skia` 2.6 or later, or `react-native-skia` 2.15 or later (including Skia 3).
 
 It follows the agent loop of the `rive` CLI: scaffold, edit, check, render, measure. Every
 command prints exactly one JSON document, so an agent never has to parse prose.
@@ -14,6 +15,20 @@ the motion rules and lints the source. Each failure names the part, the time and
 `--stats` and `--story` print the motion as numbers and text, and `--probe=x,y --at=s` reads a colour.
 Check first, then look once at the end with `--sheet`;
 screenshots are an optional human check, counted but never banned. Start with `skac docs blind`.
+
+## Examples
+
+These loops are cropped from two bundled samples. Copy one with `skac samples character` or `skac samples interface`, then run `npm install` in its directory. Run `skac Character --check`, edit the rig as shown, then check again and run `skac Character --render`. Use `Interface` for the button example.
+
+| Preview | Sample rig |
+| --- | --- |
+| **Character idle**<br>![A sprout glances left, blinks and faces forward.][idle] | [Character.rig.ts](templates/init/src/Character.rig.ts) · The breath, drift and leaves return to their starting pose at 2.8 s.<br>`const BREATH_PERIOD = 2800;`<br>`const DRIFT_PERIOD = 2800;`<br>`const SPROUT_SWAY = [5, 2800, 2, 1400];`<br>`const BLINKS = [400, 2160, 2420, 5400, 6800, 7500];` |
+| **Tap reaction**<br>![The sprout crouches, hops and squashes on landing.][hop] | [Character.rig.ts](templates/init/src/Character.rig.ts) · The sample sends a tap at 4 s. These values set the landing time and squash.<br>`const LANDING = 760;`<br>`const SQUASH = 0.17;`<br>`const SQUASH_TIME = 130;` |
+| **Button to sheet**<br>![A button opens into a sheet with a check mark, then closes.][sheet] | [Interface.rig.ts](templates/samples/interface/src/Interface.rig.ts) · The button compresses before it opens. The preview plays back in reverse to close it.<br>`const held = ms - BEAT.press[0];`<br>`const btnScale = press(held * 0.75, (held - 100) * 0.75);`<br>`const b = morphBox(BUTTON, SHEET, prog(ms, BEAT.sheet));` |
+
+[idle]: https://raw.githubusercontent.com/asifnawaz/skia-motion-agentic-cli/main/docs/media/character-idle.webp
+[hop]: https://raw.githubusercontent.com/asifnawaz/skia-motion-agentic-cli/main/docs/media/tap-hop.webp
+[sheet]: https://raw.githubusercontent.com/asifnawaz/skia-motion-agentic-cli/main/docs/media/button-sheet.webp
 
 ## Install
 

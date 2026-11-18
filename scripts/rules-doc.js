@@ -18,6 +18,8 @@ export const FIXED = [
     note: 'a channel or part holds NaN or a missing value, or the rig was never sampled; no rule runs then' },
   { id: 'skac/no-rules', layer: 'engine', category: 'request', default: 'error', needs: '-', docs: 'motion/checks', file: 'src/rules.js',
     note: 'every rule was skipped or off, so nothing was judged' },
+  { id: 'skac/kind', layer: 'engine', category: 'request', default: 'error', needs: '-', docs: 'motion/interface', file: 'src/rules.js',
+    note: "meta.kind is neither 'character' nor 'interface'; no rule runs then" },
   { id: 'skac/spec-beat', layer: 'spec (rig samples)', category: 'request', default: 'error', needs: 'spec.beats', docs: 'blind', file: 'src/spec.js',
     note: 'a beat in `<Name>.spec.json` is unmet: no move, wrong direction, or `reaches` not reached' },
   { id: 'skac/spec-point', layer: 'spec (pixels)', category: 'request', default: 'error', needs: 'spec.points', docs: 'blind', file: 'src/spec.js',

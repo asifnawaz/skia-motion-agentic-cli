@@ -30,12 +30,18 @@ Set a rule in `skia-motion.json`: `"rules": { "skac/speed-cap": "error", "skac/n
 | `skac/loop-seam` | rig | timing | warn | `loop` | `motion/principles` | - |
 | `skac/determinism` | rig | determinism | warn | - | `motion/remotion-and-app` | - |
 | `skac/beat-moves` | rig | request | error | `beats` | `motion/checks` | - |
+| `skac/long-fade` | rig | timing | warn | `opacity` | `motion/interface` | An opacity channel in meta.opacity goes from clear to solid (or back) in one run longer than 250 ms. |
+| `skac/crossfade` | rig | timing | warn | `opacity` | `motion/interface` | carry.mjs's carried test (word-quran-reels, after onetake): at a boundary (one opacity channel falls and another rises |
+| `skac/abrupt` | rig | speed | warn | `parts`, `width`, `height` | `motion/interface` | pathcheck.mjs's KINK (O-2166) on the rig's parts, interfaces only: a part's centre changes speed by over half its speed at once. |
+| `skac/morph-path` | rig | request | error | `morphs` | `motion/interface` | meta.morphs names each morphPath the draw runs, as its two SVG strings; Skia blends two paths only when their verbs match, else the render throws. |
+| `skac/machine-settles` | rig | timing | error | - | `motion/checks` | - |
 | `skac/ground` | rig | contact | error | `parts`, `ground_y` | `motion/checks` | meta: ground_y (pt, the contact line); planted: parts that stand on it; floor: parts drawn on the floor plane |
 | `skac/attached` | rig | contact | error | `parts`, `attached` | `motion/checks` | meta.attached: [{part, to, within_pt}]: the distance between the two box centres may drift at most within_pt |
 | `skac/samples` | engine | determinism | error | - | `motion/checks` | a channel or part holds NaN or a missing value, or the rig was never sampled; no rule runs then |
 | `skac/no-rules` | engine | request | error | - | `motion/checks` | every rule was skipped or off, so nothing was judged |
+| `skac/kind` | engine | request | error | - | `motion/interface` | meta.kind is neither 'character' nor 'interface'; no rule runs then |
 | `skac/spec-beat` | spec (rig samples) | request | error | spec.beats | `blind` | a beat in `<Name>.spec.json` is unmet: no move, wrong direction, or `reaches` not reached |
 | `skac/spec-point` | spec (pixels) | request | error | spec.points | `blind` | the colour at a named point differs from the spec by more than 24 per channel |
 | `skac/rest-spec` | spec (pixels) | request | error | spec.parts | `motion/checks` | a part box's edges do not sit on the drawing's edges in the still at t=0 |
 
-8 lint rules, 11 rig rules, 5 engine and spec checks.
+8 lint rules, 16 rig rules, 6 engine and spec checks.

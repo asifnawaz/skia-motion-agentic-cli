@@ -45,7 +45,7 @@ const componentOf = (cfg, name) => {
  * Where the rig lives: `<Name>.rig.ts` beside Root.tsx, else in <project>/src, else beside the component's own file,
  * so `Combo60` and `Combo120` registered on the `Combo` component share Combo.rig.ts.
  */
-const findRigFile = (cfg, name, componentFile) => {
+export const findRigFile = (cfg, name, componentFile) => {
   const dirs = [dirname(cfg.root), join(cfg.projectDir, 'src')];
   const candidates = [];
   for (const d of dirs) for (const ext of ['ts', 'tsx']) candidates.push(join(d, `${name}.rig.${ext}`));
@@ -56,17 +56,16 @@ const findRigFile = (cfg, name, componentFile) => {
 };
 
 /**
- * Bundle `<Name>.rig.ts` and import it. Synchronous.
- * @param {{projectDir: string, root: string, out: string}} cfg
- * @param {string} name composition name
- * @param {string} [componentFile] the component's source file; defaults to the one Root.tsx registers as `name`
- * @returns {{rig: Function, meta: object, file: string}} `file` is the source file
+ * Bundle a TypeScript module of the project with esbuild and import it. Synchronous. `outName` names the bundle under
+ * <out>/rig/. Fails with the first three bundle errors.
+ * @param {{projectDir: string, out: string}} cfg
+ * @param {string} file
+ * @param {string} outName
  */
-export const loadRig = (cfg, name, componentFile = componentOf(cfg, name)) => {
-  const file = findRigFile(cfg, name, componentFile);
+export const bundleModule = (cfg, file, outName) => {
   const esbuild = findEsbuild(cfg.projectDir);
   if (!esbuild) fail('esbuild not found', 'run `npm install` in the project (Remotion brings esbuild)');
-  const outfile = join(cfg.out, 'rig', `${name}.rig.cjs`);
+  const outfile = join(cfg.out, 'rig', outName);
   mkdirSync(dirname(outfile), { recursive: true });
   try {
     esbuild.buildSync({
@@ -86,7 +85,19 @@ export const loadRig = (cfg, name, componentFile = componentOf(cfg, name)) => {
   }
   const require = createRequire(outfile);
   delete require.cache[outfile];
-  const mod = require(outfile);
+  return require(outfile);
+};
+
+/**
+ * Bundle `<Name>.rig.ts` and import it. Synchronous.
+ * @param {{projectDir: string, root: string, out: string}} cfg
+ * @param {string} name composition name
+ * @param {string} [componentFile] the component's source file; defaults to the one Root.tsx registers as `name`
+ * @returns {{rig: Function, meta: object, file: string}} `file` is the source file
+ */
+export const loadRig = (cfg, name, componentFile = componentOf(cfg, name)) => {
+  const file = findRigFile(cfg, name, componentFile);
+  const mod = bundleModule(cfg, file, `${name}.rig.cjs`);
   if (typeof mod.rig !== 'function') fail(`${file} does not export rig(ms)`, 'export function rig(ms, events) { return { channels, parts } }');
   const m = mod.meta;
   if (!m || typeof m !== 'object' || !(m.fps > 0) || !(m.frames > 0)) {
@@ -159,11 +170,31 @@ export const sampleRig = (rig, meta, events = meta.events) => {
   const forward = Array.from({ length: n }, (_, i) => i);
   const first = sampleOnce(rig, meta, events, forward);
   const second = sampleOnce(rig, meta, events, forward.slice().reverse());
-  return {
+  const out = {
     fps: GRID_HZ,
     t_ms: forward.map((i) => (i * 1000) / GRID_HZ),
     channels: first.channels,
     parts: first.parts,
     recheck: second,
   };
+  if (typeof rig.inspect === 'function') out.machine = sampleMachine(rig, events, out.t_ms);
+  return out;
+};
+
+/**
+ * A machine scene's states over the grid, for the machine rules: per sample the layers that keep it drawing (awake
+ * on the frame clock, or moving with a named clock), and the reason their state gives for looping ('' for none).
+ */
+const sampleMachine = (rig, events, t_ms) => {
+  const awake = [];
+  const excused = [];
+  let writes = [];
+  for (const ms of t_ms) {
+    const r = rig.inspect(ms, events);
+    writes = r.writes_ms;
+    const busy = [...new Set([...r.awake, ...r.clocked])];
+    awake.push(busy);
+    excused.push(busy.filter((l) => r.reasons[l]));
+  }
+  return { awake, excused, writes_ms: writes };
 };

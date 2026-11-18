@@ -1,0 +1,43 @@
+// __NAME__.tsx: the app component for the machine scene __NAME__. It plays the machine through
+// skia-motion-agentic-cli/runtime and draws with the same draw() the video uses.
+//   const ref = useRef<__NAME__Handle>(null);
+//   <__NAME__ ref={ref} width={200} height={200} live={visible} />
+//   ref.current?.set('calling', true);
+import { forwardRef, useImperativeHandle } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { Canvas, Picture, Skia, createPicture } from '@shopify/react-native-skia';
+import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import { useMachine, type Machine, type MachineHandle, type MachineProbe } from 'skia-motion-agentic-cli/runtime';
+import { clips } from './__NAME__.clips';
+import { draw } from './__NAME__.draw';
+
+const exportedBy = __EXPORTED_BY__;
+const machine = __MACHINE__ as const satisfies Machine;
+
+export type __NAME__Handle = MachineHandle<typeof machine>;
+type Props = {
+  width: number;
+  height: number;
+  /** false stops the machine's time and its frame callback: pass the app's visible-and-focused gate. */
+  live?: boolean;
+  /** Overrides the system's reduced-motion setting. */
+  reduced?: boolean;
+  /** The named clocks the machine's layers read (machine.clocks), as shared values in ms. */
+  clocks?: Record<string, SharedValue<number>>;
+  /** Development timing probe: the frame that applied a write and the first frame that changed after it. */
+  probe?: MachineProbe;
+  style?: StyleProp<ViewStyle>;
+};
+
+export const __NAME__ = forwardRef<__NAME__Handle, Props>(function __NAME__({ width, height, live = true, reduced, clocks, probe, style }, ref) {
+  const m = useMachine(machine, clips, { live, reduced, clocks, probe, exportedBy });
+  useImperativeHandle(ref, () => ({ set: m.set, fire: m.fire, setOnUI: m.setOnUI, tapOnUI: m.tapOnUI, readOnUI: m.readOnUI, pose: m.pose }), [m]);
+  // A picture only when the pose changes: a resting machine makes none.
+  const picture = useDerivedValue(() =>
+    createPicture((canvas) => draw(canvas, m.pose.value.channels, { width, height }), Skia.XYWHRect(0, 0, width, height)));
+  return (
+    <Canvas style={[{ width, height }, style]}>
+      <Picture picture={picture} />
+    </Canvas>
+  );
+});

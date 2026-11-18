@@ -14,6 +14,14 @@ export const meta = {
   // The beats the request asked for: a name, a window in ms, and the channel that must move inside it.
   beats: [{ name: 'react', from_ms: 1000, to_ms: 1500, channel: 'color' }],
   loop: false,
+  // Interface scenes (skac docs motion/interface): declare the kind, so the interface rules apply (carry every change,
+  // hold still at rest), give beats of one change a shared `change` name, and return the carried element as a part.
+  // kind: 'interface' as const,
+  // Each opacity channel mapped to the channels or parts that carry the same element: skac/long-fade reads it, and
+  // skac/crossfade finds each swap by it (without it both are skipped).
+  // opacity: { rowsOpacity: ['rowsScale', 'rowsY'], cardOpacity: ['card'] },
+  // Each morphPath the draw runs, as the two SVG strings it builds them from: skac/morph-path fails when their verbs
+  // differ (the render would throw). morphs: { icon: { from: ICON_A, to: ICON_B } },
 };
 
 // 'worklet' lets the app run rig() on the UI thread (an exported scene); it is a plain string elsewhere.

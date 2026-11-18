@@ -9,10 +9,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { offlineLibsFile } from './offline-libs.js';
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'skac.js');
 const scratch = mkdtempSync(join(process.env.SKIA_MOTION_SCRATCH || tmpdir(), 'skac-e2e-'));
 const OUT = join(scratch, 'out');
+const libsFile = offlineLibsFile(scratch);
 const NAME = 'E2eSmoke';
 let project = process.env.SKIA_MOTION_E2E_PROJECT;
 let rootBackup;
@@ -20,7 +22,8 @@ let rootPath;
 
 /** Run the CLI; stdout must be exactly one JSON document. */
 const skac = (args, cwd = project) => {
-  const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 26 });
+  // SKAC_LIBS_FILE: `create` must not pick up the user's default libs (~/.config/skac/libs.json) or fetch onetake: it gets a local fixture.
+  const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, SKAC_LIBS_FILE: libsFile } });
   let doc;
   try { doc = JSON.parse(r.stdout); } catch { assert.fail(`stdout is not one JSON document:\n${r.stdout}\n${r.stderr}`); }
   return { doc, code: r.status, stderr: r.stderr };

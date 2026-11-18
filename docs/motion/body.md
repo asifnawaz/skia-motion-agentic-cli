@@ -21,7 +21,7 @@ How a whole character acts: arrives, lands, gestures, shifts its weight, reacts.
 ## The 15 acting rules (rossark §5, Skia forms)
 
 1. **Poses flow; they do not stop.** Read every acting channel with `flow`, never `track`. To hold a pose, repeat its value; the idle layer keeps the hold moving.
-2. **Never a frozen frame (moving holds).** While on screen, every channel carries a small idle layer, even in a "still" pose. Use periods that divide the loop or scene, and give each part its own:
+2. **Never a frozen frame (moving holds); the character rule.** A character, while on screen, every channel carries a small idle layer, even in a "still" pose. Use periods that divide the loop or scene, and give each part its own:
    - breathing: height ±1–1.5% over 2–3 s;
    - limbs and wings: a few degrees on two different periods, left and right out of phase;
    - joints: a few degrees;

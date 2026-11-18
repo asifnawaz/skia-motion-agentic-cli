@@ -4,7 +4,7 @@ A standard for any character or interface motion drawn with `@shopify/react-nati
 
 It is rossark-motion-skill's method (body, weight, timing, smoothness), huashu-art-motion's face set made into smooth channels, and LottieFiles motion-design's anticipation capped to rossark's speed. Typed templates run in both places.
 
-Calm, believable motion for drawings: nothing teleports, nothing bounces, nothing shouts. The character is never frozen, never stops dead at a pose, and never moves faster than the reference's hop. (rossark §1)
+Calm, believable motion for drawings: nothing teleports, nothing bounces, nothing shouts. The character is never frozen, never stops dead at a pose, and never moves faster than the reference's hop (rossark §1). An interface is the other way round at rest: it carries every change and then holds still (`interface`).
 
 ## Read in this order
 
@@ -22,7 +22,7 @@ Calm, believable motion for drawings: nothing teleports, nothing bounces, nothin
 
 | File | What | Runs in |
 |---|---|---|
-| `templates/motion/motion.ts` | the engine: `bezier`, the three curves, `track`, `flow`, `seg`, `env`, `wave`, `loop`, `bell`, `seeded`, `hop`, `hopStretch`, `keepVolume`, `spring`, `DEG` | both (no imports, worklets) |
+| `templates/motion/motion.ts` | the engine: `bezier`, the three curves, the reels' cubic curves (`CUBIC_IN_OUT`, `CUBIC_OUT`, `CUBIC_IN`), `track`, `flow`, `seg`, `env`, `wave`, `loop`, `bell`, `seeded`, `hop`, `hopStretch`, `keepVolume`, `spring`, `DEG` | both (no imports, worklets) |
 | `templates/motion/clock.remotion.ts` | the sRGB fix and `useClockMs()` | Remotion |
 | `templates/motion/clock.app.ts` | `useLoopClock`, `useOneShotClock`, `useLive` | app |
 | `templates/motion/face.ts` | `faceAt`, `blinkKeys`, `eyeGeometry`, `mouthGeometry` and their types; no React or Skia, so a rig can import it | both (worklets) |
