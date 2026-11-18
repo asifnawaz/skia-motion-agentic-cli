@@ -7,7 +7,8 @@ import { DEFAULT_SKIA } from './config.js';
 import { loadTypeScript } from './lint.js';
 import { fail } from './util.js';
 
-const SKIA_PACKAGES = [DEFAULT_SKIA, 'react-native-skia'];
+const APP_SKIA = 'react-native-skia';
+const SKIA_PACKAGES = [APP_SKIA, DEFAULT_SKIA];
 const { peerDependencies } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const packageRoot = (spec) => spec.split('/').slice(0, spec.startsWith('@') ? 2 : 1).join('/');
 
@@ -49,7 +50,7 @@ const checkVersion = (fromDir, packages) => {
   const alias = declared.spec?.match(/^npm:(@?[^@]+)@(.+)$/);
   const upstream = [installed.manifest?.name, alias?.[1], name].find((pkg) => SKIA_PACKAGES.includes(pkg));
   if (!upstream) return { name };
-  const required = peerDependencies[upstream];
+  const required = peerDependencies[APP_SKIA];
   const version = installed.manifest?.version;
   const range = alias?.[2] ?? declared.spec;
   // Without an installation, a declared range is viable if it can select a supported release.
@@ -57,7 +58,7 @@ const checkVersion = (fromDir, packages) => {
   if (below) {
     const found = version ?? declared.spec;
     fail(`${name} ${found} does not meet the required range ${required}`,
-      `use ${upstream} ${required} in the target app`, { package: name, found, required });
+      `use ${APP_SKIA} ${required} in the target app`, { package: name, found, required });
   }
 
   return { name, required };
@@ -70,7 +71,7 @@ export const appSkia = (cfg, outDir) => {
     const { name, required } = checkVersion(outDir, configured === undefined ? SKIA_PACKAGES : [packageRoot(configured)]);
     const specifier = configured ?? name;
     return {
-      mapExternal: (spec) => spec === DEFAULT_SKIA ? specifier : spec,
+      mapExternal: (spec) => SKIA_PACKAGES.includes(spec) ? specifier : spec,
       need: required ? `${specifier} (Skia ${required})` : specifier,
     };
   }

@@ -1,0 +1,113 @@
+{
+  "schema": "skac.asset/1",
+  "name": "Sprout",
+  "artboard": {
+    "width": 240,
+    "height": 260,
+    "nodes": [
+      {"kind": "ellipse", "x": 72, "y": 217, "width": 96, "height": 15, "fill": "#182A3140"},
+      {
+        "kind": "group",
+        "x": 120,
+        "y": "bodyY",
+        "scaleX": "bodySX",
+        "scaleY": "bodySY",
+        "rotation": "tilt",
+        "children": [
+          {"kind": "path", "fill": "#446F59", "commands": [["M", -7, -105], ["C", -7, -144, -39, -137, -48, -162], ["C", -17, -169, 4, -148, 6, -126], ["C", 10, -145, 34, -157, 48, -150], ["C", 42, -126, 23, -117, 7, -112], ["Z"]]},
+          {"kind": "path", "fill": "#79B182", "commands": [["M", -9, -137], ["C", -27, -139, -39, -147, -48, -162], ["C", -29, -163, -12, -151, -9, -137], ["Z"]]},
+          {"kind": "path", "fill": "#A4CB83", "commands": [["M", 11, -128], ["C", 19, -145, 36, -153, 48, -150], ["C", 38, -136, 26, -130, 11, -128], ["Z"]]},
+          {"kind": "ellipse", "x": -64, "y": -120, "width": 128, "height": 120, "fill": "#653E31"},
+          {"kind": "ellipse", "x": -60, "y": -117, "width": 120, "height": 113, "fill": {"kind": "radial", "x": "lightX", "y": -83, "radius": 108, "colors": ["#FFFAC1", "#D88A40"]}},
+          {"kind": "ellipse", "x": -43, "y": -39, "width": 17, "height": 10, "fill": "#DB855A", "opacity": "cheeks"},
+          {"kind": "ellipse", "x": 26, "y": -39, "width": 17, "height": 10, "fill": "#DB855A", "opacity": "cheeks"},
+          {"kind": "ellipse", "x": -29, "y": -73, "width": 17, "height": "eyeH", "fill": "#342A2C"},
+          {"kind": "ellipse", "x": 12, "y": -73, "width": 17, "height": "eyeH", "fill": "#342A2C"},
+          {"kind": "ellipse", "x": -26, "y": -71, "width": 5, "height": 5, "fill": "#FFFFFF", "opacity": "eyeGlint"},
+          {"kind": "ellipse", "x": 15, "y": -71, "width": 5, "height": 5, "fill": "#FFFFFF", "opacity": "eyeGlint"},
+          {"kind": "ellipse", "x": -10, "y": -45, "width": 20, "height": "mouthH", "fill": "#653E31"}
+        ]
+      },
+      {
+        "kind": "group",
+        "x": 199,
+        "y": 64,
+        "scaleX": "badgeScale",
+        "scaleY": "badgeScale",
+        "children": [
+          {"kind": "ellipse", "x": -23, "y": -23, "width": 46, "height": 46, "fill": "#FFE6A553", "opacity": "badgeAlpha"},
+          {"kind": "ellipse", "x": -18, "y": -18, "width": 36, "height": 36, "fill": "#704738", "opacity": "badgeAlpha"},
+          {"kind": "ellipse", "x": -16, "y": -16, "width": 32, "height": 32, "fill": {"kind": "radial", "x": -5, "y": -7, "radius": 31, "colors": ["#FFF2B6", "#E39840"]}, "opacity": "badgeAlpha"},
+          {"kind": "path", "fill": "#704738", "commands": [["M", -9, 1], ["L", -5, -3], ["L", -1, 1], ["L", 7, -8], ["L", 11, -4], ["L", -1, 9], ["Z"]], "opacity": "badgeAlpha"}
+        ]
+      }
+    ]
+  },
+  "channels": {
+    "lightX": -22,
+    "bodyY": 223,
+    "bodySX": 1,
+    "bodySY": 1,
+    "tilt": 0,
+    "eyeH": 21,
+    "eyeGlint": 1,
+    "mouthH": 7,
+    "cheeks": 0.68,
+    "badgeAlpha": 0,
+    "badgeScale": 0.86
+  },
+  "clips": {
+    "idle": {"ms": 0, "tracks": {"bodyY": [[0, 223]], "bodySX": [[0, 1]], "bodySY": [[0, 1]], "tilt": [[0, 0]], "eyeH": [[0, 21]], "eyeGlint": [[0, 1]], "mouthH": [[0, 7]], "cheeks": [[0, 0.68]], "badgeAlpha": [[0, 0]], "badgeScale": [[0, 0.86]]}},
+    "correct": {"ms": 490, "tracks": {"bodyY": [[0, 223], [83, 223], [212, 192, "out"], [410, 223, "in"], [490, 223]], "bodySX": [[0, 1], [79, 1.11, "inOut"], [170, 0.94, "out"], [420, 1.1, "out"], [490, 1, "inOut"]], "bodySY": [[0, 1], [79, 0.88, "inOut"], [170, 1.1, "out"], [420, 0.91, "out"], [490, 1, "inOut"]], "tilt": [[0, 0]], "eyeH": [[0, 21]], "eyeGlint": [[0, 1]], "mouthH": [[0, 7], [72, 16, "out"], [490, 7, "inOut"]], "cheeks": [[0, 0.68]], "badgeAlpha": [[0, 0]], "badgeScale": [[0, 0.86]]}},
+    "incorrect": {"ms": 490, "tracks": {"bodyY": [[0, 223]], "bodySX": [[0, 1]], "bodySY": [[0, 1]], "tilt": [[0, 0], [108, -7, "inOut"], [230, 5, "inOut"], [365, -2, "inOut"], [490, 0, "out"]], "eyeH": [[0, 21], [130, 11, "out"], [490, 21, "inOut"]], "eyeGlint": [[0, 1], [130, 0, "out"], [490, 1, "inOut"]], "mouthH": [[0, 7], [145, 3, "out"], [490, 7, "inOut"]], "cheeks": [[0, 0.68]], "badgeAlpha": [[0, 0]], "badgeScale": [[0, 0.86]]}},
+    "reward": {"ms": 560, "reducedAt": 260, "tracks": {"bodyY": [[0, 223]], "bodySX": [[0, 1]], "bodySY": [[0, 1]], "tilt": [[0, 0]], "eyeH": [[0, 21]], "eyeGlint": [[0, 1]], "mouthH": [[0, 7]], "cheeks": [[0, 0.68]], "badgeAlpha": [[0, 1], [360, 1], [560, 0, "inOut"]], "badgeScale": [[0, 0.75], [150, 1.13, "out"], [260, 1, "inOut"], [560, 1]]}},
+    "lightLeft": {"ms": 0, "tracks": {"lightX": [[0, -44]]}},
+    "lightRight": {"ms": 0, "tracks": {"lightX": [[0, 44]]}}
+  },
+  "machine": {
+    "schema": "skac.machine/1",
+    "values": {
+      "correct": {"type": "trigger"},
+      "incorrect": {"type": "trigger"},
+      "skip": {"type": "trigger"},
+      "light": {"type": "number", "default": -0.5}
+    },
+    "layers": [
+      {
+        "name": "reaction",
+        "entry": "idle",
+        "states": {
+          "idle": {"clip": "idle"},
+          "correct": {"clip": "correct"},
+          "incorrect": {"clip": "incorrect"},
+          "reward": {"clip": "reward"}
+        },
+        "transitions": [
+          {"from": "*", "to": "idle", "when": [["skip"]]},
+          {"from": "idle", "to": "correct", "when": [["correct"]]},
+          {"from": "idle", "to": "incorrect", "when": [["incorrect"]]},
+          {"from": "correct", "to": "correct", "when": [["correct"]]},
+          {"from": "correct", "to": "incorrect", "when": [["incorrect"]]},
+          {"from": "incorrect", "to": "correct", "when": [["correct"]]},
+          {"from": "incorrect", "to": "incorrect", "when": [["incorrect"]]},
+          {"from": "reward", "to": "correct", "when": [["correct"]]},
+          {"from": "reward", "to": "incorrect", "when": [["incorrect"]]},
+          {"from": "correct", "to": "reward", "exit_at": 1},
+          {"from": "incorrect", "to": "idle", "exit_at": 1},
+          {"from": "reward", "to": "idle", "exit_at": 1}
+        ]
+      },
+      {
+        "name": "light",
+        "entry": "direction",
+        "states": {
+          "direction": {"blend": {"by": "light", "keys": [[-1, "lightLeft"], [1, "lightRight"]]}}
+        },
+        "transitions": []
+      }
+    ]
+  },
+  "markers": [
+    {"name": "rewardLanded", "layer": "reaction", "state": "reward"}
+  ]
+}

@@ -1,6 +1,6 @@
 # Shipping a scene to an app
 
-The video and the app run one `draw()`. `skac <Name> --export <dir>` writes the checked scene into the app as one component file, `<dir>/<Name>.tsx`. No binary or data format and no second folder: the one TypeScript file is the asset, as a `.riv` is for Rive.
+The video and the generated app component run one `draw()`. `skac <Name> --export <dir>` writes the checked scene into the app as `<dir>/<Name>.tsx`. For a self-contained data asset loaded by the shared player, run `skac asset guide`.
 
 ## When
 
@@ -53,8 +53,8 @@ export function PipButton({ motionAllowed }: { motionAllowed: boolean }) {
 - `fire(name)` adds `{ name, at }` to the rig's events on the UI thread, at that frame's time; the last 8 are kept. Name them as in `meta.events`.
 - `live` (default true) advances time, and changing it pauses or resumes at any point. When false the drawing freezes where it was: pass your own reduced-motion and off-screen gate. The component never reads reduced motion itself.
 - One `<Canvas>` per component. Loops need nothing special: `rig()` is a function of absolute time.
-- The app needs `@shopify/react-native-skia` 2.6+ or `react-native-skia` 2.15+ (including Skia 3), plus `react-native-reanimated` 4 and its peer `react-native-worklets`.
-- The Skia version check reads ESM imports of `@shopify/react-native-skia` or `react-native-skia`. Other wrappers export with a warning.
+- The app needs `react-native-skia` 3 or later, React 19, Reanimated 4, and Worklets 0.7 or later.
+- The Skia version check follows direct ESM Skia imports and npm aliases. Other wrappers export with a warning.
 
 ## Not covered yet
 

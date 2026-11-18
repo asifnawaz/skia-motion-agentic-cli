@@ -1,104 +1,238 @@
-# skia-motion-agentic-cli: motion for AI agents, drawn with Skia and rendered by Remotion
+# Skia Motion for React Native, Expo, and coding agents
 
 [![CI](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/asifnawaz/skia-motion-agentic-cli/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/skia-motion-agentic-cli.svg)](https://www.npmjs.com/package/skia-motion-agentic-cli)
 
-Character and UI motion drawn with [`@shopify/react-native-skia`](https://shopify.github.io/react-native-skia/),
-rendered headlessly by [Remotion](https://www.remotion.dev/), and driven by a command line built for agents.
-Requires `@shopify/react-native-skia` 2.6 or later, or `react-native-skia` 2.15 or later (including Skia 3).
+Skia Motion is an open-source animation CLI and runtime for interactive game HUDs, animated
+mascots, and mobile UI. Author vector shapes and painted PNG or WebP layers in JSON, add animated
+masks and state machines, then ship the art and motion in one `.skmotion` file. Play it in
+React Native and Expo development builds with Skia v3. The CLI returns structured JSON for coding
+agents and CI.
 
-It follows the agent loop of the `rive` CLI: scaffold, edit, check, render, measure. Every
-command prints exactly one JSON document, so an agent never has to parse prose.
+![Night Circuit fighting-game HUD with health bars, a round timer, and feathered super meters](docs/media/versus-hud.webp)
 
-**No PNG needed.** The motion lives in a pure rig file, and `skac <Name> --check` tests it against
-the motion rules and lints the source. Each failure names the part, the time and the fix.
-`--stats` and `--story` print the motion as numbers and text, and `--probe=x,y --at=s` reads a colour.
-Check first, then look once at the end with `--sheet`;
-screenshots are an optional human check, counted but never banned. Start with `skac docs blind`.
+The [Versus HUD sample](templates/assets/versus-hud.json) draws this original fighting-game HUD.
+Its health bars, super meters, round timer, and win indicators are driven by app values. A hit
+trigger flashes a feathered highlight and emits a marker.
 
-## Examples
+## Quick start
 
-These loops are cropped from two bundled samples. Copy one with `skac samples character` or `skac samples interface`, then run `npm install` in its directory. Run `skac Character --check`, edit the rig as shown, then check again and run `skac Character --render`. Use `Interface` for the button example.
+Install the CLI and try the fighting HUD:
 
-| Preview | Sample rig |
+```sh
+npm install --global skia-motion-agentic-cli
+skac asset sample versus-hud
+skac asset check versus-hud.motion.json
+skac asset trace versus-hud.motion.json --trace=0,230,600 \
+  --commands "leftHealth=0.48@0.1 leftHit@0.1"
+skac asset frame versus-hud.motion.json --trace=230 --size=1200x144 \
+  --commands "leftHealth=0.48@0.1 leftHit@0.1"
+skac asset pack versus-hud.motion.json
+```
+
+Open `versus-hud-230.svg` to inspect the hit and use `versus-hud.skmotion` in the app.
+Trace and frame times use milliseconds. Input times in `--commands` use seconds.
+For a source checkout, run `npm ci` and replace `skac` with `node bin/skac.js`.
+
+| Sample | What to try |
 | --- | --- |
-| **Character idle**<br>![A sprout glances left, blinks and faces forward.][idle] | [Character.rig.ts](templates/init/src/Character.rig.ts) · The breath, drift and leaves return to their starting pose at 2.8 s.<br>`const BREATH_PERIOD = 2800;`<br>`const DRIFT_PERIOD = 2800;`<br>`const SPROUT_SWAY = [5, 2800, 2, 1400];`<br>`const BLINKS = [400, 2160, 2420, 5400, 6800, 7500];` |
-| **Tap reaction**<br>![The sprout crouches, hops and squashes on landing.][hop] | [Character.rig.ts](templates/init/src/Character.rig.ts) · The sample sends a tap at 4 s. These values set the landing time and squash.<br>`const LANDING = 760;`<br>`const SQUASH = 0.17;`<br>`const SQUASH_TIME = 130;` |
-| **Button to sheet**<br>![A button opens into a sheet with a check mark, then closes.][sheet] | [Interface.rig.ts](templates/samples/interface/src/Interface.rig.ts) · The button compresses before it opens. The preview plays back in reverse to close it.<br>`const held = ms - BEAT.press[0];`<br>`const btnScale = press(held * 0.75, (held - 100) * 0.75);`<br>`const b = morphBox(BUTTON, SHEET, prog(ms, BEAT.sheet));` |
+| `versus-hud` | Bind two fighters' health and super meters, tick the round clock, and replay a feathered hit |
+| `game-hud` | Bind health and ammo, trigger a reload, and listen for `reloadReady` |
+| `sprout` | Fire correct, incorrect, and skip reactions, move a highlight, and listen for `rewardLanded` |
 
-[idle]: https://raw.githubusercontent.com/asifnawaz/skia-motion-agentic-cli/main/docs/media/character-idle.webp
-[hop]: https://raw.githubusercontent.com/asifnawaz/skia-motion-agentic-cli/main/docs/media/tap-hop.webp
-[sheet]: https://raw.githubusercontent.com/asifnawaz/skia-motion-agentic-cli/main/docs/media/button-sheet.webp
+### Mobile game HUD and mascot examples
 
-## Install
+![Game HUD showing health, ammo and a reload in progress, followed by Sprout with two lighting positions, a hop, and a reward badge](docs/media/mobile-asset-gallery.webp)
 
-Install once with `npm i -g skia-motion-agentic-cli` and run `skac ...`, or skip the install and run `npx skia-motion-agentic-cli ...`. The commands below are written as `skac`.
+[Health and ammo HUD source](templates/assets/game-hud.json) · [Sprout mascot source](templates/assets/sprout.json)
 
-## Start in 60 seconds
+## Upgrade from Skia Motion 1.x
 
-```bash
-npx skia-motion-agentic-cli create my-motion && cd my-motion && npm install && npx skia-motion-agentic-cli Character --render
+For React Native and Expo apps, upgrade the host app to `react-native-skia` 3.0.0 or later and
+rebuild its native app or Expo development client. Regenerate existing components with
+`skac <Name> --export <dir>` so they use the updated Skia imports. If the app still requires Skia v2,
+pin Skia Motion to `1.3.0` until the app can migrate.
+
+For offline Remotion renders, keep using the CLI's video workflow with its own pinned renderer.
+
+## Play an asset in React Native or Expo
+
+The package exposes one shared player for all your `.skmotion` files. Read the file as UTF-8
+text and pass it to `MotionPlayer`. The player measures its React Native view. By default it fills
+the available width and derives height from the file's artboard aspect ratio. You can supply a
+React Native `style` or optional `width` and `height` props.
+
+```tsx
+import { useRef } from 'react';
+import { Button } from 'react-native';
+import {
+  MotionPlayer,
+  type MotionPlayerHandle,
+} from 'skia-motion-agentic-cli/runtime/mobile';
+
+export function VersusHUD({ source }: { source: string }) {
+  const player = useRef<MotionPlayerHandle>(null);
+
+  return (
+    <>
+      <MotionPlayer ref={player} source={source} />
+      <Button
+        title="Preview a hit"
+        onPress={() => {
+          player.current?.set('leftHealth', 0.48);
+          player.current?.fire('leftHit');
+        }}
+      />
+    </>
+  );
+}
 ```
 
-That scaffolds a project with a sample character, installs it, and renders an mp4 with a
-`compare` report, all as JSON. `create` has the alias `init`.
+Use `onMarker` for app-side sound or haptics. The UI can pause when hidden, and the player
+handles system reduced motion and backgrounding. In Expo, use a development build for
+Skia v3. To bundle the file, add `skmotion` to Metro's asset extensions, load it through
+`expo-asset`, and read its text with the app's file API. [Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/) · [Expo Metro assets](https://docs.expo.dev/guides/customizing-metro/#assets)
 
-## Commands
+When several players use the same file, call `loadMotionAsset(text)` once and pass its result to
+each player's `source`. The players share prepared paths and image handles, with a separate
+timeline and state machine for each instance. To prepare before a screen opens,
+call `await preloadMotionAsset(text)`. On Skia builds with asynchronous image decode, it moves
+the decode off the JS thread. Pass `{ uploadImages: true }` to prepare GPU textures where the
+backend supports it. Keep the loaded file while it is in use, then release the reference.
 
-| Command | Does |
-|---|---|
-| `doctor` | checks version, environment, project, and the headless browser and GL |
-| `docs [topic [section]] [--search text]` | the agent docs, as JSON; a long topic lists its sections, read one with `docs <topic> <section>` |
-| `create [dir]` | scaffold a project (alias `init`) |
-| `add <Name>` | add a composition to a project |
-| `samples [name] [dir]` | list example projects, or copy one |
-| `inspect <Name>` | the resolved scene: size, fps, frames and the props it reads (`events`) |
-| `schema [Name]` | a Skia drawing component's props, such as `schema Group` (not a composition's) |
-| `<Name> --stats` / `--story` | per-channel range and fastest moment / the motion as text lines |
-| `<Name> --check` | lint, rig rules, the task's `<Name>.spec.json` and pixel facts in one report; exit 1 on an error |
-| `<Name> --probe=x,y --at=s` | the colour at a point in pt, as AARRGGBB |
-| `lint [files] [--fix]` | lint compositions and rigs with the TypeScript parser |
-| `update [--force]` | refresh engine files and instructions from the installed skac |
-| `<Name> --verify` | render frame 0 and check it |
-| `<Name> --screenshot --advance=1` | one PNG at 1.0 s (`--at=a,b --sheet` for several) |
-| `<Name> --render [--scale=2] [--out=file.mp4]` | mp4 plus a `compare` report (scale defaults to 2) |
-| `<Name> --commands "tap@4.0"` | pass events to the composition as the `events` prop |
-| `compare <mp4...> [--event=4.0] [--expect=780x1734@60/8] [--baseline=name]` | measure blank frames, motion, jerk, peak, rankings |
+For an asset bundled by Metro, load its UTF-8 text and prepare it once for playback.
 
-New compositions run at 60 fps; 120 is allowed. Failures are `{"ok":false,"error":"...","hint":"..."}` with exit code 1. See
-[docs/commands.md](docs/commands.md) for every flag.
+```ts
+import { Asset } from 'expo-asset';
+import { File } from 'expo-file-system';
+import { loadMotionAsset } from 'skia-motion-agentic-cli/runtime/mobile';
 
-## Config
-
-`skia-motion.json` in the project root:
-
-```json
-{ "entry": "src/index.ts", "root": "src/Root.tsx", "out": "skia-motion-out", "docs": [], "gl": "angle-egl", "rules": {} }
+export async function loadVersusHUD() {
+  const asset = await Asset.fromModule(require('./versus-hud.skmotion')).downloadAsync();
+  if (!asset.localUri) throw new Error('The motion file is unavailable');
+  return loadMotionAsset(await new File(asset.localUri).text());
+}
 ```
 
-`rules` sets a rule's severity (`error`, `warn`, `off`), for example `{ "skac/speed-cap": "error" }`. Rules are listed in `skac docs rules`.
+Pass the returned file to `<MotionPlayer source={file} />`. App code supplies inputs and handles
+markers. The file carries the visuals, timing, and state transitions.
 
-`docs` lists extra topic files your project adds to `docs`. `gl` picks the GL backend; on a machine
-without a GPU (CI) use `swangle`, or set `SKAC_GL=swangle`.
+## Instructions for coding agents
 
-## Use it as an agent skill
+Run `skac asset guide` first. The `format`, `hud`, `character`, `lighting`, `feathering`, `images`, `masking`,
+`attachments`, and `layout` topics return JSON with valid fields and runnable commands.
 
-```bash
+1. Define the view, the main visual cue, and the inputs the app provides.
+2. Draw the resting silhouette from ovals, rounded rectangles, and paths. Put connected parts in a group.
+3. Set key poses and wire inputs to named states. Use `asset check` for schema validation and `asset trace` for state, pose, and marker checks.
+4. Render a few frames with `asset frame`, including an interrupted reaction and a smaller viewport. Pack the file with `asset pack`.
+
+Add `"feather": 6` to a filled ellipse, rounded rectangle, or path for a soft edge. Use a
+channel name to animate the amount. Layer a feathered shape beneath a sharp one for a
+glow, or offset a darker copy for a shadow. The mobile renderer uses Skia's blur mask.
+Use `skac asset guide feathering` for examples.
+
+Embed a painted layer or sprite in the same `.skmotion` file with `skac asset image art.webp`.
+Put the output’s `uri` in the scene’s `images` map and reference it from an image node.
+Image layers can change opacity and move with their group. A group can use an animatable path to clip its
+children. For small placements, add `--size=160x160` to fit the image inside a pixel budget. See
+`skac asset guide images` and `skac asset guide masking` for the authoring steps.
+
+Add `"anchor": { "x": "left", "y": "top" }` to a top-level group to pin it to a viewport edge.
+Use `asset frame --size=1200x144` to see how the HUD responds to a wider display.
+The artboard width and height define the drawing coordinates. App containers can use
+React Native layout for screen-level rows and columns.
+
+```sh
 npx skills add asifnawaz/skia-motion-agentic-cli
 ```
 
-Or copy `skills/skia-motion-agentic-cli` into your agent's skills folder. The skill sends
-the agent to `skac docs blind` first.
+### Check animated relationships before rendering
 
-## Requirements
+Add named `points` to groups and set a maximum distance between any two points in
+`attachments`. Use a tolerance that fits the artwork. For example, a shine can follow a gem,
+and a character's pupil can stay attached to a moving head. The checks use the same transform
+order as the player and run across named inputs and viewport sizes.
 
-Node 18 or newer, and `ffmpeg` on your PATH. The first render downloads Remotion's headless browser.
+```sh
+skac asset guide attachments
+skac asset check scene.motion.json --commands=reveal@0.1 --trace=0:2400:16 --size=360x640
+```
 
-## Releases
+A failure reports the worst sampled gap and its timestamp. Inspect that frame with
+`asset frame` and keep a small set of representative frames for visual review.
 
-Releases are automatic from `main` through semantic-release. See [CHANGELOG.md](CHANGELOG.md)
-and [CONTRIBUTING.md](CONTRIBUTING.md).
+## Android benchmark
 
-## Licence
+A painted lamp ran in the same Expo development build at 264 dp on a physical Pixel 7 (Android 17,
+90 Hz) and a Pixel 7 AVD (Android 16, 60 Hz, SwiftShader). Each variant ran three 8-second trials with
+a warm-up. Perfetto measured presented updates and scheduled app CPU time. Android `gfxinfo`
+measured frame timing and jank. The current lamp swaps flame images at 7 Hz. The eased version
+blends the same paintings and curves the sway and flare.
 
-MIT.
+| Device | Lamp variant | Updates/s | p95 frame time | Janky frames | App CPU, share of one core |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Pixel 7 | Current React Native lamp | 51.7 | 11 ms | 20/1,398 | 60.3% |
+| Pixel 7 | Skac, stepped flame | 49.1 | 9 ms | 0/1,332 | 73.7% |
+| Pixel 7 | Skac, eased flame | 70.8 | 7 ms | 0/1,875 | 84.5% |
+| Pixel 7 AVD | Current React Native lamp | 35.4 | 6 ms | 0/902 | 22.0% |
+| Pixel 7 AVD | Skac, stepped flame | 35.5 | 7 ms | 4/913 | 29.8% |
+| Pixel 7 AVD | Skac, eased flame | 48.3 | 8 ms | 9/1,213 | 40.7% |
+
+This isolated scene measured repeated lamp playback. The eased variant produced more updates and
+used more CPU. The later prepared-file cache was smoke-tested on the physical Pixel after timing
+was collected. Full screens, battery life, and measured texture allocations are outside these runs.
+
+In a separate Node microbenchmark, 60,000 samples of one 1,024-key track took 49.9 ms with
+a linear scan and 5.1 ms with binary search. Both returned identical values. The result measures
+keyframe sampling in isolation.
+
+### Painted texture budgets
+
+`skac asset image art.webp --size=160x160` preserves the aspect ratio and fits the painting inside
+a maximum pixel size. Use the intended display size, pixel density and largest animated scale
+to select the export size. Artboard coordinates and app layout can stay responsive.
+
+| Lamp body | Encoded WebP | Estimated decoded RGBA |
+| --- | ---: | ---: |
+| 660 × 398 original | 234,016 B | 1,050,720 B |
+| 160 × 96 export | 19,508 B | 61,440 B |
+
+RGBA estimates are width × height × 4 and exclude driver overhead and mipmaps. In a separate
+compression test, the 376 KB painted motion file compressed to 281 KB with gzip or Zstd and
+280 KB with Brotli. These are transport sizes. The decoded textures have the same dimensions.
+
+## Render video with Remotion
+
+The CLI also scaffolds TypeScript rigs and Skia compositions for offline MP4 rendering.
+Start with `skac docs blind` for the motion checks and agent workflow.
+
+```sh
+skac create my-motion
+cd my-motion
+npm install
+skac Character --check
+skac Character --render
+```
+
+| Workflow | Commands |
+| --- | --- |
+| Set up and inspect | `doctor`, `create`, `add`, `samples`, `inspect`, `schema` |
+| Check timing and motion | `--check`, `--trace`, `--stats`, `--story` |
+| Inspect and render frames | `--probe`, `--verify`, `--screenshot`, `--render`, `compare` |
+| Export a generated app component | `<Name> --export <app-dir>` |
+
+Try the [character idle](docs/media/character-idle.webp), [tap reaction](docs/media/tap-hop.webp),
+or [button-to-sheet transition](docs/media/button-sheet.webp). See the [command reference](docs/commands.md)
+and [app export guide](docs/app.md) for flags and configuration, including `skia-motion.json`.
+
+## Requirements and development
+
+- CLI and asset tools require Node 18 or later.
+- Mobile playback requires React 19, React Native 0.79 or later, Skia v3, Reanimated 4, and Worklets 0.7 or later.
+- Preview video uses Remotion and FFmpeg. Resizing embedded images also uses FFmpeg.
+
+Run `npm test` for unit tests or `npm run test:e2e` for CLI and render flows.
+See [Contributing](CONTRIBUTING.md) and [Changelog](CHANGELOG.md).
+
+MIT licence.

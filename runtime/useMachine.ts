@@ -10,7 +10,7 @@ import { useAnimatedReaction, useFrameCallback, useReducedMotion, useSharedValue
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 import {
   advance, compile, hitTest, hitWrites, pose as poseAt, settled, start, writeProblem,
-  type Clips, type ClockRead, type Literal, type Machine, type Pose, type Snapshot, type Write,
+  type Clips, type ClockRead, type Literal, type Machine, type Pose, type Snapshot, type StateEntry, type Write,
 } from '../templates/motion/machine';
 import { assertRuntimeVersion } from './version';
 
@@ -27,6 +27,8 @@ export type MachineOptions = {
   /** Named clocks the machine's layers read, as shared values in ms (Word Quran passes its ambient phase × 64000). */
   clocks?: Record<string, SharedValue<number>>;
   probe?: MachineProbe;
+  /** Entries after initialization, in machine order. Delivered on the React Native thread. */
+  onStateEntries?: (entries: StateEntry[]) => void;
   /** The skac version that wrote the exported machine module. */
   exportedBy?: string;
 };
@@ -57,10 +59,44 @@ export type MachineHandle<M extends Machine = Machine> = {
   readOnUI: (name: ValueName<Values<M>>) => Literal | undefined;
 };
 
+function sameNumbers(left: Record<string, number | undefined>, right: Record<string, number | undefined>): boolean {
+  'worklet';
+  if (left === right) return true;
+  let remaining = 0;
+  for (const key in left) {
+    if (!Object.hasOwn(left, key) || left[key] === undefined) continue;
+    if (!Object.hasOwn(right, key) || left[key] !== right[key]) return false;
+    remaining++;
+  }
+  for (const key in right) {
+    if (Object.hasOwn(right, key) && right[key] !== undefined) remaining--;
+  }
+  return remaining === 0;
+}
+
+function samePose(left: Pose, right: Pose): boolean {
+  'worklet';
+  if (!sameNumbers(left.channels, right.channels)) return false;
+  const { parts: leftParts } = left;
+  const { parts: rightParts } = right;
+  if (leftParts === rightParts) return true;
+  if (!leftParts || !rightParts) return false;
+  let remaining = 0;
+  for (const name in leftParts) {
+    if (!Object.hasOwn(leftParts, name)) continue;
+    if (!Object.hasOwn(rightParts, name) || !sameNumbers(leftParts[name]!, rightParts[name]!)) return false;
+    remaining++;
+  }
+  for (const name in rightParts) {
+    if (Object.hasOwn(rightParts, name)) remaining--;
+  }
+  return remaining === 0;
+}
+
 /** Play `machine` with its `clips`. The machine and clips must be stable (module constants), as an exported scene's are. */
 export function useMachine<const M extends Machine>(machine: M, clips: Clips, options: MachineOptions = {}): MachineHandle<M> {
   if (__DEV__ && options.exportedBy !== undefined) assertRuntimeVersion(options.exportedBy);
-  const { live = true, clocks = {}, probe } = options;
+  const { live = true, clocks = {}, probe, onStateEntries } = options;
   const systemReduced = useReducedMotion();
   const reduced = options.reduced ?? systemReduced;
   const compiled = useMemo(() => compile(machine, clips), [machine, clips]);
@@ -96,7 +132,7 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
     },
     (next) => {
       // The reaction subscribes only to the prepare inputs. Updating its output cannot wake it again.
-      if (next && JSON.stringify(next) !== JSON.stringify(pose.value)) pose.value = next;
+      if (next && !samePose(next, pose.value)) pose.value = next;
     },
   );
 
@@ -112,8 +148,10 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
       pending.value = [];
       if (probe?.onWrite) { scheduleOnRN(probe.onWrite, frame.timestamp); awaitingChange.value = true; }
     }
-    const next = advance(compiled, snapshot.value, t, writes.map((w) => ({ ...w, at: t })), read);
+    const entries: StateEntry[] | undefined = onStateEntries ? [] : undefined;
+    const next = advance(compiled, snapshot.value, t, writes.map((w) => ({ ...w, at: t })), read, entries);
     snapshot.value = next;
+    if (entries?.length && onStateEntries) scheduleOnRN(onStateEntries, entries);
     if (probe?.onChanged) {
       const key = JSON.stringify(poseAt(compiled, clips, next, t, read, reduced).channels);
       if (key !== lastChannels.value) {
@@ -122,7 +160,7 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
       }
     }
     if (pending.value.length === 0 && settled(compiled, next, read, reduced).frame) scheduleOnRN(sleep);
-  }, [compiled, clips, reduced, probe]);
+  }, [compiled, clips, reduced, probe, onStateEntries]);
 
   const frames = useFrameCallback(tick, false);
   // The callback is switched from JavaScript only: switching it from a worklet makes a synchronous remote call that

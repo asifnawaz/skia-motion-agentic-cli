@@ -17,13 +17,14 @@ export const MAX_CHANGES = 100;
 export type Literal = boolean | number | string;
 export type PartBox = { x: number; y: number; w: number; h: number; rot?: number };
 export type Pose = { channels: Record<string, number>; parts?: Record<string, PartBox> };
-export type Clip = { ms: number; play: (localMs: number) => Pose };
+export type Clip = { ms: number; reducedAt?: number; play: (localMs: number) => Pose };
 export type Clips = Record<string, Clip>;
 /** A value write at `at` ms of machine time. A trigger is written with `to: true`. */
 /** A write of `to` into `value` at machine time `at`; `hit` marks the machine's own (a hit area's action), which may write an out-value. */
 export type Write = { at: number; value: string; to: Literal; hit?: boolean };
 /** The reading of a named clock, in ms. The CLI simulates it from machine time; the app reads its shared value. */
 export type ClockRead = (name: string, t: number) => number;
+export type StateEntry = { layer: string; state: string; at: number };
 
 type Condition = readonly Literal[];
 type Action = { set?: string; to?: Literal; fire?: string };
@@ -214,7 +215,7 @@ function localMs(L: CLayer, l: LayerSnap, t: number, clock: ClockRead): number {
 }
 
 /** Enter state `to` of layer `li` at `t` from its current one, through transition `tr` (or none, on entry). */
-function enter(c: Compiled, s: Snapshot, li: number, to: number, tr: CTrans | null, t: number, clock: ClockRead): void {
+function enter(c: Compiled, s: Snapshot, li: number, to: number, tr: CTrans | null, t: number, clock: ClockRead, entries?: StateEntry[]): void {
   'worklet';
   const L = c.layers[li]!;
   const l = s.layers[li]!;
@@ -239,12 +240,13 @@ function enter(c: Compiled, s: Snapshot, li: number, to: number, tr: CTrans | nu
     l.mixTr = -1;
   }
   l.s = to; l.at = t; l.cAt = reading;
+  if (entries) entries.push({ layer: L.name, state: L.states[to]!.name, at: t });
   run(L.states[to]!.enter, s.vals);
   if (tr && l.mixTr < 0) run(tr.end, s.vals);
 }
 
 /** Try layer `li`'s transitions at `t`, Any State first, then the current state's. True when one fired. */
-function step(c: Compiled, s: Snapshot, li: number, t: number, clock: ClockRead, used: number[]): boolean {
+function step(c: Compiled, s: Snapshot, li: number, t: number, clock: ClockRead, used: number[], entries?: StateEntry[]): boolean {
   'worklet';
   const L = c.layers[li]!;
   const l = s.layers[li]!;
@@ -258,7 +260,7 @@ function step(c: Compiled, s: Snapshot, li: number, t: number, clock: ClockRead,
       if (tr.exitAt >= 0 && t < exitTime(L, l, tr)) continue;
       if (!allHold(tr.when, s.vals, used)) continue;
       for (const v of tr.triggers) used.push(v);
-      enter(c, s, li, tr.to, tr, t, clock);
+      enter(c, s, li, tr.to, tr, t, clock, entries);
       return true;
     }
   }
@@ -285,7 +287,7 @@ export function writeProblem(c: Compiled, name: string, to: Literal): string {
 }
 
 /** Everything due at instant `t`: its writes, ending mixes, entry at 0, then every layer's transitions until none fires. */
-function instant(c: Compiled, s: Snapshot, t: number, writes: Write[], clock: ClockRead): void {
+function instant(c: Compiled, s: Snapshot, t: number, writes: Write[], clock: ClockRead, entries?: StateEntry[]): void {
   'worklet';
   for (const w of writes) {
     const i = c.index[w.value];
@@ -313,7 +315,7 @@ function instant(c: Compiled, s: Snapshot, t: number, writes: Write[], clock: Cl
     changed = false;
     for (let li = 0; li < c.layers.length; li++) {
       if (changes[li]! >= MAX_CHANGES) continue;
-      if (step(c, s, li, t, clock, used[li]!)) {
+      if (step(c, s, li, t, clock, used[li]!, entries)) {
         changes[li]! += 1;
         changed = true;
       }
@@ -347,7 +349,7 @@ function nextDue(c: Compiled, s: Snapshot): number {
  * The machine at `toMs`, from `s`, with `writes` applied at their times (those after `s.t` and at or before `toMs`;
  * a write before 0 applies at 0). Pure: `s` is not changed.
  */
-export function advance(c: Compiled, s: Snapshot, toMs: number, writes: Write[], clock: ClockRead): Snapshot {
+export function advance(c: Compiled, s: Snapshot, toMs: number, writes: Write[], clock: ClockRead, entries?: StateEntry[]): Snapshot {
   'worklet';
   const out = copy(s);
   const due = writes
@@ -367,16 +369,17 @@ export function advance(c: Compiled, s: Snapshot, toMs: number, writes: Write[],
     if (!(t <= toMs)) break;
     const now: Write[] = [];
     while (k < due.length && due[k]!.at === t) now.push(due[k++]!.w);
-    instant(c, out, t, now, clock);
+    instant(c, out, t, now, clock, entries);
   }
   if (out.t >= 0) out.t = Math.max(out.t, toMs);
   return out;
 }
 
 /** A clip's own time for a state's loop mode; under reduced motion a once-clip shows its end and a loop its start. */
-function clipTime(loop: number, ms: number, local: number, reduced: boolean): number {
+function clipTime(loop: number, ms: number, local: number, reduced: boolean, reducedAt?: number): number {
   'worklet';
-  if (reduced) return loop === 0 ? ms : 0;
+  if (ms === 0) return 0;
+  if (reduced) return reducedAt ?? (loop === 0 ? ms : 0);
   if (loop === 0) return Math.min(local, ms);
   if (loop === 1) return local % ms;
   const p = local % (2 * ms);
@@ -414,13 +417,13 @@ function statePose(L: CLayer, si: number, local: number, vals: Literal[], clips:
   if (!st.keys) {
     if (!st.clip) return { channels: {} };
     const clip = clipOf(clips, st.clip);
-    return clip.play(clipTime(st.loop, clip.ms, local, reduced));
+    return clip.play(clipTime(st.loop, clip.ms, local, reduced, clip.reducedAt));
   }
   const v = vals[st.by] as number;
   const keys = st.keys;
   const at = (k: [number, string]) => {
     const clip = clipOf(clips, k[1]);
-    return clip.play(clipTime(st.loop, clip.ms, local, reduced));
+    return clip.play(clipTime(st.loop, clip.ms, local, reduced, clip.reducedAt));
   };
   if (v <= keys[0]![0]) return at(keys[0]!);
   for (let i = 1; i < keys.length; i++) {
