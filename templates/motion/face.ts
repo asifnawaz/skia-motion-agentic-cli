@@ -49,6 +49,7 @@ export function faceAt(t: number, c: FaceChoreo): FaceState {
  * Never shorter: a 70 ms close is two frames at 30 fps and flickers (rossark §4, §1.12).
  */
 export function blinkKeys(starts: readonly number[], end: number): Key[] {
+  'worklet';
   const k: Key[] = [[0, 0]];
   for (const s of starts) k.push([s, 0], [s + 110, 1], [s + 150, 1], [s + 340, 0, 'out']);
   k.push([end, 0]);

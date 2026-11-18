@@ -1,5 +1,7 @@
 # Idle: alive, not a breathing icon
 
+This page is for characters. An interface at rest holds still and runs no idle cadence (`interface`).
+
 In a side-by-side test of six builds, rossark's idle was judged too quiet: breathing, slow sway and glances read as an icon that breathes. Idle needs small events, not only waves.
 
 ## Two layers

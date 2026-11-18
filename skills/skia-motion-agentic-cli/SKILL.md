@@ -1,6 +1,6 @@
 ---
 name: skia-motion-agentic-cli
-description: Makes, checks and renders motion for characters and interfaces drawn with @shopify/react-native-skia (idle life, a reaction to a tap, a face, a wind-up and hop, a scene on a Skia layer), rendered headlessly by Remotion, through skia-motion-agentic-cli (skac) commands that all answer in JSON. Checks timing, smoothness and numbered motion rules without opening an image. Use when asked to animate a character, mascot or interface in Skia, to plan or time Skia motion for an app screen, to produce an mp4 of it, or to check a motion's timing, smoothness, rules or blank frames.
+description: Makes, checks and renders motion for characters and interfaces drawn with Skia (idle life, a reaction to a tap, a face, a wind-up and hop, a scene on a Skia layer), rendered headlessly by Remotion, through skia-motion-agentic-cli (skac) commands that all answer in JSON. Checks timing, smoothness and numbered motion rules without opening an image. Use when asked to animate a character, mascot or interface in Skia, to plan or time Skia motion for an app screen, to produce an mp4 of it, or to check a motion's timing, smoothness, rules or blank frames.
 ---
 
 # skia-motion-agentic-cli
@@ -19,6 +19,7 @@ No PNG is needed. Check first; look once at the end.
 8. `<Name> --render`. Its `compare` block gates `ok` on `spec_ok` and `blank_frames`; `jerk`, `peak` and `longest_still_s` are advice (`skac docs motion/checks`).
 9. Look once at the end: `<Name> --screenshot --at=<key times> --sheet`. Looks are counted in `views`.
 10. For an app: scaffold with `add <Name> --draw`; when `--check` is ok, `skac <Name> --export <app-dir>`. `skac docs app` has the usage.
+    skac renders through Remotion on `@shopify/react-native-skia` (CanvasKit), and the export imports that package. An app on `react-native-skia` 3 (Word Quran) changes the export's Skia import to the app's own path (Word Quran: `src/design-system/game/skia/skia`, which lint enforces); the drawing API is the same.
 
 Other commands: `lint [files] [--fix]`, `update`. Every flag and field: `skac docs commands`.
 

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, join, relative } from 'node:path';
 import { run } from './util.js';
 import { PACKAGE_ROOT } from './docs.js';
+import { BUILTIN_LIBS, builtinFiles, libFiles, libPaths, readUserLibs, resolveLibs } from './libs.js';
+import { loadTypeScript } from './lint.js';
 
 export const MANIFEST = '.skac-files.json';
 export const PACKAGE_NAME = 'skia-motion-agentic-cli';
@@ -19,14 +21,30 @@ const walk = (dir, base = dir, out = []) => {
   return out;
 };
 
-/** The files update manages, as project path -> template file: src/motion/* (as withMotion copies, minus clock.app.ts), AGENTS.md, CLAUDE.md. */
-const managed = () => {
+/**
+ * The files update manages, as project path -> a function giving the wanted bytes: src/motion/* (as withMotion copies, minus clock.app.ts),
+ * AGENTS.md, CLAUDE.md, and the three files of each lib in `libs` (name -> absolute path; built on first use, a missing path is an error with a hint).
+ */
+const managed = (libs = {}, projectDir = '.', fetcher) => {
   const map = new Map();
   const motion = join(PACKAGE_ROOT, 'templates', 'motion');
-  if (existsSync(motion)) for (const f of walk(motion).filter((x) => x !== 'clock.app.ts')) map.set(`src/motion/${f}`, join(motion, f));
+  if (existsSync(motion)) for (const f of walk(motion).filter((x) => x !== 'clock.app.ts')) map.set(`src/motion/${f}`, () => readFileSync(join(motion, f)));
   for (const f of ['AGENTS.md', 'CLAUDE.md']) {
     const p = join(PACKAGE_ROOT, 'templates', 'init', f);
-    if (existsSync(p)) map.set(f, p);
+    if (existsSync(p)) map.set(f, () => readFileSync(p));
+  }
+  // Built-in libs (onetake) come by fetch unless a local path overrides that name; the others come from their path.
+  const names = new Set([...Object.keys(BUILTIN_LIBS), ...Object.keys(libs)]);
+  for (const name of names) {
+    const src = libs[name];
+    let built;
+    for (const path of libPaths(name, !src)) {
+      map.set(path, () => {
+        const ts = loadTypeScript({ projectDir });
+        built ??= src ? libFiles(ts, name, src) : builtinFiles(ts, name, { projectDir, fetcher });
+        return Buffer.from(built.get(path));
+      });
+    }
   }
   return map;
 };
@@ -49,9 +67,9 @@ const saveManifest = (projectDir, manifest) => {
  * Record the sha256 of each listed project file (paths relative to `projectDir`) in `.skac-files.json`,
  * keeping earlier entries. Call it right after `create` or `samples` copied the files, while they still equal the template.
  */
-export const writeManifest = (projectDir, files) => {
+export const writeManifest = (projectDir, files, libs = {}) => {
   const manifest = readManifest(projectDir) || {};
-  const known = managed();
+  const known = managed(libs, projectDir);
   for (const f of files) {
     if (!known.has(f)) continue;
     const p = join(projectDir, f);
@@ -75,14 +93,17 @@ const newer = (a, b) => {
  * keeps edited ones unless `force`, adds missing ones. `check` reports without writing.
  * `runner` replaces the npm lookup in tests.
  */
-export const update = (cfg, { force = false, check = false, runner = run } = {}) => {
+export const update = (cfg, { force = false, check = false, runner = run, fetcher } = {}) => {
   const projectDir = cfg.projectDir;
   const manifest = readManifest(projectDir);
   const next = { ...(manifest || {}) };
   const files = [];
 
-  for (const [path, tpl] of managed()) {
-    const want = readFileSync(tpl);
+  // A built-in lib's override in the user's libs file counts here too, as it does at create.
+  const user = resolveLibs(readUserLibs(), projectDir, 'the user libs file');
+  const overrides = Object.fromEntries(Object.entries(user).filter(([n]) => n in BUILTIN_LIBS));
+  for (const [path, read] of managed({ ...overrides, ...cfg.libs }, projectDir, fetcher)) {
+    const want = read();
     const wantHash = sha(want);
     const to = join(projectDir, path);
     let state;

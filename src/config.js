@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fail } from './util.js';
+import { resolveLibs } from './libs.js';
 
 export const CONFIG_NAME = 'skia-motion.json';
 export const DEFAULTS = { entry: 'src/index.ts', root: 'src/Root.tsx', out: 'skia-motion-out', docs: [], gl: 'angle-egl' };
@@ -53,6 +54,7 @@ export const loadConfig = (cwd, flags = {}) => {
     out: pick('out'),
     docs,
     gl,
+    libs: resolveLibs(file.libs, projectDir, configPath), // lib name -> absolute path, from the file's "libs"; {} without one
     rules, // rule id -> 'error' | 'warn' | 'off', from the file; {} without one
   };
 };

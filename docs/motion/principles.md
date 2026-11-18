@@ -15,7 +15,8 @@ Rossark's rules, every one, adapted to Skia. Numbers are in the drawing's own un
 ## 1. Principles (hold for anything you animate)
 
 1. **Never teleport.** Interpolate everything. A pupil slides, an arm swings, a mouth morphs. Nothing snaps from one drawing to another. A crossfade between two drawings is still a swap. (rossark §1.1)
-2. **Calm by default.** Timed motion with strong curves. No bouncy overshoot. The one allowed rebound is a landing's single overshoot (body, rule 8). (rossark §1.2; the default tone here is warm and mature, no noisy celebration)
+2. **Calm by default.** Timed motion with strong curves. No bouncy overshoot. The one allowed rebound is a landing's single overshoot, at most 5% (body, rule 8). (rossark §1.2; the default tone here is warm and mature, no noisy celebration)
+   **Calm is not a fade.** Calm means small amplitudes, at most 5% overshoot and no noise. It never means replacing motion with opacity. When a product rule or a study shows a cross-fade, carry instead and say why in the plan (`interface`).
 3. **Small amplitudes.** Life is subtle. When unsure, halve it. (rossark §1.3)
 4. **Arcs and pivots.** Draw every moving part as its own Skia `Group` and rotate it around its joint: an arm's root, a sprout's stem, a head's neck. Sliding in a straight line looks mechanical. (rossark §1.4)
 5. **Overlap and follow-through.** Parts do not move together. The tip moves later and further than the base. Give each part the same wave with a phase delay that grows along the chain. (rossark §1.5)
@@ -71,17 +72,17 @@ Rossark's rules, every one, adapted to Skia. Numbers are in the drawing's own un
 2. **The beats:** each beat is a window, written as data: `const BEAT = { tap: 4000, shock: [4000, 4400], windUp: [4400, 4680] }`. `seg(t, a, b)` turns one into 0..1.
 3. **Overlap:** the next beat starts a little before the last one ends.
 4. **The end:** the scene holds on its final frame and only the idle loops keep running.
-5. **A carousel of scenes:** the leaving one finishes its exit before the next starts, or crossfades over it, never through an empty or dark frame. Only the scene on screen runs.
+5. **A carousel of scenes:** the element the two scenes share is carried from one into the next (`interface`); with nothing shared, the leaving one exits toward where it goes while the next arrives from its cause, never a cross-fade and never through an empty or dark frame. Only the scene on screen runs.
 
 ## 5. Motion in the interface (rossark §7)
 
 1. **Frequency decides how much.** Hundreds of times a day (typing, scrolling): no animation. Tens of times (toggles, tab switches): a minimal, fast change. Now and then (sheets, toasts, a screen change): a standard transition. Rarely (onboarding, rewards, completion): full delight, characters, a story. Spend delight where people pass rarely.
 2. **Every motion has a purpose:** show where something came from or goes, show a state changed, confirm a touch, explain how something works, or celebrate a rare moment. "It looks cool" is not a purpose on a frequent screen.
-3. **Continuity.** An element on both screens travels or morphs between them; it is never removed and redrawn. A transition moves in the direction of the action that caused it. A label that changes meaning morphs.
+3. **Continuity.** An element on both screens travels or morphs between them; it is never removed and redrawn. A transition moves in the direction of the action that caused it. A label that changes meaning morphs. Which move for which moment, with its duration: `skac docs motion/interface`.
 4. **Durations.** Press feedback 100–160 ms; small popovers 125–200 ms; menus 150–250 ms; sheets and modals 200–500 ms. Keep interface moves under 300 ms when you can. Idle loops in a drawing are exempt.
 5. **Curves.** Entering or responding: strong ease-out. Moving on screen: strong ease-in-out. Constant motion: linear. Never ease-in on something the user is waiting for.
 6. **Asymmetric timing.** Slow where the user decides, fast where the system answers. An exit is quicker than the entrance (about 65–75% of it). A blink closes faster than it opens. (rossark §7.6; LottieFiles motion-design, entrance and exit)
-7. **Nothing appears from nothing.** A shape enters from a scale of 0.9–0.97 with opacity, never from 0. Tiny sparkles and rings are the exception.
+7. **Nothing appears from nothing.** An element arrives from somewhere, the thing that caused it or the edge it belongs to, and carries in with scale or travel; its opacity finishes within the first 250 ms and is never the whole move. Tiny sparkles and rings are the exception. `skac/long-fade` and `skac/crossfade` check it (`checks`).
 8. **Press feedback.** A pressable thing scales to about 0.97 and back. The drawing inside stays as it is.
 9. **Interruptible.** If the user acts again mid-animation, continue from the current value toward the new target. Never restart from zero, never jump. In the app that means animating a shared value from where it is (`withTiming(target)` on the current value).
 10. **Glitches cost trust.** A hairline seam, a dropped frame, a jump at a loop seam or a flickering blink says the product is careless. Check at full resolution and full frame rate (checks).
@@ -92,7 +93,7 @@ Rossark's rules, every one, adapted to Skia. Numbers are in the drawing's own un
 - **Pause** clocks off screen, when hidden, in the background and with reduced motion. A loop behind opacity 0 still costs.
 - **App, Reanimated + Skia:**
   - derive Skia props with `useDerivedValue` from the clock and pass the derived value to the prop; never `setState` per frame;
-  - `withRepeat` restarts from the current value: reset to 0 first, cancel in the cleanup (`clock.app.ts` does it);
+  - a loop clock advances in `useFrameCallback` and pauses with `setActive(live)`, so a pause freezes the drawing where it is and a resume carries on (`useLoopClock` in `clock.app.ts`); a `withRepeat` loop restarts from the current value: reset it to 0 first and cancel it in the cleanup;
   - declare curves at the top of the module (worklet capture);
   - put `live` in the dependencies of anything that starts a clock.
 - **Remotion:** every value is a pure function of the frame. No state carried between frames, no `useEffect` timers. A precomputed table is fine if it is built once from pure inputs.

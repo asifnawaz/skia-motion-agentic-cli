@@ -1,10 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fail } from './util.js';
 import { PACKAGE_ROOT, shown } from './docs.js';
 import { writeManifest } from './update.js';
+import { BUILTIN_LIBS, builtinFiles, libFiles, readUserLibs, resolveLibs } from './libs.js';
+import { loadTypeScript } from './lint.js';
 
-const NEXT = ['npm install', 'skac Character --verify', 'skac Character --render'];
+const next = (name) => ['npm install', `skac ${name} --verify`, `skac ${name} --render`];
 
 const files = (dir, base = dir, out = []) => {
   for (const e of readdirSync(dir).sort()) {
@@ -47,14 +49,43 @@ const withMotion = (target, force) => {
   return written;
 };
 
+/**
+ * Write the libs into the new project: the built-in ones (onetake) fetched and verified, and the user's own by path. `libs` is the user's
+ * default map (name -> path); a path there overrides a built-in of that name, so that name needs no network. The paths are recorded in the
+ * project's skia-motion.json (as the user wrote them, `~` kept; a relative path there is relative to the user's libs file, so it is stored absolute).
+ */
+const withLibs = (target, libs, fetcher) => {
+  const names = Object.keys(libs);
+  const resolved = names.length ? resolveLibs(libs, resolve(target)) : {};
+  if (names.length) {
+    const cfgPath = join(target, 'skia-motion.json');
+    const cfg = existsSync(cfgPath) ? JSON.parse(readFileSync(cfgPath, 'utf8')) : {};
+    cfg.libs = Object.fromEntries(names.map((n) => [n, libs[n].startsWith('~') ? libs[n] : resolved[n]]));
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+  }
+  const ts = loadTypeScript({ projectDir: target });
+  const written = [];
+  const put = (files) => {
+    for (const [path, content] of files) {
+      mkdirSync(join(target, path, '..'), { recursive: true });
+      writeFileSync(join(target, path), content);
+      written.push(path);
+    }
+  };
+  for (const n of names) put(libFiles(ts, n, resolved[n]));
+  for (const n of Object.keys(BUILTIN_LIBS).filter((x) => !names.includes(x))) put(builtinFiles(ts, n, { projectDir: target, fetcher }));
+  return { written, resolved };
+};
+
 /** `create [dir]`: scaffold a project from templates/init, plus the motion templates. */
-export const createProject = (dir = '.', { force = false } = {}) => {
+export const createProject = (dir = '.', { force = false, libs = readUserLibs(), fetcher } = {}) => {
   const src = join(PACKAGE_ROOT, 'templates', 'init');
   if (!existsSync(src)) fail('templates/init is missing from this package', 'reinstall skia-motion-agentic-cli');
   const { target, written } = copyTree(src, dir, force);
-  const all = [...written, ...withMotion(target, force)];
-  writeManifest(target, all);
-  return { ok: true, dir: shown(target), files: all, next: NEXT };
+  const lib = withLibs(target, libs, fetcher);
+  const all = [...written, ...withMotion(target, force), ...lib.written];
+  writeManifest(target, all, lib.resolved);
+  return { ok: true, dir: shown(target), files: all, next: next('Character') };
 };
 
 const sampleList = () => {
@@ -81,13 +112,14 @@ const sampleList = () => {
 };
 
 /** `samples` lists bundled examples; `samples <name> [dir]` copies one. */
-export const samples = (name, dir, { force = false } = {}) => {
+export const samples = (name, dir, { force = false, libs = readUserLibs(), fetcher } = {}) => {
   const list = sampleList();
   if (!name) return { ok: true, samples: list.map(({ _src, ...s }) => s), next: ['skac samples character ./my-motion'] };
   const s = list.find((x) => x.name === name);
   if (!s) fail(`no sample ${JSON.stringify(name)}`, `samples: ${list.map((x) => x.name).join(', ')}`);
   const { target, written } = copyTree(s._src, dir || name, force);
-  const all = [...written.filter((f) => f !== 'sample.json'), ...withMotion(target, force)];
-  writeManifest(target, all);
-  return { ok: true, sample: name, dir: shown(target), files: all, next: NEXT };
+  const lib = withLibs(target, libs, fetcher);
+  const all = [...written.filter((f) => f !== 'sample.json'), ...withMotion(target, force), ...lib.written];
+  writeManifest(target, all, lib.resolved);
+  return { ok: true, sample: name, dir: shown(target), files: all, next: next(name[0].toUpperCase() + name.slice(1)) };
 };

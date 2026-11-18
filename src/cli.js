@@ -5,6 +5,7 @@ import { parseArgs, parseCommands } from './args.js';
 import { loadConfig } from './config.js';
 import { boxProbe, check, lint, pixelProbe, stats, story } from './blind.js';
 import { compareVideos } from './compare.js';
+import { assertSettled, gatedCheck } from './draft.js';
 import { exportScene } from './export.js';
 import { doctor } from './doctor.js';
 import { docsCommand } from './docs.js';
@@ -48,10 +49,10 @@ export const execute = (argv, cwd = process.cwd()) => {
       ok: true, name: 'skac', version: version(),
       commands: ['--version', 'doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name> [--draw]', 'samples [name] [dir]', 'schema [Name]',
         'inspect [Name]', 'compare <mp4...>', 'lint [files...] [--fix]', 'update [--force] [--check]',
-        '<Name> --stats | --story | --check  (blind mode: no image)',
+        '<Name> --stats | --story | --check  (blind mode: no image; the first --check of a scene answers draft: improve the two weakest beats it names)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',
         '<Name> --probe-box=x,y,w,h --at=t  (the box\'s top 8 colours by pixel count, with share and bbox in pt)',
-        '<Name> --export <app-dir> [--force]  (write the checked rig and draw.ts into the app as a component; needs add --draw)',
+        '<Name> --export <app-dir> [--force]  (write one <Name>.tsx into the app: the component, rig, draw and the engine parts they use; needs add --draw and a check after a change)',
         '<Name> --verify | --screenshot --at=0.5,4.0 [--sheet] | --render | --commands "tap@4.0"'],
       next: ['skac docs blind', 'skac doctor'],
     };
@@ -98,8 +99,8 @@ const composition = (cfg, name, flags) => {
   }
   if (flags.stats) return stats(cfg, name, { events }, DEPS);
   if (flags.story) return story(cfg, name, { events }, DEPS);
-  if (flags.check) return check(cfg, name, { events }, DEPS);
-  if (flags.export !== undefined) return exportScene(cfg, name, { dir: flags.export, force: flags.force, version: version() }, DEPS, check);
+  if (flags.check) return gatedCheck(cfg, name, { events }, DEPS, check);
+  if (flags.export !== undefined) return exportScene(cfg, name, { dir: flags.export, force: flags.force, version: version(), gate: () => assertSettled(cfg, name, DEPS) }, DEPS, check);
   if (flags.verify) return verify(cfg, name, { events });
   if (wantsShots) return screenshot(cfg, name, { times, sheet: flags.sheet, events });
   if (flags.render || flags.commands) {

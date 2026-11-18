@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from '../../src/config.js';
 import { exportScene } from '../../src/export.js';
@@ -14,6 +14,7 @@ export const Root = () => <>
 `;
 const RIG = `import { bell } from './motion/motion';
 export type Channels = ReturnType<typeof rig>['channels'];
+export type RigEvent = { name: string; at: number };
 export const meta = { fps: 60, frames: 60, events: [], beats: [] };
 export function rig(ms: number) { 'worklet'; return { channels: { x: bell(ms) } }; }
 `;
@@ -31,7 +32,7 @@ const project = ({ draw = true } = {}) => {
   add(cfg, 'Ball', { draw });
   write(join(dir, 'src', 'Ball.rig.ts'), RIG);
   if (draw) write(join(dir, 'src', 'Ball.draw.ts'), DRAW);
-  write(join(dir, 'src', 'motion', 'motion.ts'), `import { x } from './face';\nexport const bell = (t: number) => t;\nexport const DEG = 1;\n`);
+  write(join(dir, 'src', 'motion', 'motion.ts'), `import { x } from './face';\nexport const bell = (t: number) => { 'worklet'; return t; };\nexport const DEG = 1;\n`);
   write(join(dir, 'src', 'motion', 'face.ts'), `export const x = 1;\n`);
   return { dir, cfg };
 };
@@ -60,39 +61,75 @@ test('export refuses with a hint when there is no draw.ts', () => {
   assert.throws(() => run(cfg, join(dir, 'app')), (e) => e instanceof CliError && /no Ball\.draw\.ts/.test(e.message) && /add <Name> --draw/.test(e.hint));
 });
 
-test('export writes rig, draw, component and the engine files; the copies differ from the source by the header line only', () => {
+const bundleText = (dir) => readFileSync(join(dir, 'app', 'Ball.tsx'), 'utf8');
+
+test('export writes exactly one file: the component, rig, draw and only the engine declarations the scene reaches', () => {
   const { dir, cfg } = project();
+  write(join(dir, 'src', 'motion', 'motion.ts'),
+    `import { x } from './face';\nexport const bell = (t: number) => { 'worklet'; return t + x; };\nexport const DEG = 1;\nexport const UNUSED = 2;\nexport function never(t: number) { 'worklet'; return t; }\n`);
   const doc = run(cfg, join(dir, 'app'));
   assert.equal(doc.ok, true);
-  assert.deepEqual([...doc.files].sort(), ['Ball/Ball.draw.ts', 'Ball/Ball.rig.ts', 'Ball/index.tsx', 'Ball/motion/face.ts', 'Ball/motion/motion.ts']);
+  assert.deepEqual(doc.files, ['Ball.tsx']);
+  assert.deepEqual(readdirSync(join(dir, 'app')), ['Ball.tsx']);
+  assert.match(doc.usage, /from '\.\/app\/Ball'/);
   assert.match(doc.usage, /ref\.current\?\.fire\('tap'\)/);
-  const copy = readFileSync(join(dir, 'app', 'Ball', 'Ball.draw.ts'), 'utf8');
-  const [head, ...body] = copy.split('\n');
-  assert.match(head, /^\/\/ skac export: src\/Ball\.draw\.ts, skia-motion-agentic-cli 9\.9\.9/);
-  assert.equal(body.join('\n'), readFileSync(join(dir, 'src', 'Ball.draw.ts'), 'utf8'));
-  assert.match(readFileSync(join(dir, 'app', 'Ball', 'index.tsx'), 'utf8'), /export const Ball = forwardRef/);
+  const text = bundleText(dir);
+  assert.match(text.split('\n')[0], /^\/\/ skac export: src\/motion\/face\.ts, src\/motion\/motion\.ts, src\/Ball\.rig\.ts, src\/Ball\.draw\.ts, templates\/app\/component\.tsx\.tmpl, skia-motion-agentic-cli 9\.9\.9/);
+  assert.match(text, /export const Ball = forwardRef/);
+  assert.match(text, /const bell = /);
+  assert.match(text, /const DEG = 1/);
+  assert.doesNotMatch(text, /UNUSED|function never/); // not reached, not bundled
+  assert.doesNotMatch(text, /from '\.\//); // no relative import survives
+  assert.doesNotMatch(text, /export const bell/); // engine exports are plain declarations in the bundle
+  assert.ok(text.indexOf('const x = 1') < text.indexOf('const bell')); // dependencies first
 });
 
-test('export rewrites engine imports to ./motion/<file> wherever the source kept them', () => {
+test('export reads imports wherever the source kept them, and drops a side-effect import of a module with no code', () => {
   const { dir, cfg } = project();
   write(join(dir, 'src', 'Ball.rig.ts'), RIG.replace("'./motion/motion'", "'../src/motion/motion'"));
   run(cfg, join(dir, 'app'));
-  assert.match(readFileSync(join(dir, 'app', 'Ball', 'Ball.rig.ts'), 'utf8'), /from '\.\/motion\/motion'/);
-  assert.match(readFileSync(join(dir, 'app', 'Ball', 'motion', 'motion.ts'), 'utf8'), /from '\.\/face'/);
-});
-
-test('export rewrites side-effect imports, export-from and type-only imports, and refuses a relative import()', () => {
-  const { dir, cfg } = project();
+  assert.match(bundleText(dir), /const bell = /);
   write(join(dir, 'src', 'motion', 'side.ts'), 'export {};\n');
   write(join(dir, 'src', 'Ball.rig.ts'), `import '../src/motion/side';\nexport { DEG } from '../src/motion/motion';\nimport type { x } from '../src/motion/face';\n${RIG}`);
-  const doc = run(cfg, join(dir, 'app'));
-  assert.ok(doc.files.includes('Ball/motion/side.ts'));
-  const rig = readFileSync(join(dir, 'app', 'Ball', 'Ball.rig.ts'), 'utf8');
-  assert.match(rig, /^import '\.\/motion\/side';$/m);
-  assert.match(rig, /^export \{ DEG \} from '\.\/motion\/motion';$/m);
-  assert.match(rig, /^import type \{ x \} from '\.\/motion\/face';$/m);
+  run(cfg, join(dir, 'app'));
+  const text = bundleText(dir);
+  assert.doesNotMatch(text, /side/);
+  assert.match(text, /^export \{ DEG \};$/m);
   write(join(dir, 'src', 'Ball.rig.ts'), `${RIG}export const later = () => { 'worklet'; return import('./motion/face'); };\n`);
   assert.throws(() => run(cfg, join(dir, 'app2')), /loads \.\/motion\/face at run time/);
+});
+
+test('export renames a top-level name two files share and rewrites its references, shorthand and destructuring included', () => {
+  const { dir, cfg } = project();
+  write(join(dir, 'src', 'motion', 'motion.ts'),
+    `export const clamp = (v: number) => { 'worklet'; return Math.min(v, 1); };\nexport const pack = (clamp: number) => { 'worklet'; return { clamp }; };\n`);
+  write(join(dir, 'src', 'Ball.rig.ts'),
+    `import { clamp as cl, pack } from './motion/motion';\nexport type Channels = ReturnType<typeof rig>['channels'];\nexport type RigEvent = { name: string; at: number };\nexport const meta = { fps: 60, frames: 60, events: [], beats: [] };\n`
+    + `const clamp = (v: number) => { 'worklet'; return v; };\nexport function rig(ms: number) { 'worklet'; return { channels: { x: clamp(ms) + cl(ms), p: pack(1).clamp } }; }\n`);
+  write(join(dir, 'src', 'Ball.draw.ts'), `import type { Channels } from './Ball.rig';\nexport function draw(canvas: any, ch: Channels) { 'worklet'; return ch.x; }\n`);
+  run(cfg, join(dir, 'app'));
+  const text = bundleText(dir);
+  assert.match(text, /const clamp = \(v: number\) => \{ 'worklet'; return v; \}/); // the scene's own keeps its name
+  assert.match(text, /const clamp_motion = \(v: number\) => \{ 'worklet'; return Math\.min/);
+  assert.match(text, /clamp\(ms\) \+ clamp_motion\(ms\)/);
+  assert.match(text, /pack = \(clamp_motion: number\) => \{ 'worklet'; return \{ clamp: clamp_motion \}; \}/); // a shadowing parameter follows the rename; the shorthand keeps its property name
+  assert.match(text, /pack\(1\)\.clamp/); // a property name is never renamed
+});
+
+test('export keeps a library block under its own header and Required Notice, and puts @ts-nocheck at the top', () => {
+  const { dir, cfg } = project();
+  write(join(dir, 'src', 'motion', 'lib', 'onetake.worklet.ts'),
+    `// onetake motion library (MIT)\n// Required Notice: Copyright (c) Someone\n// skac libs: generated\n// @ts-nocheck\n\nexport function morphRect(t) { 'worklet'; return t; }\nexport function other(t) { 'worklet'; return t; }\n`);
+  write(join(dir, 'src', 'Ball.rig.ts'), `import { morphRect } from './motion/lib/onetake.worklet';\n${RIG.replace('bell(ms)', 'morphRect(ms)').replace("import { bell } from './motion/motion';\n", '')}`);
+  write(join(dir, 'src', 'Ball.draw.ts'), `import type { Channels } from './Ball.rig';\nexport function draw(canvas: any, ch: Channels) { 'worklet'; return ch.x; }\n`);
+  const doc = run(cfg, join(dir, 'app'));
+  const text = bundleText(dir);
+  assert.deepEqual(doc.files, ['Ball.tsx']);
+  const lines = text.split('\n');
+  assert.equal(lines[1], '// @ts-nocheck');
+  assert.ok(text.indexOf('// Required Notice: Copyright (c) Someone') < text.indexOf('function morphRect'));
+  assert.equal(text.split('// @ts-nocheck').length, 2);
+  assert.doesNotMatch(text, /function other/);
 });
 
 test('export refuses a rig or draw without a leading worklet directive, or one importing Reanimated', () => {
@@ -113,6 +150,14 @@ test('export refuses a rig or draw without a leading worklet directive, or one i
   write(join(dir, 'src', 'motion', 'face.ts'), `import { useSharedValue } from 'react-native-reanimated';\nexport const x = 1;\n`);
   assert.throws(() => run(cfg, join(dir, 'app'), {}, spy), /face\.ts imports react-native-reanimated/); // engine files too
   assert.ok(!existsSync(join(dir, 'app')));
+  // an exported engine function without the directive is refused too; a non-exported helper is the rig's to call, not checked
+  write(join(dir, 'src', 'motion', 'face.ts'), `export const x = 1;\nexport function blink(t: number) { return t; }\n`);
+  assert.throws(() => run(cfg, join(dir, 'app'), {}, spy), (e) => /blink\(\) in motion\/face\.ts does not start with 'worklet'/.test(e.message) && /UI thread/.test(e.hint));
+  write(join(dir, 'src', 'motion', 'face.ts'), `export const x = 1;\nexport const y = (t: number) => t * 2;\n`);
+  assert.throws(() => run(cfg, join(dir, 'app'), {}, spy), /y\(\) in motion\/face\.ts does not start with 'worklet'/);
+  write(join(dir, 'src', 'motion', 'face.ts'), `export const x = 1;\nconst helper = (t: number) => t;\nexport function ok(t: number) { 'worklet'; return helper(t); }\n`);
+  run(cfg, join(dir, 'app'), {}, spy);
+  assert.ok(existsSync(join(dir, 'app')));
 });
 
 test('export refuses an import that is not the scene or the engine', () => {
@@ -122,16 +167,16 @@ test('export refuses an import that is not the scene or the engine', () => {
   assert.throws(() => run(cfg, join(dir, 'app')), /neither the scene's own rig\/draw nor a file in a motion\/ folder/);
 });
 
-test('export overwrites its own files, and refuses hand-written ones unless --force', () => {
+test('export overwrites its own file, and refuses a hand-written one unless --force', () => {
   const { dir, cfg } = project();
   const out = join(dir, 'app');
   run(cfg, out);
-  write(join(dir, 'src', 'Ball.draw.ts'), DRAW + '// changed\n');
+  write(join(dir, 'src', 'Ball.draw.ts'), DRAW + 'export const changed = 3;\n');
   run(cfg, out); // our header: overwritten
-  assert.match(readFileSync(join(out, 'Ball', 'Ball.draw.ts'), 'utf8'), /changed/);
-  writeFileSync(join(out, 'Ball', 'index.tsx'), '// mine\n');
-  assert.throws(() => run(cfg, out), (e) => /not written by skac export: index\.tsx/.test(e.message) && /--force/.test(e.hint));
-  assert.equal(readFileSync(join(out, 'Ball', 'index.tsx'), 'utf8'), '// mine\n');
+  assert.match(readFileSync(join(out, 'Ball.tsx'), 'utf8'), /changed/);
+  writeFileSync(join(out, 'Ball.tsx'), '// mine\n');
+  assert.throws(() => run(cfg, out), (e) => /was not written by skac export/.test(e.message) && /--force/.test(e.hint));
+  assert.equal(readFileSync(join(out, 'Ball.tsx'), 'utf8'), '// mine\n');
   run(cfg, out, { force: true });
-  assert.match(readFileSync(join(out, 'Ball', 'index.tsx'), 'utf8'), /^\/\/ skac export:/);
+  assert.match(readFileSync(join(out, 'Ball.tsx'), 'utf8'), /^\/\/ skac export:/);
 });

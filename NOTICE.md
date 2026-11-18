@@ -10,6 +10,7 @@ The motion docs in `docs/motion` and the files in `templates/motion` adapt code 
 | docs/motion/principles.md, body.md | rossark-motion-skill `SKILL.md` §1–§8, §11 and `MOTION.md` |
 | docs/motion/faces.md, idle.md | rossark-motion-skill `SKILL.md` §4–§5; huashu-art-motion `scripts/engine/lib/toon.js`, `rig_huashu.js`, `references/04-纯代码绘制.md`, `07-正面经验.md`, `镜头语言.md` |
 | docs/motion/anticipation.md, body.md (timing tables) | ideas from LottieFiles motion-design (`director/disney-principles.md`, `reference/timing-easing-tables.md`, `patterns/entrance-exit.md`), written in our own words; that skill ships no licence file, so none of its text is copied |
+| templates/motion/points.ts, templates/motion/moves.ts (morph and point motions) | morph and point-motion styles (paths and staggers of a point set morphing into another; the ways a point cloud arrives and leaves; the odometer's rolling digits) ported from Word Quran's own reels kit by its owner, MIT in this package. skac's package ships no onetake code; a project may load onetake's lib/motion.js through its config, and Word Quran holds the author's permission |
 | templates/motion/clock.remotion.ts, docs/motion/remotion-and-app.md | the sRGB fix for Skia's WebGL drawing buffer, written for this package |
 
 ## rossark-motion-skill

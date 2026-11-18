@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sampleRig } from '../../src/rig.js';
-import { CATEGORIES, RULES, runRules, describe } from '../../src/rules.js';
+import { CATEGORIES, RULES, runRules, describe, svgVerbs } from '../../src/rules.js';
 
 const META = { fps: 30, frames: 90, width: 780, height: 1734, scale: 2 };
 const smooth = (p) => {
@@ -18,11 +18,11 @@ const part = (x, y = 300) => ({ x, y, w: 40, h: 40 });
 
 // Calibrated against skac-e2e's mutation set (13 Nov): each of these is failed by the fault built to trip it and
 // passed by the base combo, so it defaults to error. The rest stay warn until a mutation proves them.
-const CALIBRATED = ['skac/min-change', 'skac/overshoot', 'skac/beat-moves', 'skac/ground', 'skac/attached'];
+const CALIBRATED = ['skac/min-change', 'skac/overshoot', 'skac/beat-moves', 'skac/ground', 'skac/attached', 'skac/morph-path'];
 
 test('every rule is rig layer with docs and needs; calibrated rules default to error, the rest to warn', () => {
   const ids = Object.keys(RULES);
-  assert.equal(ids.length, 11);
+  assert.equal(ids.length, 15);
   for (const id of ids) {
     assert.match(id, /^skac\//);
     assert.equal(RULES[id].layer, 'rig');
@@ -281,4 +281,155 @@ test('describe: a beat on a still channel is marked and nothing moves for a flat
   const meta = { ...META, beats: [{ name: 'hop', from_ms: 500, to_ms: 900, channel: 'y' }] };
   const lines = describe(sampleRig(() => ({ channels: { y: 0 } }), meta), meta);
   assert.deepEqual(lines, ['0.50–0.90 s beat `hop` (`y`): does NOT move']);
+});
+
+// Opacity rules: 60 fps, 2 s. A ramp runs from `at` ms over `ms` ms.
+const ramp = (t, at, ms, from, to) => from + (to - from) * smooth((t - at) / ms);
+const OP = { fps: 60, frames: 120 };
+
+test('long-fade: a 200 ms fade passes, a 400 ms fade names the channel and time, a 0.3 to 0.7 dim and a back-and-forth pass', () => {
+  const op = { opacity: { a: [] } };
+  const fade = (ms) => (t) => ({ channels: { a: ramp(t, 500, ms, 0, 1) } });
+  assert.equal(run('skac/long-fade', fade(200), { ...OP, ...op }).length, 0);
+  assert.equal(run('skac/long-fade', fade(240), { ...OP, ...op }).length, 0);
+  const f = run('skac/long-fade', fade(400), { ...OP, ...op });
+  assert.equal(f.length, 1);
+  assert.equal(f[0].ruleId, 'skac/long-fade');
+  assert.equal(f[0].channel, 'a');
+  assert.equal(f[0].limit, 250);
+  assert.ok(f[0].value > 380 && f[0].value < 430);
+  assert.ok(Math.abs(f[0].at_s - 0.5) < 0.05);
+  assert.equal(run('skac/long-fade', (t) => ({ channels: { a: ramp(t, 500, 600, 0.3, 0.7) } }), { ...OP, ...op }).length, 0);
+  assert.equal(run('skac/long-fade', (t) => ({ channels: { a: ramp(t, 500, 400, 1, 0) } }), { ...OP, ...op }).length, 1); // and back
+  assert.equal(run('skac/long-fade', (t) => ({ channels: { a: 1 - ramp(t, 500, 400, 0, 1) * 0.5 + ramp(t, 900, 400, 0, 0.5) } }), { ...OP, ...op }).length, 0); // two half moves, never clear
+});
+
+test('crossfade (carry.mjs): a bare swap fails; a part that travels 2% of the diagonal or scales 10% across it carries it; enter/exit alone does not', () => {
+  // 390 x 867 pt frame: its diagonal is 951 pt, so a carrier travels 19 pt or more within the 400 ms around the swap.
+  const meta = { ...OP, width: 390, height: 867, scale: 1, opacity: { a: [], b: [] } };
+  const swap = (t) => ({ channels: { a: ramp(t, 800, 120, 1, 0), b: ramp(t, 800, 120, 0, 1) }, parts: { card: { x: 40, y: 300, w: 300, h: 90 } } });
+  const f = run('skac/crossfade', swap, meta);
+  assert.equal(f.length, 1);
+  assert.equal(f[0].ruleId, 'skac/crossfade');
+  assert.equal(f[0].channel, 'a');
+  assert.equal(f[0].limit, 150);
+  assert.ok(Math.abs(f[0].at_s - 0.86) < 0.05);
+  // the card travels 60 pt across the swap: carried
+  const moved = (t) => ({ ...swap(t), parts: { card: { x: 40, y: ramp(t, 600, 500, 300, 240), w: 300, h: 90 } } });
+  assert.equal(run('skac/crossfade', moved, meta).length, 0);
+  // the card grows from 300 x 90 to 334 x 200: scaled about 0.47 in log size, carried
+  const grown = (t) => ({ ...swap(t), parts: { card: { x: 40, y: 300, w: ramp(t, 600, 500, 300, 334), h: ramp(t, 600, 500, 90, 200) } } });
+  assert.equal(run('skac/crossfade', grown, meta).length, 0);
+  // 10 pt of travel (1% of the diagonal) is below carry.mjs's 2%: still bare
+  const nudged = (t) => ({ ...swap(t), parts: { card: { x: 40, y: ramp(t, 600, 500, 300, 290), w: 300, h: 90 } } });
+  assert.equal(run('skac/crossfade', nudged, meta).length, 1);
+  // with no parts at all nothing survives: bare
+  assert.equal(run('skac/crossfade', (t) => ({ channels: swap(t).channels }), meta).length, 1);
+  // two seconds apart is a sequence, not a swap
+  const apart = (t) => ({ ...swap(t), channels: { ...swap(t).channels, b: ramp(t, 1500, 120, 0, 1) } });
+  assert.equal(run('skac/crossfade', apart, meta).length, 0);
+});
+
+const IFACE = { fps: 60, frames: 180, width: 390, height: 867, scale: 1, kind: 'interface' };
+const cubicInOut = (p) => { const q = Math.min(1, Math.max(0, p)); return q < 0.5 ? 4 * q ** 3 : 1 - (-2 * q + 2) ** 3 / 2; };
+const box = (cy, side = 120) => ({ x: 195 - side / 2, y: cy - side / 2, w: side, h: side });
+
+test('meta.kind: an unknown kind is a skac/kind error; idle-cadence is skipped for an interface and the skip names the kind', () => {
+  const rig = (t) => ({ channels: { a: Math.sin(t / 300) } });
+  const bad = { ...IFACE, kind: 'screen' };
+  const r = runRules(sampleRig(rig, bad), bad);
+  assert.deepEqual(r.findings.map((f) => f.ruleId), ['skac/kind']);
+  const meta = { ...IFACE, events: [{ name: 'tap', at: 2.5 }] };
+  const r2 = runRules(sampleRig(rig, meta), meta);
+  assert.ok(r2.skipped.some((k) => k.ruleId === 'skac/idle-cadence' && /interface/.test(k.kind)));
+  assert.equal(r2.counts['skac/idle-cadence'].checked, false);
+});
+
+test('speed-cap: the Welcome carry (183 pt in 600 ms, inOut cubic) fails the character cap and passes the interface cap', () => {
+  const rig = (t) => ({ channels: {}, parts: { seal: box(433 - 183 * cubicInOut((t - 500) / 600)) } });
+  assert.ok(run('skac/speed-cap', rig, { ...IFACE, kind: undefined }).length >= 1);
+  assert.equal(run('skac/speed-cap', rig, IFACE).length, 0);
+  const far = (t) => ({ channels: {}, parts: { seal: box(800 - 700 * cubicInOut((t - 500) / 300)) } }); // 700 pt in 300 ms: 7 pt/ms
+  const f = run('skac/speed-cap', far, IFACE);
+  assert.ok(f.length >= 1);
+  assert.equal(f[0].limit, 2.1);
+});
+
+test('dead-hold for an interface: rest after the change passes, a 400 ms stall between two beats of one change fails, separate changes pass', () => {
+  const seal = (t) => cubicInOut((t - 200) / 600);
+  const title = (at) => (t) => cubicInOut((t - at) / 380);
+  const rig = (at) => (t) => ({ channels: { sealP: seal(t), titleY: 20 * (1 - title(at)(t)) } });
+  const beats = (at, change) => [
+    { name: 'seal', from_ms: 200, to_ms: 800, channel: 'sealP', change },
+    { name: 'title', from_ms: at, to_ms: at + 380, channel: 'titleY', change },
+  ];
+  // the title starts at 530 ms (the seal has passed its place): overlapping beats, then 1.7 s of rest
+  assert.deepEqual(run('skac/dead-hold', rig(530), { ...IFACE, beats: beats(530, 'welcome') }), []);
+  const f = run('skac/dead-hold', rig(1200), { ...IFACE, beats: beats(1200, 'welcome') });
+  assert.equal(f.length, 1);
+  assert.equal(f[0].limit, 250);
+  assert.ok(f[0].value > 300 && f[0].value < 450, String(f[0].value));
+  assert.match(f[0].message, /change `welcome` stalls/);
+  // the same timing as two changes (no shared name) is two moments with a rest between: no finding
+  assert.deepEqual(run('skac/dead-hold', rig(1200), { ...IFACE, beats: beats(1200, undefined) }), []);
+  // the character rule still flags a long still
+  assert.equal(run('skac/dead-hold', rig(1200), { ...IFACE, kind: 'character', beats: beats(1200) }).length, 1);
+});
+
+test('abrupt (pathcheck.mjs KINK): an eased carry passes; a linear start kinks; a teleport is speed-cap\'s; characters are not judged', () => {
+  const eased = (t) => ({ channels: {}, parts: { seal: box(433 - 183 * cubicInOut((t - 500) / 600)) } });
+  assert.deepEqual(run('skac/abrupt', eased, IFACE), []);
+  const lin = (t) => ({ channels: {}, parts: { seal: box(433 - 183 * Math.min(1, Math.max(0, (t - 500) / 600))) } });
+  const k = run('skac/abrupt', lin, IFACE);
+  assert.equal(k.length, 2); // starts and stops at full speed
+  assert.ok(k.every((f) => /^KINK/.test(f.message) && f.part === 'seal'));
+  assert.ok(Math.abs(k[0].at_s - 0.5) < 0.05);
+  // a one-frame teleport is a speed over the cap: speed-cap reports it, abrupt has no second message for it
+  const tele = (t) => ({ channels: {}, parts: { seal: box(t < 1000 ? 433 : 250) } });
+  assert.ok(run('skac/speed-cap', tele, IFACE).length >= 1);
+  assert.ok(run('skac/abrupt', tele, IFACE).every((f) => /^KINK/.test(f.message)));
+  // a part that starts while unseen (listed under an opacity channel still below 0.5) is not judged there
+  const unseenStart = (t) => ({ channels: { op: Math.min(1, Math.max(0, (t - 500) / 200)) }, parts: lin(t).parts });
+  assert.equal(run('skac/abrupt', unseenStart, { ...IFACE, opacity: { op: ['seal'] } }).length, 1); // only the stop at 1.1 s
+  // a character is not judged: its hop leaves and meets the ground at speed (the contact rules' business)
+  assert.deepEqual(run('skac/abrupt', lin, { ...IFACE, kind: undefined }), []);
+  assert.deepEqual(run('skac/abrupt', tele, { ...IFACE, kind: undefined }), []);
+});
+
+test('opacity rules skip a scene with no meta.opacity and the counts say so; the character sample setup never trips them', () => {
+  const rig = (t) => ({ channels: { a: ramp(t, 800, 120, 1, 0), b: ramp(t, 800, 120, 0, 1) } });
+  const meta = { ...META, ...OP, face: [], events: [] };
+  const s = sampleRig(rig, meta);
+  const r = runRules(s, meta);
+  assert.ok(r.skipped.some((k) => k.ruleId === 'skac/crossfade' && k.missing.includes('opacity')));
+  assert.ok(r.skipped.some((k) => k.ruleId === 'skac/long-fade'));
+  assert.equal(r.counts['skac/crossfade'].checked, false);
+  const withOp = { ...meta, opacity: { a: [], b: [] } };
+  const r2 = runRules(sampleRig(rig, withOp), withOp);
+  assert.equal(r2.counts['skac/crossfade'].checked, true);
+  assert.equal(r2.counts['skac/crossfade'].findings, 1);
+});
+
+// ---- skac/morph-path ----
+
+test('svgVerbs: the verbs Skia builds from an SVG string (checked against CanvasKit, 13 Nov)', () => {
+  assert.deepEqual(svgVerbs('M0 0 10 10 20 0z').verbs, ['M', 'L', 'L', 'Z']);
+  assert.deepEqual(svgVerbs('M0 0H10V10Z L5 5').verbs, ['M', 'L', 'L', 'Z', 'M', 'L']);
+  assert.deepEqual(svgVerbs('M0 0C1 1 2 2 3 3S5 5 6 6').verbs, ['M', 'C', 'C']);
+  assert.deepEqual(svgVerbs('m0 0q1 1 2 2t4 4').verbs, ['M', 'Q', 'Q']);
+  assert.match(svgVerbs('M0 0L1').error, /L needs 2 numbers/);
+  assert.match(svgVerbs(3).error, /not an SVG path string/);
+});
+
+test('skac/morph-path: two paths with different verbs fail and name the morph; matching verbs pass', () => {
+  const s = sampleRig(() => ({ channels: { a: 0 } }), META);
+  const bad = runRules(s, { ...META, morphs: { icon: { from: 'M0 0L10 10L20 0Z', to: 'M0 0C5 5 10 5 20 0Z' } } });
+  const f = bad.findings.filter((x) => x.ruleId === 'skac/morph-path');
+  assert.equal(f.length, 1);
+  assert.equal(f[0].severity, 'error');
+  assert.match(f[0].message, /morphPath `icon`: the two paths do not share their verbs .*verb 2 is line in from, cubic in to/);
+  const good = runRules(s, { ...META, morphs: { icon: { from: 'M0 0L10 10L20 0Z', to: 'M5 5H15V20Z' } } });
+  assert.equal(good.findings.filter((x) => x.ruleId === 'skac/morph-path').length, 0);
+  const none = runRules(s, META);
+  assert.ok(none.skipped.some((x) => x.ruleId === 'skac/morph-path' && x.missing.includes('morphs')));
 });

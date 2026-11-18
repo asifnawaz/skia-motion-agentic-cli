@@ -1,6 +1,6 @@
 # Shipping a scene to an app
 
-The video and the app run one `draw()`. `skac <Name> --export <dir>` writes the checked rig and drawing into the app as a component. No binary or data format: the TypeScript files are the asset.
+The video and the app run one `draw()`. `skac <Name> --export <dir>` writes the checked scene into the app as one component file, `<dir>/<Name>.tsx`. No binary or data format and no second folder: the one TypeScript file is the asset, as a `.riv` is for Rive.
 
 ## When
 
@@ -10,7 +10,7 @@ Use `add <Name> --draw` for any scene the app will play. A scene made without `-
 
 ```bash
 skac add Pip --draw          # src/Pip.rig.ts, src/Pip.draw.ts, src/Pip.tsx (the Remotion composition)
-skac Pip --check             # until ok
+skac Pip --check             # the first check is a draft: improve the two weakest beats it names, then check again
 skac Pip --render
 skac Pip --export ../app/src/motion
 ```
@@ -27,7 +27,9 @@ export function draw(canvas: SkCanvas, ch: Channels, size: { width: number; heig
 
 Neither file imports Reanimated, React or Remotion.
 
-`--export` refuses with a hint if `src/<Name>.draw.ts` is missing, if any top-level function in the rig or draw file (`rig()`, `draw()` and their helpers) does not start with `'worklet'`, or if those files or the engine files they import bring in React, Reanimated or Remotion. Functions inside the engine files are not checked; the shipped `motion.ts` and `face.ts` carry the directive where the rig calls them. It then runs `--check` and refuses with its failures if not ok. Imports are read with TypeScript's parser; a relative `import()` or `require()` is refused. It writes `<dir>/<Name>/`: `<Name>.rig.ts`, `<Name>.draw.ts`, `index.tsx`, and the `motion/` engine files the two import (`motion.ts`, `face.ts`), with the import paths rewritten to `./motion/<file>`. Every file starts with a `// skac export:` header naming its source; a later export overwrites only files with that header, and `--force` overwrites others. Edit the project's source, never the copy.
+`--export` refuses with a hint if `src/<Name>.draw.ts` is missing, if any top-level function in the rig or draw file (`rig()`, `draw()` and their helpers) does not start with `'worklet'`, or if those files or the engine files they import bring in React, Reanimated or Remotion. The same check applies to the exported functions of the engine files it takes from (`motion.ts`, `face.ts`, `moves.ts`, `points.ts`, `paths.ts`, a lib's `.worklet.ts`); a non-exported helper in an engine file is not checked. It refuses a scene whose last `--check` was only the draft, or came before the latest change, then runs `--check` and refuses with its failures if not ok. Imports are read with TypeScript's parser; a relative `import()` or `require()` is refused.
+
+**One file.** It writes exactly `<dir>/<Name>.tsx`: the component (`templates/app/component.tsx.tmpl`), the rig, the draw, and only the top-level declarations of the engine files the scene reaches, found by following identifiers through the import graph. A scene that uses `bell` from `motion.ts` carries `bell` and what `bell` uses, not the rest of the file. A top-level name two files share is renamed `<name>_<file>` (for example `clamp_motion`) and its references are rewritten; the scene's own names keep theirs. A library's code (onetake's `.worklet.ts`) keeps its header and `Required Notice:` line above it, and the file then starts with `// @ts-nocheck` because that code is generated from untyped JavaScript. After bundling, the worklet check runs again on the bundled file. The first line is a `// skac export:` header naming the sources; a later export overwrites only a file with that header, and `--force` overwrites others. An engine file may hold only declarations and imports (a top-level statement that runs code is refused). Edit the project's source, never the copy.
 
 ## In the app (three lines)
 
@@ -36,7 +38,7 @@ The import, the ref, the component and the trigger, here inside a pressable:
 ```tsx
 import { useRef } from 'react';
 import { Pressable } from 'react-native';
-import { Pip, type PipHandle } from './motion/Pip';
+import { Pip, type PipHandle } from './motion/Pip'; // ../app/src/motion/Pip.tsx, the one exported file
 
 export function PipButton({ motionAllowed }: { motionAllowed: boolean }) {
   const pip = useRef<PipHandle>(null);

@@ -1,0 +1,6 @@
+{
+  "entry": "src/index.ts",
+  "root": "src/Root.tsx",
+  "out": "skia-motion-out",
+  "docs": []
+}

@@ -14,6 +14,8 @@ The nearest `skia-motion.json` walking up from the working directory:
 
 `rules` sets a rule's severity (`"error"`, `"warn"` or `"off"`), for example `{ "skac/speed-cap": "error" }`. Every rule is in `skac docs rules`.
 
+`libs` loads motion libraries by name, as `"libs": { "onetake": "~/.claude/skills/onetake/lib/motion.js" }` (a name and the path of the lib's `.js`; `~` is expanded; see Libs below). onetake needs no entry: skac fetches it at `create` and `update`; an entry for the name is the offline route.
+
 Relative paths in the file are relative to the file. Flags beat the file and defaults apply without it. Global flags: `--entry <file>`, `--root <file>`, `--out-dir <dir>` (where renders and `docs-reads.jsonl` go), `--docs-dir <dir>` (repeatable; extra docs topics), `--gl <backend>`, `--help`, `--version` (prints `{"ok":true,"name":"skac","version":...}`).
 
 `gl` is the backend Remotion's headless browser draws Skia with: `angle-egl` (default, needs a GPU), `angle`, `egl`, `swangle` (software, for CI and machines without a GPU), `swiftshader` or `vulkan`. `--gl` beats the `SKAC_GL` environment variable, which beats the file.
@@ -27,7 +29,7 @@ Relative paths in the file are relative to the file. Flags beat the file and def
 | `create [dir]` (alias `init`) | `--force` | `dir`, `files[]`, `next[]` |
 | `samples [name] [dir]` | `--force` | `samples[]`, or `sample`, `dir`, `files[]` |
 | `add <Name>` | `--size 390x867`, `--fps 60`, `--frames 480`, `--draw` | `file`, `rig`, `draw?`, `registered`, `next[]`. `--draw` also writes `<Name>.draw.ts` and a composition that draws through it |
-| `<Name> --export <dir>` | `--force` | `ok`, `dir`, `files[]`, `usage`. Needs `src/<Name>.draw.ts`, and `'worklet'` first in `rig()` and `draw()`; runs `--check` first; overwrites only files with the skac header |
+| `<Name> --export <dir>` | `--force` | `ok`, `dir`, `files[]` (exactly one: `<Name>.tsx`), `usage`. Needs `src/<Name>.draw.ts`, `'worklet'` first in `rig()` and `draw()`, and a `--check` that passed after a change (see draft below); overwrites only a file with the skac header |
 | `schema [Name]` | | Skia drawing components: `components[]`, or `declaration`+`props[]`. Not a composition's props: use `inspect` |
 | `inspect [Name]` | | `compositions[]`, or the resolved scene |
 | `<Name>` | | the scene plus `next[]` |
@@ -36,7 +38,7 @@ Relative paths in the file are relative to the file. Flags beat the file and def
 | `<Name> --render` | `--out <file.mp4>`, `--scale <n>` (default 2), `--event <s>` | `path`, `scale`, `compare` |
 | `<Name> --stats` | | `fps`, `frames`, `samples`, per channel and part: range and fastest moment (a part's speed is the mean over one 30 fps frame, as `skac/speed-cap` measures it) |
 | `<Name> --story` | | `lines[]`: the motion as text, with the beats beside what moved |
-| `<Name> --check` | | `ok`, `failures[]`, `warnings[]`, `skipped[]`, `spec`, `views`, `pixels?`; exit 1 on an error |
+| `<Name> --check` | | the first check of a scene is a draft: `ok: false`, `draft: true`, `message`, `weakest[]`. Then `ok`, `failures[]`, `warnings[]`, `skipped[]`, `spec`, `views`, `pixels?`; exit 1 on an error |
 | `<Name> --probe=x,y[;x,y]` | `--at=<s>` (one time, default 0) | `probes[]`: `{x, y, color}` in AARRGGBB |
 | `<Name> --probe-box=x,y,w,h` | `--at=<s>` (one time, default 0) | `colors[]`: top 8 `{color, pixels, share, bbox}` |
 | `lint [files...]` | `--fix` | `findings[]`, `fixed[]` |
@@ -52,7 +54,7 @@ Relative paths in the file are relative to the file. Flags beat the file and def
 | `docs` | `docs [topic] [--search]` | Reads the package's own docs and any `docs` dirs from the config; every read is logged to `docs-reads.jsonl`. |
 | `schema` | `schema [Name]` | Reads the Skia component types in `node_modules`, not a runtime schema. |
 | `inspect` | `inspect [Name]` | Reads the root file and the composition source; events come from a string match on `name === '...'`. |
-| `samples` | `samples [name] [dir]` | Lists the bundled examples and copies one; today only `character`. |
+| `samples` | `samples [name] [dir]` | Lists the bundled examples and copies one: `character` (a vector character, idle and a tap reaction) and `interface` (the Welcome hand-over and five interface moments, `meta.kind: 'interface'`). |
 | `doctor` | `doctor` | Version, environment, project, then GL/Chrome in place of devices; reports Remotion's browser status and never downloads. |
 | `<dir> --verify` | `<Name> --verify` | Renders frame 0 as a still; a composition id replaces the project directory. |
 | `--screenshot --advance` | `--screenshot --advance=<s>` | Renders once at scale 1 and extracts frames; `--at=` takes several times and `--sheet` joins them. |
@@ -260,6 +262,8 @@ Scaffolds a project from templates/init. Refuses a non-empty directory unless `-
 ```
 skac create ./my-motion
 ```
+
+`create` also fetches onetake (see Libs below), so it needs the network unless a local path overrides that name. If `~/.config/skac/libs.json` exists (same shape as `"libs"`, for example `{ "onetake": "~/.claude/skills/onetake/lib/motion.js" }`), `create` and `samples` record those libs in the new project's `skia-motion.json` and write their files (see Libs below). `SKAC_LIBS_FILE` names another file to read instead (a path that does not exist, or an empty file such as `/dev/null`, means no default libs). A missing lib path is an error with a hint.
 
 Exit code 0.
 
@@ -653,6 +657,8 @@ Runs every layer in one report, cheapest first: lint on the composition's file a
 skac Character --check
 ```
 
+**The first check is a draft.** The first `--check` of a scene, and any check whose rig and draw file hash the same as the last check that answered draft, answers `ok: false` and `draft: true`. The `message` is `DRAFT_MESSAGE` in `src/draft.js`: "This first draft is crap. Why did you build it this way? Do not answer: improve it." `weakest[]` holds the two weakest beats from the measured findings (a bare or cross-faded boundary, a stall, an abrupt start, then the speed nearest its limit), each with `rule`, `at_s`, `value`, `limit`, `message` and `fix`; `failures[]` and a `warnings` count come with it. Change the rig or the draw file and the next check runs normally. `--export` refuses a scene until a check that came after a change has passed. skac keeps one small file per project, `.skac/drafts.json` (the sha256 of the rig and draw file per scene, in the scaffolded `.gitignore`); deleting it makes the next check a draft again.
+
 Exit code 0 when `ok`, 1 otherwise. The reply:
 
 | Field | Holds |
@@ -700,12 +706,35 @@ skac lint src/Character.tsx src/Character.rig.ts --fix
 
 Refreshes the project's `src/motion/` files and `AGENTS.md` and `CLAUDE.md` from the installed skac. A file the project never edited is replaced (`updated`, or `same` when nothing changed). A file you edited is kept and listed as `kept-edited`; `--force` replaces it. A file new in the template is `added`. "Edited" means the file differs from the hash recorded in `<project>/.skac-files.json` when the project got it; a project with no record treats files equal to the current template as `same` and the rest as `kept-edited`.
 
+Each lib is managed the same way: its files are rebuilt from the lib's source, so a changed lib reaches the project with `skac update`. A lib whose path no longer exists is an error naming the path. onetake comes by fetch, and a copy already in the project with the right hash is reused, so an update with nothing to change needs no network.
+
 The reply has `version` (installed) and, when `npm view` answers within 5 s, `latest` and `upgrade` (`npm i -g skia-motion-agentic-cli@latest`). Offline is not an error: `latest` is left out.
 
 ```
 skac update
 skac update --force
 ```
+
+### Libs
+
+A lib is a motion library a project loads by name. **onetake comes from GitHub.** skac's own table (`BUILTIN_LIBS` in `src/libs.js`) holds its repo `feitangyuan/onetake`, one commit and the sha256 of two files. `skac create` and `skac update` fetch `lib/motion.js` and `LICENSE` over https from `raw.githubusercontent.com/<repo>/<commit>/<path>`, refuse a file whose hash differs (nothing is written), write `motion.js` byte for byte to `src/motion/lib/onetake.js` and the licence to `onetake.LICENSE`, and build the other two files. Moving to a newer onetake is one commit and two hashes in that table, checked by the golden test. There is no postinstall step.
+
+**Offline route.** A local path under `"libs"` (in `skia-motion.json`, in `~/.config/skac/libs.json`, or in the file `SKAC_LIBS_FILE` names) overrides the fetch for that name and needs no network: `"libs": { "onetake": "~/.claude/skills/onetake/lib/motion.js" }`. With no network and no override, `create` and `update` fail with an error that names this route.
+
+For a lib, `create` and `update` write three files in `src/motion/lib/` (four for a fetched one, with `<name>.LICENSE`):
+
+| File | What it is |
+|---|---|
+| `onetake.js` | the lib, copied byte for byte (its header and `Required Notice:` stay). Remotion scenes import it whole: `import OM from './motion/lib/onetake'`. |
+| `onetake.d.ts` | a loose typing, `declare const OM: Record<string, any>`. |
+| `onetake.worklet.ts` | generated, never edited: the lib unwrapped with the TypeScript API, every function (nested ones too) starting with `'worklet'`, each OM key a named export. The app imports this one: `import { morphRect } from './motion/lib/onetake.worklet'`. |
+
+The worklet build leaves out what a worklet cannot carry and lists it in its header: for onetake `sim`, `silk`, `carouselLoop` and `lattice` (they hold their own state or build buffers), and any function that closes over a `let` or a host global. `--export` bundles the parts of a scene's `.worklet` import that it uses into the one exported file, keeping the lib's header and `Required Notice:` line above them, and refuses an import of the plain build with a hint. Named imports are the form to use in a rig that runs on the UI thread; `import * as OM` type-checks and runs in Node but has not been tried on a device. Which move to use for which moment is in `skac docs motion/interface`.
+
+Two known limits of the worklet build, not yet tried on a device:
+
+- **Device risk: a self-referring object.** onetake's `ease` object calls itself (`expoInOut` calls `ease.expoIn`), so a worklet that captures `ease` captures a cycle. Node and Remotion run it; Reanimated has not been seen to serialise it on the UI thread. A worklet captures every outer name its body uses, default parameters included, so passing your own `curve` does not help: every export that names `ease` carries it (in the onetake build of 13 Nov: `ease` itself, `tween`, `morphRect`, `iris`, `zoomThrough`, `hop`, `gather`, `ribbon`, `seal`, `impactSplit`, `camera`, `whip`, `ripple`). Run one of them on a device before an app depends on it; skac's own moves (moves.ts, points.ts) carry no such object. The generator does not rewrite the object, because a rewrite would make the build differ from the lib it mirrors.
+- **Options typed from their defaults.** The build is `// @ts-nocheck`, but its exports are still typed from their source: `morphRect(..., { spring: sp = null })` types `spring` as `null`, so a typed rig that passes a spring fails `tsc`. (`Type '{ k: number; c: number; }' is not assignable to type 'null | undefined'`). Pass the option object with a cast, checked with `tsc --strict`: `morphRect(t, t0, t1, A, B, { spring: SPRING } as never)`, or keep the call in the plain build for a Remotion-only scene. The fix belongs in the lib (a JSDoc type on the option), not in the generated file.
 
 ### <Name> --screenshot --advance
 

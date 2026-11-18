@@ -5,23 +5,37 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { offlineLibsFile } from './offline-libs.js';
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'skac.js');
 const scratch = mkdtempSync(join(process.env.SKIA_MOTION_SCRATCH || tmpdir(), 'skac-blind-e2e-'));
 const OUT = join(scratch, 'out');
+const libsFile = offlineLibsFile(scratch);
 const NAME = 'E2eBlind';
 let project = process.env.SKIA_MOTION_E2E_PROJECT;
 let rootBackup;
 
-const skac = (args, cwd = project) => {
-  const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 26 });
+const skacRaw = (args, cwd = project) => {
+  // SKAC_LIBS_FILE: `create` must not pick up the user's default libs (~/.config/skac/libs.json) or fetch onetake: it gets a local fixture.
+  const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, SKAC_LIBS_FILE: libsFile } });
   let doc;
   try { doc = JSON.parse(r.stdout); } catch { assert.fail(`stdout is not one JSON document:\n${r.stdout}\n${r.stderr}`); }
   return { doc, code: r.status };
+};
+// The first --check of a scene is a draft (src/draft.js). The tests below judge the check itself, so a draft is settled the way an agent
+// settles it: change the rig (one space), check again. The rigs are put back in after().
+const rigBackups = new Map();
+const skac = (args, cwd = project) => {
+  const r = skacRaw(args, cwd);
+  if (args[1] !== '--check' || !r.doc.draft) return r;
+  const rig = join(project, 'src', `${args[0]}.rig.ts`);
+  if (!rigBackups.has(rig)) rigBackups.set(rig, readFileSync(rig, 'utf8'));
+  appendFileSync(rig, ' ');
+  return skacRaw(args, cwd);
 };
 const ok = (args, cwd) => {
   const r = skac(args, cwd);
@@ -43,12 +57,43 @@ before(() => {
 
 after(() => {
   writeFileSync(join(project, 'src', 'Root.tsx'), rootBackup);
-  for (const f of [`${NAME}.tsx`, `${NAME}.rig.ts`]) if (existsSync(join(project, 'src', f))) unlinkSync(join(project, 'src', f));
+  for (const [file, text] of rigBackups) if (existsSync(file)) writeFileSync(file, text);
+  rmSync(join(project, '.skac'), { recursive: true, force: true });
+  for (const f of [`${NAME}.tsx`, `${NAME}.rig.ts`, 'E2eDraft.tsx', 'E2eDraft.rig.ts', 'E2eDraft.draw.ts', 'E2eDraft.spec.json']) if (existsSync(join(project, 'src', f))) unlinkSync(join(project, 'src', f));
 });
 
 test('help lists the blind-mode verbs', () => {
   const text = JSON.stringify(ok(['--help'], scratch).commands);
   for (const word of ['--stats', '--probe=x,y', '--story', '--check', 'lint', 'update']) assert.ok(text.includes(word), word);
+});
+
+test('the first --check is a draft that names the two weakest beats; so is a re-run; a change settles it; --export waits for that', () => {
+  const draft = 'This first draft is crap. Why did you build it this way? Do not answer: improve it.';
+  ok(['add', 'E2eDraft', '--draw']);
+  const first = skacRaw(['E2eDraft', '--check', ...outFlag]);
+  assert.equal(first.code, 1);
+  assert.equal(first.doc.draft, true);
+  assert.equal(first.doc.ok, false);
+  assert.equal(first.doc.message, draft);
+  assert.ok(first.doc.weakest.length >= 1 && first.doc.weakest.length <= 2);
+  for (const w of first.doc.weakest) assert.ok(w.rule && w.message && w.fix && w.at_s !== undefined, JSON.stringify(w));
+  assert.equal(skacRaw(['E2eDraft', '--check', ...outFlag]).doc.draft, true, 'a re-run with no change is still a draft');
+  const dest = join(scratch, 'app');
+  const early = skacRaw(['E2eDraft', '--export', dest, ...outFlag]);
+  assert.equal(early.code, 1);
+  assert.match(early.doc.error, /first draft check, so it is not exported/);
+  assert.ok(!existsSync(dest));
+  appendFileSync(join(project, 'src', 'E2eDraft.rig.ts'), '\n// revised\n');
+  const second = skacRaw(['E2eDraft', '--check', ...outFlag]);
+  assert.equal(second.doc.draft, undefined);
+  assert.equal(second.doc.ok, true, JSON.stringify(second.doc.failures).slice(0, 800));
+  appendFileSync(join(project, 'src', 'E2eDraft.rig.ts'), '// changed again, not checked\n');
+  assert.match(skacRaw(['E2eDraft', '--export', dest, ...outFlag]).doc.error, /changed since its last --check/);
+  assert.equal(skacRaw(['E2eDraft', '--check', ...outFlag]).doc.ok, true);
+  const exported = ok(['E2eDraft', '--export', dest, ...outFlag]);
+  assert.deepEqual(exported.files, ['E2eDraft.tsx']);
+  assert.deepEqual(readdirSync(dest), ['E2eDraft.tsx']);
+  assert.ok(existsSync(join(project, '.skac', 'drafts.json')));
 });
 
 test('--stats samples the rig without rendering', () => {

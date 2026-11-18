@@ -43,6 +43,30 @@ export const EASE_OUT = bezier(0.23, 1, 0.32, 1);
 /** Only things leaving or falling away. Never something the eye is waiting on (rossark §2). */
 export const EASE_IN = bezier(0.55, 0, 1, 0.45);
 
+/**
+ * The hand-over curve: inOut cubic, the Welcome seal's (word-quran WelcomeScreen.tsx, CARRY_MS 600,
+ * Easing.inOut(Easing.cubic), owner O-4578, 9 Nov 2026) and the reels' morph (reels/_kit/morph.js easeIO). Its speed
+ * rises and falls smoothly enough that a carry of a phone's width passes skac/abrupt at 30 fps; EASE_IN_OUT (a steep
+ * bezier) halves its speed within one 30 fps frame at its peak, which pathcheck reads as a kink.
+ */
+export function CUBIC_IN_OUT(p: number): number {
+  'worklet';
+  const q = Math.min(1, Math.max(0, p));
+  return q < 0.5 ? 4 * q * q * q : 1 - Math.pow(-2 * q + 2, 3) / 2;
+}
+/** Out cubic, the reels' easeOut (reels/_kit/pixelmotion.js): a point set's arrival. */
+export function CUBIC_OUT(p: number): number {
+  'worklet';
+  const q = Math.min(1, Math.max(0, p));
+  return 1 - Math.pow(1 - q, 3);
+}
+/** In cubic, the reels' easeIn (reels/_kit/pixelmotion.js): a point set replaying its arrival backwards. */
+export function CUBIC_IN(p: number): number {
+  'worklet';
+  const q = Math.min(1, Math.max(0, p));
+  return q * q * q;
+}
+
 /** A keyframe: time (ms), value, and the curve of the segment ARRIVING here ('out', or ease-in-out). */
 export type Key = readonly [number, number, 'out'?];
 export type Keys = readonly Key[];
