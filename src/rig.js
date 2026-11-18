@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { registrations } from './project.js';
 import { fail } from './util.js';
 
-const EXTERNAL = ['react', 'react-dom', 'remotion', '@shopify/react-native-skia', '@remotion/*'];
+const EXTERNAL = ['react', 'react-dom', 'remotion', 'react-native-skia', '@shopify/react-native-skia', '@remotion/*'];
 
 /**
  * esbuild from the project, then through @remotion/cli -> @remotion/bundler -> esbuild (pnpm hides it),

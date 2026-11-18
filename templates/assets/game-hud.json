@@ -1,0 +1,131 @@
+{
+  "schema": "skac.asset/1",
+  "name": "GameHUD",
+  "artboard": {
+    "width": 360,
+    "height": 138,
+    "nodes": [
+      {"kind": "roundRect", "x": 0, "y": 6, "width": 360, "height": 126, "radius": 29, "fill": "#111927"},
+      {"kind": "roundRect", "x": 1, "y": 7, "width": 358, "height": 124, "radius": 28, "fill": "#314255"},
+      {"kind": "roundRect", "x": 2, "y": 8, "width": 356, "height": 122, "radius": 27, "fill": "#1B2738"},
+      {"kind": "roundRect", "x": 13, "y": 20, "width": 229, "height": 97, "radius": 19, "fill": "#24354A"},
+      {"kind": "roundRect", "x": 249, "y": 20, "width": 98, "height": 97, "radius": 19, "fill": "#24354A"},
+      {"kind": "path", "fill": "#7EE7C1", "commands": [["M", 25, 39], ["L", 33, 39], ["L", 33, 33], ["L", 39, 33], ["L", 39, 39], ["L", 47, 39], ["L", 47, 45], ["L", 39, 45], ["L", 39, 51], ["L", 33, 51], ["L", 33, 45], ["L", 25, 45], ["Z"]]},
+      {"kind": "roundRect", "x": 55, "y": 32, "width": 173, "height": 20, "radius": 10, "fill": "#111C2C"},
+      {"kind": "roundRect", "x": 57, "y": 34, "width": "healthWidth", "height": 16, "radius": 8, "fill": {"kind": "radial", "x": 65, "y": 34, "radius": 168, "colors": ["#ABF8C5", "#299585"]}},
+      {"kind": "roundRect", "x": 57, "y": 34, "width": "healthWidth", "height": 16, "radius": 8, "fill": "#FF6A65", "opacity": "alarm"},
+      {"kind": "path", "fill": "#FFA29C", "commands": [["M", 208, 61], ["L", 226, 90], ["L", 190, 90], ["Z"]], "opacity": "alarm"},
+      {"kind": "roundRect", "x": 207, "y": 70, "width": 2, "height": 10, "radius": 1, "fill": "#6E2E39", "opacity": "alarm"},
+      {"kind": "ellipse", "x": 207, "y": 83, "width": 2, "height": 2, "fill": "#6E2E39", "opacity": "alarm"},
+      {"kind": "roundRect", "x": 25, "y": 71, "width": 119, "height": 7, "radius": 3.5, "fill": "#375168"},
+      {"kind": "roundRect", "x": 25, "y": 86, "width": 87, "height": 7, "radius": 3.5, "fill": "#375168"},
+      {"kind": "roundRect", "x": 259, "y": 88, "width": 78, "height": 8, "radius": 4, "fill": "#132033"},
+      {"kind": "roundRect", "x": 260, "y": 89, "width": "reloadWidth", "height": 6, "radius": 3, "fill": {"kind": "radial", "x": 268, "y": 89, "radius": 67, "colors": ["#F8DC95", "#DF8C4C"]}},
+      {"kind": "ellipse", "x": 285, "y": 29, "width": 26, "height": 24, "fill": "#47A992", "opacity": "reloadGlow"},
+      {"kind": "path", "fill": "#F8DC95", "commands": [["M", 298, 30], ["L", 302, 35], ["L", 309, 36], ["L", 304, 41], ["L", 305, 48], ["L", 298, 45], ["L", 291, 48], ["L", 292, 41], ["L", 287, 36], ["L", 294, 35], ["Z"]], "opacity": "reloadGlow"},
+      {"kind": "roundRect", "x": 259, "y": 59, "width": 10, "height": 16, "radius": 3, "fill": "#132033"},
+      {"kind": "roundRect", "x": 260, "y": 59, "width": 8, "height": 16, "radius": 3, "fill": "#F6C47B", "opacity": "ammo1"},
+      {"kind": "roundRect", "x": 272, "y": 59, "width": 10, "height": 16, "radius": 3, "fill": "#132033"},
+      {"kind": "roundRect", "x": 273, "y": 59, "width": 8, "height": 16, "radius": 3, "fill": "#F6C47B", "opacity": "ammo2"},
+      {"kind": "roundRect", "x": 285, "y": 59, "width": 10, "height": 16, "radius": 3, "fill": "#132033"},
+      {"kind": "roundRect", "x": 286, "y": 59, "width": 8, "height": 16, "radius": 3, "fill": "#F6C47B", "opacity": "ammo3"},
+      {"kind": "roundRect", "x": 298, "y": 59, "width": 10, "height": 16, "radius": 3, "fill": "#132033"},
+      {"kind": "roundRect", "x": 299, "y": 59, "width": 8, "height": 16, "radius": 3, "fill": "#F6C47B", "opacity": "ammo4"},
+      {"kind": "roundRect", "x": 311, "y": 59, "width": 10, "height": 16, "radius": 3, "fill": "#132033"},
+      {"kind": "roundRect", "x": 312, "y": 59, "width": 8, "height": 16, "radius": 3, "fill": "#F6C47B", "opacity": "ammo5"},
+      {"kind": "roundRect", "x": 324, "y": 59, "width": 10, "height": 16, "radius": 3, "fill": "#132033"},
+      {"kind": "roundRect", "x": 325, "y": 59, "width": 8, "height": 16, "radius": 3, "fill": "#F6C47B", "opacity": "ammo6"}
+    ]
+  },
+  "channels": {
+    "healthWidth": 169,
+    "alarm": 0,
+    "reloadWidth": 0,
+    "reloadGlow": 0,
+    "ammo1": 1,
+    "ammo2": 1,
+    "ammo3": 1,
+    "ammo4": 1,
+    "ammo5": 1,
+    "ammo6": 1
+  },
+  "clips": {
+    "healthEmpty": {"ms": 0, "tracks": {"healthWidth": [[0, 0]]}},
+    "healthFull": {"ms": 0, "tracks": {"healthWidth": [[0, 169]]}},
+    "calm": {"ms": 0, "tracks": {"alarm": [[0, 0]]}},
+    "warning": {"ms": 420, "tracks": {"alarm": [[0, 0.3], [95, 1, "out"], [420, 0.82, "inOut"]]}},
+    "low": {"ms": 0, "tracks": {"alarm": [[0, 0.82]]}},
+    "noReload": {"ms": 0, "tracks": {"reloadWidth": [[0, 0]], "reloadGlow": [[0, 0]]}},
+    "reloading": {"ms": 700, "tracks": {"reloadWidth": [[0, 0], [700, 76, "inOut"]], "reloadGlow": [[0, 0]]}},
+    "reloadCue": {"ms": 240, "reducedAt": 85, "tracks": {"reloadWidth": [[0, 76]], "reloadGlow": [[0, 0.15], [85, 0.74, "out"], [240, 0, "inOut"]]}},
+    "ammo0": {"ms": 0, "tracks": {"ammo1": [[0, 0]], "ammo2": [[0, 0]], "ammo3": [[0, 0]], "ammo4": [[0, 0]], "ammo5": [[0, 0]], "ammo6": [[0, 0]]}},
+    "ammo1": {"ms": 0, "tracks": {"ammo1": [[0, 1]], "ammo2": [[0, 0]], "ammo3": [[0, 0]], "ammo4": [[0, 0]], "ammo5": [[0, 0]], "ammo6": [[0, 0]]}},
+    "ammo2": {"ms": 0, "tracks": {"ammo1": [[0, 1]], "ammo2": [[0, 1]], "ammo3": [[0, 0]], "ammo4": [[0, 0]], "ammo5": [[0, 0]], "ammo6": [[0, 0]]}},
+    "ammo3": {"ms": 0, "tracks": {"ammo1": [[0, 1]], "ammo2": [[0, 1]], "ammo3": [[0, 1]], "ammo4": [[0, 0]], "ammo5": [[0, 0]], "ammo6": [[0, 0]]}},
+    "ammo4": {"ms": 0, "tracks": {"ammo1": [[0, 1]], "ammo2": [[0, 1]], "ammo3": [[0, 1]], "ammo4": [[0, 1]], "ammo5": [[0, 0]], "ammo6": [[0, 0]]}},
+    "ammo5": {"ms": 0, "tracks": {"ammo1": [[0, 1]], "ammo2": [[0, 1]], "ammo3": [[0, 1]], "ammo4": [[0, 1]], "ammo5": [[0, 1]], "ammo6": [[0, 0]]}},
+    "ammo6": {"ms": 0, "tracks": {"ammo1": [[0, 1]], "ammo2": [[0, 1]], "ammo3": [[0, 1]], "ammo4": [[0, 1]], "ammo5": [[0, 1]], "ammo6": [[0, 1]]}}
+  },
+  "machine": {
+    "schema": "skac.machine/1",
+    "values": {
+      "health": {"type": "number", "default": 1},
+      "ammo": {"type": "number", "default": 6},
+      "reload": {"type": "trigger"},
+      "cancelReload": {"type": "trigger"}
+    },
+    "layers": [
+      {
+        "name": "health",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "health", "keys": [[0, "healthEmpty"], [1, "healthFull"]]}}
+        },
+        "transitions": []
+      },
+      {
+        "name": "ammo",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "ammo", "keys": [[0, "ammo0"], [1, "ammo1"], [2, "ammo2"], [3, "ammo3"], [4, "ammo4"], [5, "ammo5"], [6, "ammo6"]]}}
+        },
+        "transitions": []
+      },
+      {
+        "name": "condition",
+        "entry": "normal",
+        "states": {
+          "normal": {"clip": "calm"},
+          "warning": {"clip": "warning"},
+          "low": {"clip": "low"}
+        },
+        "transitions": [
+          {"from": "normal", "to": "warning", "when": [["health", "<=", 0.25]]},
+          {"from": "warning", "to": "normal", "when": [["health", ">", 0.25]]},
+          {"from": "low", "to": "normal", "when": [["health", ">", 0.25]]},
+          {"from": "warning", "to": "low", "exit_at": 1}
+        ]
+      },
+      {
+        "name": "reload",
+        "entry": "idle",
+        "states": {
+          "idle": {"clip": "noReload"},
+          "reloading": {"clip": "reloading"},
+          "ready": {"clip": "reloadCue"}
+        },
+        "transitions": [
+          {"from": "*", "to": "idle", "when": [["cancelReload"]]},
+          {"from": "idle", "to": "reloading", "when": [["reload"]]},
+          {"from": "reloading", "to": "reloading", "when": [["reload"]]},
+          {"from": "ready", "to": "reloading", "when": [["reload"]]},
+          {"from": "reloading", "to": "ready", "exit_at": 1},
+          {"from": "ready", "to": "idle", "exit_at": 1}
+        ]
+      }
+    ]
+  },
+  "markers": [
+    {"name": "reloadReady", "layer": "reload", "state": "ready"}
+  ]
+}

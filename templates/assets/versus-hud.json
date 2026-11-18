@@ -1,0 +1,359 @@
+{
+  "schema": "skac.asset/1",
+  "name": "VersusHUD",
+  "artboard": {
+    "width": 1000,
+    "height": 144,
+    "nodes": [
+      {
+        "kind": "group",
+        "children": [
+          {"kind": "path", "commands": [["M", 30, 45], ["L", 399, 45], ["L", 442, 69], ["L", 415, 106], ["L", 34, 106], ["L", 14, 89], ["Z"]], "fill": "#070b17cc", "feather": 8},
+          {"kind": "path", "commands": [["M", 48, 48], ["L", 420, 48], ["L", 444, 68], ["L", 427, 101], ["L", 48, 101], ["Z"]], "fill": "#6A7591"},
+          {"kind": "path", "commands": [["M", 50, 49], ["L", 419, 49], ["L", 442, 68], ["L", 426, 99], ["L", 50, 99], ["Z"]], "fill": "#131928"},
+          {"kind": "path", "commands": [["M", 99, 58], ["L", 413, 58], ["L", 431, 69], ["L", 419, 92], ["L", 99, 92], ["Z"]], "fill": "#070A14"},
+          {
+            "kind": "group",
+            "children": [
+              {"kind": "path", "commands": [["M", 0, 0], ["L", 312, 0], ["L", 325, 11], ["L", 315, 33], ["L", 0, 33], ["Z"]], "fill": {"kind": "radial", "x": 0, "y": 3, "radius": 300, "colors": ["#FFD57E", "#9E364A"]}},
+              {"kind": "path", "commands": [["M", 0, 0], ["L", 312, 0], ["L", 325, 11], ["L", 0, 11], ["Z"]], "fill": "#FFF9DB44"},
+              {"kind": "path", "commands": [["M", 0, 29], ["L", 317, 29], ["L", 315, 33], ["L", 0, 33], ["Z"]], "fill": "#9E364A"}
+            ],
+            "x": 103,
+            "y": 58,
+            "scaleX": "leftHealth"
+          },
+          {"kind": "path", "commands": [["M", 103, 59], ["L", 414, 59], ["L", 429, 70], ["L", 419, 92], ["L", 103, 92], ["Z"]], "fill": "#FFD57E", "opacity": "leftFlash", "feather": "leftSoftness"},
+          {"kind": "path", "commands": [["M", 103, 58], ["L", 414, 58], ["L", 421, 63], ["L", 103, 63], ["Z"]], "fill": "#FFFFFF", "opacity": "leftFlash"},
+          {"kind": "roundRect", "x": 122, "y": 105, "width": 219, "height": 20, "radius": 3, "fill": "#080D18"},
+          {
+            "kind": "group",
+            "children": [
+              {"kind": "roundRect", "x": 0, "y": 0, "width": 215, "height": 14, "radius": 3, "fill": "#FFD57E", "feather": 7, "opacity": 0.45},
+              {"kind": "roundRect", "x": 0, "y": 0, "width": 215, "height": 14, "radius": 2, "fill": {"kind": "radial", "x": 8, "y": 0, "radius": 170, "colors": ["#FFD57E", "#ED9655"]}},
+              {"kind": "roundRect", "x": 0, "y": 0, "width": 215, "height": 2, "radius": 0, "fill": "#FFFFFF76"}
+            ],
+            "x": 124,
+            "y": 108,
+            "scaleX": "leftSuper"
+          },
+          {"kind": "path", "commands": [["M", 176, 107], ["L", 181, 107], ["L", 177, 123], ["L", 172, 123], ["Z"]], "fill": "#0B101D"},
+          {"kind": "path", "commands": [["M", 229, 107], ["L", 234, 107], ["L", 230, 123], ["L", 225, 123], ["Z"]], "fill": "#0B101D"},
+          {"kind": "path", "commands": [["M", 283, 107], ["L", 288, 107], ["L", 284, 123], ["L", 279, 123], ["Z"]], "fill": "#0B101D"},
+          {"kind": "path", "commands": [["M", 361, 115], ["L", 370, 106], ["L", 379, 115], ["L", 370, 124], ["Z"]], "fill": "#555C71"},
+          {"kind": "path", "commands": [["M", 388, 115], ["L", 397, 106], ["L", 406, 115], ["L", 397, 124], ["Z"]], "fill": "#555C71"},
+          {"kind": "path", "commands": [["M", 363, 115], ["L", 370, 108], ["L", 377, 115], ["L", 370, 122], ["Z"]], "fill": "#0D1421"},
+          {"kind": "path", "commands": [["M", 390, 115], ["L", 397, 108], ["L", 404, 115], ["L", 397, 122], ["Z"]], "fill": "#0D1421"},
+          {"kind": "path", "commands": [["M", 363, 115], ["L", 370, 108], ["L", 377, 115], ["L", 370, 122], ["Z"]], "fill": "#FFD57E", "opacity": "leftWin1", "feather": 5},
+          {"kind": "path", "commands": [["M", 390, 115], ["L", 397, 108], ["L", 404, 115], ["L", 397, 122], ["Z"]], "fill": "#FFD57E", "opacity": "leftWin2", "feather": 5},
+          {"kind": "path", "commands": [["M", 365, 115], ["L", 370, 110], ["L", 375, 115], ["L", 370, 120], ["Z"]], "fill": "#FFD57E", "opacity": "leftWin1"},
+          {"kind": "path", "commands": [["M", 392, 115], ["L", 397, 110], ["L", 402, 115], ["L", 397, 120], ["Z"]], "fill": "#FFD57E", "opacity": "leftWin2"},
+          {"kind": "path", "commands": [["M", 15, 38], ["L", 63, 22], ["L", 103, 44], ["L", 103, 97], ["L", 62, 118], ["L", 17, 97], ["L", 5, 66], ["Z"]], "fill": "#9E364A", "feather": 9, "opacity": 0.6},
+          {"kind": "path", "commands": [["M", 15, 43], ["L", 62, 26], ["L", 98, 46], ["L", 98, 90], ["L", 64, 113], ["L", 19, 94], ["L", 10, 68], ["Z"]], "fill": "#FFD57E"},
+          {"kind": "path", "commands": [["M", 18, 46], ["L", 62, 30], ["L", 94, 48], ["L", 94, 88], ["L", 64, 109], ["L", 22, 91], ["L", 14, 68], ["Z"]], "fill": "#141D32"},
+          {"kind": "path", "commands": [["M", 21, 50], ["L", 62, 35], ["L", 89, 49], ["L", 89, 85], ["L", 64, 103], ["L", 27, 88], ["L", 19, 68], ["Z"]], "fill": {"kind": "radial", "x": 39, "y": 41, "radius": 64, "colors": ["#38455D", "#111624"]}},
+          {"kind": "path", "commands": [["M", 29, 58], ["L", 81, 50], ["L", 71, 69], ["L", 59, 77], ["L", 38, 73], ["L", 53, 63], ["Z"]], "fill": "#FFD57E"},
+          {"kind": "path", "commands": [["M", 33, 78], ["L", 57, 80], ["L", 72, 75], ["L", 62, 87], ["L", 43, 90], ["Z"]], "fill": "#ED9655"},
+          {"kind": "path", "commands": [["M", 62, 63], ["L", 66, 59], ["L", 70, 63], ["L", 66, 67], ["Z"]], "fill": "#FFF7DF"}
+        ],
+        "x": 0,
+        "scaleX": 1,
+        "anchor": {
+          "x": "left",
+          "y": "top"
+        }
+      },
+      {
+        "kind": "group",
+        "children": [
+          {"kind": "path", "commands": [["M", 30, 45], ["L", 399, 45], ["L", 442, 69], ["L", 415, 106], ["L", 34, 106], ["L", 14, 89], ["Z"]], "fill": "#070b17cc", "feather": 8},
+          {"kind": "path", "commands": [["M", 48, 48], ["L", 420, 48], ["L", 444, 68], ["L", 427, 101], ["L", 48, 101], ["Z"]], "fill": "#6A7591"},
+          {"kind": "path", "commands": [["M", 50, 49], ["L", 419, 49], ["L", 442, 68], ["L", 426, 99], ["L", 50, 99], ["Z"]], "fill": "#131928"},
+          {"kind": "path", "commands": [["M", 99, 58], ["L", 413, 58], ["L", 431, 69], ["L", 419, 92], ["L", 99, 92], ["Z"]], "fill": "#070A14"},
+          {
+            "kind": "group",
+            "children": [
+              {"kind": "path", "commands": [["M", 0, 0], ["L", 312, 0], ["L", 325, 11], ["L", 315, 33], ["L", 0, 33], ["Z"]], "fill": {"kind": "radial", "x": 0, "y": 3, "radius": 300, "colors": ["#91F0DD", "#34518D"]}},
+              {"kind": "path", "commands": [["M", 0, 0], ["L", 312, 0], ["L", 325, 11], ["L", 0, 11], ["Z"]], "fill": "#FFF9DB44"},
+              {"kind": "path", "commands": [["M", 0, 29], ["L", 317, 29], ["L", 315, 33], ["L", 0, 33], ["Z"]], "fill": "#34518D"}
+            ],
+            "x": 103,
+            "y": 58,
+            "scaleX": "rightHealth"
+          },
+          {"kind": "path", "commands": [["M", 103, 59], ["L", 414, 59], ["L", 429, 70], ["L", 419, 92], ["L", 103, 92], ["Z"]], "fill": "#91F0DD", "opacity": "rightFlash", "feather": "rightSoftness"},
+          {"kind": "path", "commands": [["M", 103, 58], ["L", 414, 58], ["L", 421, 63], ["L", 103, 63], ["Z"]], "fill": "#FFFFFF", "opacity": "rightFlash"},
+          {"kind": "roundRect", "x": 122, "y": 105, "width": 219, "height": 20, "radius": 3, "fill": "#080D18"},
+          {
+            "kind": "group",
+            "children": [
+              {"kind": "roundRect", "x": 0, "y": 0, "width": 215, "height": 14, "radius": 3, "fill": "#91F0DD", "feather": 7, "opacity": 0.45},
+              {"kind": "roundRect", "x": 0, "y": 0, "width": 215, "height": 14, "radius": 2, "fill": {"kind": "radial", "x": 8, "y": 0, "radius": 170, "colors": ["#91F0DD", "#32AFC0"]}},
+              {"kind": "roundRect", "x": 0, "y": 0, "width": 215, "height": 2, "radius": 0, "fill": "#FFFFFF76"}
+            ],
+            "x": 124,
+            "y": 108,
+            "scaleX": "rightSuper"
+          },
+          {"kind": "path", "commands": [["M", 176, 107], ["L", 181, 107], ["L", 177, 123], ["L", 172, 123], ["Z"]], "fill": "#0B101D"},
+          {"kind": "path", "commands": [["M", 229, 107], ["L", 234, 107], ["L", 230, 123], ["L", 225, 123], ["Z"]], "fill": "#0B101D"},
+          {"kind": "path", "commands": [["M", 283, 107], ["L", 288, 107], ["L", 284, 123], ["L", 279, 123], ["Z"]], "fill": "#0B101D"},
+          {"kind": "path", "commands": [["M", 361, 115], ["L", 370, 106], ["L", 379, 115], ["L", 370, 124], ["Z"]], "fill": "#555C71"},
+          {"kind": "path", "commands": [["M", 388, 115], ["L", 397, 106], ["L", 406, 115], ["L", 397, 124], ["Z"]], "fill": "#555C71"},
+          {"kind": "path", "commands": [["M", 363, 115], ["L", 370, 108], ["L", 377, 115], ["L", 370, 122], ["Z"]], "fill": "#0D1421"},
+          {"kind": "path", "commands": [["M", 390, 115], ["L", 397, 108], ["L", 404, 115], ["L", 397, 122], ["Z"]], "fill": "#0D1421"},
+          {"kind": "path", "commands": [["M", 363, 115], ["L", 370, 108], ["L", 377, 115], ["L", 370, 122], ["Z"]], "fill": "#91F0DD", "opacity": "rightWin1", "feather": 5},
+          {"kind": "path", "commands": [["M", 390, 115], ["L", 397, 108], ["L", 404, 115], ["L", 397, 122], ["Z"]], "fill": "#91F0DD", "opacity": "rightWin2", "feather": 5},
+          {"kind": "path", "commands": [["M", 365, 115], ["L", 370, 110], ["L", 375, 115], ["L", 370, 120], ["Z"]], "fill": "#91F0DD", "opacity": "rightWin1"},
+          {"kind": "path", "commands": [["M", 392, 115], ["L", 397, 110], ["L", 402, 115], ["L", 397, 120], ["Z"]], "fill": "#91F0DD", "opacity": "rightWin2"},
+          {"kind": "path", "commands": [["M", 15, 38], ["L", 63, 22], ["L", 103, 44], ["L", 103, 97], ["L", 62, 118], ["L", 17, 97], ["L", 5, 66], ["Z"]], "fill": "#34518D", "feather": 9, "opacity": 0.6},
+          {"kind": "path", "commands": [["M", 15, 43], ["L", 62, 26], ["L", 98, 46], ["L", 98, 90], ["L", 64, 113], ["L", 19, 94], ["L", 10, 68], ["Z"]], "fill": "#91F0DD"},
+          {"kind": "path", "commands": [["M", 18, 46], ["L", 62, 30], ["L", 94, 48], ["L", 94, 88], ["L", 64, 109], ["L", 22, 91], ["L", 14, 68], ["Z"]], "fill": "#141D32"},
+          {"kind": "path", "commands": [["M", 21, 50], ["L", 62, 35], ["L", 89, 49], ["L", 89, 85], ["L", 64, 103], ["L", 27, 88], ["L", 19, 68], ["Z"]], "fill": {"kind": "radial", "x": 39, "y": 41, "radius": 64, "colors": ["#38455D", "#111624"]}},
+          {"kind": "path", "commands": [["M", 64, 47], ["L", 81, 68], ["L", 64, 91], ["L", 54, 76], ["L", 67, 68], ["L", 51, 66], ["Z"]], "fill": "#91F0DD"},
+          {"kind": "path", "commands": [["M", 62, 48], ["L", 42, 57], ["L", 34, 70], ["L", 56, 91], ["L", 50, 73], ["L", 38, 70], ["L", 50, 67], ["Z"]], "fill": "#32AFC0"},
+          {"kind": "path", "commands": [["M", 57, 69], ["L", 62, 64], ["L", 67, 69], ["L", 62, 74], ["Z"]], "fill": "#F6FFFC"}
+        ],
+        "x": 1000,
+        "scaleX": -1,
+        "anchor": {
+          "x": "right",
+          "y": "top"
+        }
+      },
+      {
+        "kind": "group",
+        "children": [
+          {"kind": "path", "commands": [["M", 483, 24], ["L", 517, 24], ["L", 553, 61], ["L", 547, 101], ["L", 520, 127], ["L", 480, 127], ["L", 452, 101], ["L", 447, 61], ["Z"]], "fill": "#080A18", "feather": 9},
+          {"kind": "path", "commands": [["M", 475, 34], ["L", 525, 34], ["L", 549, 60], ["L", 544, 100], ["L", 522, 123], ["L", 478, 123], ["L", 455, 100], ["L", 451, 60], ["Z"]], "fill": "#9AABC5"},
+          {"kind": "path", "commands": [["M", 476, 38], ["L", 524, 38], ["L", 546, 61], ["L", 541, 99], ["L", 521, 120], ["L", 479, 120], ["L", 458, 99], ["L", 454, 61], ["Z"]], "fill": "#161C2B"},
+          {"kind": "path", "commands": [["M", 472, 54], ["L", 528, 54], ["L", 535, 64], ["L", 530, 93], ["L", 521, 107], ["L", 479, 107], ["L", 470, 93], ["L", 465, 64], ["Z"]], "fill": {"kind": "radial", "x": 500, "y": 54, "radius": 77, "colors": ["#3F4B67", "#131A2D"]}},
+          {"kind": "path", "commands": [["M", 491, 39], ["L", 500, 30], ["L", 509, 39], ["L", 500, 48], ["Z"]], "fill": "#AFBFD8"},
+          {"kind": "path", "commands": [["M", 495, 39], ["L", 500, 34], ["L", 505, 39], ["L", 500, 44], ["Z"]], "fill": "#F8DBA4"},
+          {"kind": "path", "commands": [["M", 484, 112], ["L", 516, 112], ["L", 521, 116], ["L", 479, 116], ["Z"]], "fill": "#677891"},
+          {
+            "kind": "group",
+            "children": [
+              {"kind": "path", "commands": [["M", 3, 0], ["L", 18, 0], ["L", 21, 2], ["L", 18, 4], ["L", 3, 4], ["L", 0, 2], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 20, 5], ["L", 23, 2], ["L", 25, 5], ["L", 25, 16], ["L", 23, 19], ["L", 20, 16], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 20, 22], ["L", 23, 19], ["L", 25, 22], ["L", 25, 34], ["L", 23, 37], ["L", 20, 34], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 3, 36], ["L", 18, 36], ["L", 21, 38], ["L", 18, 40], ["L", 3, 40], ["L", 0, 38], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", -4, 22], ["L", -1, 19], ["L", 2, 22], ["L", 2, 34], ["L", -1, 37], ["L", -4, 34], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", -4, 5], ["L", -1, 2], ["L", 2, 5], ["L", 2, 16], ["L", -1, 19], ["L", -4, 16], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 3, 17], ["L", 18, 17], ["L", 21, 19], ["L", 18, 21], ["L", 3, 21], ["L", 0, 19], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 3, 0], ["L", 18, 0], ["L", 21, 2], ["L", 18, 4], ["L", 3, 4], ["L", 0, 2], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTensa"},
+              {"kind": "path", "commands": [["M", 20, 5], ["L", 23, 2], ["L", 25, 5], ["L", 25, 16], ["L", 23, 19], ["L", 20, 16], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTensb"},
+              {"kind": "path", "commands": [["M", 20, 22], ["L", 23, 19], ["L", 25, 22], ["L", 25, 34], ["L", 23, 37], ["L", 20, 34], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTensc"},
+              {"kind": "path", "commands": [["M", 3, 36], ["L", 18, 36], ["L", 21, 38], ["L", 18, 40], ["L", 3, 40], ["L", 0, 38], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTensd"},
+              {"kind": "path", "commands": [["M", -4, 22], ["L", -1, 19], ["L", 2, 22], ["L", 2, 34], ["L", -1, 37], ["L", -4, 34], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTense"},
+              {"kind": "path", "commands": [["M", -4, 5], ["L", -1, 2], ["L", 2, 5], ["L", 2, 16], ["L", -1, 19], ["L", -4, 16], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTensf"},
+              {"kind": "path", "commands": [["M", 3, 17], ["L", 18, 17], ["L", 21, 19], ["L", 18, 21], ["L", 3, 21], ["L", 0, 19], ["Z"]], "fill": "#FFF3D0", "opacity": "timerTensg"}
+            ],
+            "x": 471,
+            "y": 60,
+            "scaleX": 0.8,
+            "scaleY": 1.02
+          },
+          {
+            "kind": "group",
+            "children": [
+              {"kind": "path", "commands": [["M", 3, 0], ["L", 18, 0], ["L", 21, 2], ["L", 18, 4], ["L", 3, 4], ["L", 0, 2], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 20, 5], ["L", 23, 2], ["L", 25, 5], ["L", 25, 16], ["L", 23, 19], ["L", 20, 16], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 20, 22], ["L", 23, 19], ["L", 25, 22], ["L", 25, 34], ["L", 23, 37], ["L", 20, 34], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 3, 36], ["L", 18, 36], ["L", 21, 38], ["L", 18, 40], ["L", 3, 40], ["L", 0, 38], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", -4, 22], ["L", -1, 19], ["L", 2, 22], ["L", 2, 34], ["L", -1, 37], ["L", -4, 34], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", -4, 5], ["L", -1, 2], ["L", 2, 5], ["L", 2, 16], ["L", -1, 19], ["L", -4, 16], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 3, 17], ["L", 18, 17], ["L", 21, 19], ["L", 18, 21], ["L", 3, 21], ["L", 0, 19], ["Z"]], "fill": "#60728B44"},
+              {"kind": "path", "commands": [["M", 3, 0], ["L", 18, 0], ["L", 21, 2], ["L", 18, 4], ["L", 3, 4], ["L", 0, 2], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnesa"},
+              {"kind": "path", "commands": [["M", 20, 5], ["L", 23, 2], ["L", 25, 5], ["L", 25, 16], ["L", 23, 19], ["L", 20, 16], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnesb"},
+              {"kind": "path", "commands": [["M", 20, 22], ["L", 23, 19], ["L", 25, 22], ["L", 25, 34], ["L", 23, 37], ["L", 20, 34], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnesc"},
+              {"kind": "path", "commands": [["M", 3, 36], ["L", 18, 36], ["L", 21, 38], ["L", 18, 40], ["L", 3, 40], ["L", 0, 38], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnesd"},
+              {"kind": "path", "commands": [["M", -4, 22], ["L", -1, 19], ["L", 2, 22], ["L", 2, 34], ["L", -1, 37], ["L", -4, 34], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnese"},
+              {"kind": "path", "commands": [["M", -4, 5], ["L", -1, 2], ["L", 2, 5], ["L", 2, 16], ["L", -1, 19], ["L", -4, 16], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnesf"},
+              {"kind": "path", "commands": [["M", 3, 17], ["L", 18, 17], ["L", 21, 19], ["L", 18, 21], ["L", 3, 21], ["L", 0, 19], ["Z"]], "fill": "#FFF3D0", "opacity": "timerOnesg"}
+            ],
+            "x": 507,
+            "y": 60,
+            "scaleX": 0.8,
+            "scaleY": 1.02
+          }
+        ],
+        "anchor": {
+          "x": "center",
+          "y": "top"
+        }
+      }
+    ]
+  },
+  "channels": {
+    "leftHealth": 0.86,
+    "leftSuper": 0.65,
+    "leftFlash": 0,
+    "leftSoftness": 2,
+    "leftWin1": 1,
+    "leftWin2": 0,
+    "rightHealth": 0.59,
+    "rightSuper": 0.82,
+    "rightFlash": 0,
+    "rightSoftness": 2,
+    "rightWin1": 0,
+    "rightWin2": 0,
+    "timerTensa": 1,
+    "timerTensb": 1,
+    "timerTensc": 1,
+    "timerTensd": 1,
+    "timerTense": 1,
+    "timerTensf": 1,
+    "timerTensg": 1,
+    "timerOnesa": 1,
+    "timerOnesb": 1,
+    "timerOnesc": 1,
+    "timerOnesd": 1,
+    "timerOnese": 0,
+    "timerOnesf": 1,
+    "timerOnesg": 1
+  },
+  "clips": {
+    "leftHealth0": {"ms": 0, "tracks": {"leftHealth": [[0, 0]]}},
+    "leftHealth1": {"ms": 0, "tracks": {"leftHealth": [[0, 1]]}},
+    "leftSuper0": {"ms": 0, "tracks": {"leftSuper": [[0, 0]]}},
+    "leftSuper1": {"ms": 0, "tracks": {"leftSuper": [[0, 1]]}},
+    "leftStill": {"ms": 0, "tracks": {"leftFlash": [[0, 0]], "leftSoftness": [[0, 2]]}},
+    "leftImpact": {"ms": 420, "tracks": {"leftFlash": [[0, 0.9], [90, 0.54, "out"], [420, 0, "out"]], "leftSoftness": [[0, 2], [130, 13, "out"], [420, 18]]}, "reducedAt": 420},
+    "leftWins0": {"ms": 0, "tracks": {"leftWin1": [[0, 0]], "leftWin2": [[0, 0]]}},
+    "leftWins1": {"ms": 0, "tracks": {"leftWin1": [[0, 1]], "leftWin2": [[0, 0]]}},
+    "leftWins2": {"ms": 0, "tracks": {"leftWin1": [[0, 1]], "leftWin2": [[0, 1]]}},
+    "rightHealth0": {"ms": 0, "tracks": {"rightHealth": [[0, 0]]}},
+    "rightHealth1": {"ms": 0, "tracks": {"rightHealth": [[0, 1]]}},
+    "rightSuper0": {"ms": 0, "tracks": {"rightSuper": [[0, 0]]}},
+    "rightSuper1": {"ms": 0, "tracks": {"rightSuper": [[0, 1]]}},
+    "rightStill": {"ms": 0, "tracks": {"rightFlash": [[0, 0]], "rightSoftness": [[0, 2]]}},
+    "rightImpact": {"ms": 420, "tracks": {"rightFlash": [[0, 0.9], [90, 0.54, "out"], [420, 0, "out"]], "rightSoftness": [[0, 2], [130, 13, "out"], [420, 18]]}, "reducedAt": 420},
+    "rightWins0": {"ms": 0, "tracks": {"rightWin1": [[0, 0]], "rightWin2": [[0, 0]]}},
+    "rightWins1": {"ms": 0, "tracks": {"rightWin1": [[0, 1]], "rightWin2": [[0, 0]]}},
+    "rightWins2": {"ms": 0, "tracks": {"rightWin1": [[0, 1]], "rightWin2": [[0, 1]]}},
+    "timerTens0": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 1]], "timerTense": [[0, 1]], "timerTensf": [[0, 1]], "timerTensg": [[0, 0]]}},
+    "timerTens1": {"ms": 0, "tracks": {"timerTensa": [[0, 0]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 0]], "timerTense": [[0, 0]], "timerTensf": [[0, 0]], "timerTensg": [[0, 0]]}},
+    "timerTens2": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 1]], "timerTensc": [[0, 0]], "timerTensd": [[0, 1]], "timerTense": [[0, 1]], "timerTensf": [[0, 0]], "timerTensg": [[0, 1]]}},
+    "timerTens3": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 1]], "timerTense": [[0, 0]], "timerTensf": [[0, 0]], "timerTensg": [[0, 1]]}},
+    "timerTens4": {"ms": 0, "tracks": {"timerTensa": [[0, 0]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 0]], "timerTense": [[0, 0]], "timerTensf": [[0, 1]], "timerTensg": [[0, 1]]}},
+    "timerTens5": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 0]], "timerTensc": [[0, 1]], "timerTensd": [[0, 1]], "timerTense": [[0, 0]], "timerTensf": [[0, 1]], "timerTensg": [[0, 1]]}},
+    "timerTens6": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 0]], "timerTensc": [[0, 1]], "timerTensd": [[0, 1]], "timerTense": [[0, 1]], "timerTensf": [[0, 1]], "timerTensg": [[0, 1]]}},
+    "timerTens7": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 0]], "timerTense": [[0, 0]], "timerTensf": [[0, 0]], "timerTensg": [[0, 0]]}},
+    "timerTens8": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 1]], "timerTense": [[0, 1]], "timerTensf": [[0, 1]], "timerTensg": [[0, 1]]}},
+    "timerTens9": {"ms": 0, "tracks": {"timerTensa": [[0, 1]], "timerTensb": [[0, 1]], "timerTensc": [[0, 1]], "timerTensd": [[0, 1]], "timerTense": [[0, 0]], "timerTensf": [[0, 1]], "timerTensg": [[0, 1]]}},
+    "timerOnes0": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 1]], "timerOnesf": [[0, 1]], "timerOnesg": [[0, 0]]}},
+    "timerOnes1": {"ms": 0, "tracks": {"timerOnesa": [[0, 0]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 0]], "timerOnese": [[0, 0]], "timerOnesf": [[0, 0]], "timerOnesg": [[0, 0]]}},
+    "timerOnes2": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 0]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 1]], "timerOnesf": [[0, 0]], "timerOnesg": [[0, 1]]}},
+    "timerOnes3": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 0]], "timerOnesf": [[0, 0]], "timerOnesg": [[0, 1]]}},
+    "timerOnes4": {"ms": 0, "tracks": {"timerOnesa": [[0, 0]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 0]], "timerOnese": [[0, 0]], "timerOnesf": [[0, 1]], "timerOnesg": [[0, 1]]}},
+    "timerOnes5": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 0]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 0]], "timerOnesf": [[0, 1]], "timerOnesg": [[0, 1]]}},
+    "timerOnes6": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 0]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 1]], "timerOnesf": [[0, 1]], "timerOnesg": [[0, 1]]}},
+    "timerOnes7": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 0]], "timerOnese": [[0, 0]], "timerOnesf": [[0, 0]], "timerOnesg": [[0, 0]]}},
+    "timerOnes8": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 1]], "timerOnesf": [[0, 1]], "timerOnesg": [[0, 1]]}},
+    "timerOnes9": {"ms": 0, "tracks": {"timerOnesa": [[0, 1]], "timerOnesb": [[0, 1]], "timerOnesc": [[0, 1]], "timerOnesd": [[0, 1]], "timerOnese": [[0, 0]], "timerOnesf": [[0, 1]], "timerOnesg": [[0, 1]]}}
+  },
+  "machine": {
+    "schema": "skac.machine/1",
+    "values": {
+      "leftHit": {"type": "trigger"},
+      "leftHealth": {"type": "number", "default": 0.86},
+      "leftSuper": {"type": "number", "default": 0.65},
+      "leftWins": {"type": "number", "default": 1},
+      "rightHit": {"type": "trigger"},
+      "rightHealth": {"type": "number", "default": 0.59},
+      "rightSuper": {"type": "number", "default": 0.82},
+      "rightWins": {"type": "number", "default": 0},
+      "timerTens": {"type": "number", "default": 8},
+      "timerOnes": {"type": "number", "default": 9}
+    },
+    "layers": [
+      {
+        "name": "leftHealth",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "leftHealth", "keys": [[0, "leftHealth0"], [1, "leftHealth1"]]}}
+        }
+      },
+      {
+        "name": "leftSuper",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "leftSuper", "keys": [[0, "leftSuper0"], [1, "leftSuper1"]]}}
+        }
+      },
+      {
+        "name": "leftImpact",
+        "entry": "idle",
+        "states": {
+          "idle": {"clip": "leftStill"},
+          "flash": {"clip": "leftImpact"}
+        },
+        "transitions": [
+          {"from": "idle", "to": "flash", "when": [["leftHit"]]},
+          {"from": "flash", "to": "flash", "when": [["leftHit"]]},
+          {"from": "flash", "to": "idle", "exit_at": 1}
+        ]
+      },
+      {
+        "name": "leftWins",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "leftWins", "keys": [[0, "leftWins0"], [1, "leftWins1"], [2, "leftWins2"]]}}
+        }
+      },
+      {
+        "name": "rightHealth",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "rightHealth", "keys": [[0, "rightHealth0"], [1, "rightHealth1"]]}}
+        }
+      },
+      {
+        "name": "rightSuper",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "rightSuper", "keys": [[0, "rightSuper0"], [1, "rightSuper1"]]}}
+        }
+      },
+      {
+        "name": "rightImpact",
+        "entry": "idle",
+        "states": {
+          "idle": {"clip": "rightStill"},
+          "flash": {"clip": "rightImpact"}
+        },
+        "transitions": [
+          {"from": "idle", "to": "flash", "when": [["rightHit"]]},
+          {"from": "flash", "to": "flash", "when": [["rightHit"]]},
+          {"from": "flash", "to": "idle", "exit_at": 1}
+        ]
+      },
+      {
+        "name": "rightWins",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "rightWins", "keys": [[0, "rightWins0"], [1, "rightWins1"], [2, "rightWins2"]]}}
+        }
+      },
+      {
+        "name": "timerTens",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "timerTens", "keys": [[0, "timerTens0"], [1, "timerTens1"], [2, "timerTens2"], [3, "timerTens3"], [4, "timerTens4"], [5, "timerTens5"], [6, "timerTens6"], [7, "timerTens7"], [8, "timerTens8"], [9, "timerTens9"]]}}
+        }
+      },
+      {
+        "name": "timerOnes",
+        "entry": "display",
+        "states": {
+          "display": {"blend": {"by": "timerOnes", "keys": [[0, "timerOnes0"], [1, "timerOnes1"], [2, "timerOnes2"], [3, "timerOnes3"], [4, "timerOnes4"], [5, "timerOnes5"], [6, "timerOnes6"], [7, "timerOnes7"], [8, "timerOnes8"], [9, "timerOnes9"]]}}
+        }
+      }
+    ]
+  },
+  "markers": [
+    {"name": "leftImpact", "layer": "leftImpact", "state": "flash"},
+    {"name": "rightImpact", "layer": "rightImpact", "state": "flash"}
+  ]
+}

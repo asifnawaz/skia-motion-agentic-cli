@@ -5,7 +5,7 @@ import { resolveLibs } from './libs.js';
 
 export const CONFIG_NAME = 'skia-motion.json';
 export const DEFAULTS = { entry: 'src/index.ts', root: 'src/Root.tsx', out: 'skia-motion-out', docs: [], gl: 'angle-egl' };
-/** The Skia module an exported scene imports unless the config's `app.skia` names another. */
+/** The Skia import used by the offline Remotion templates. The app exporter maps it to Skia v3. */
 export const DEFAULT_SKIA = '@shopify/react-native-skia';
 export const GL_BACKENDS = ['angle-egl', 'angle', 'egl', 'swangle', 'swiftshader', 'vulkan'];
 

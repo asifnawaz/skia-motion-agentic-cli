@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, parseCommands } from './args.js';
+import { assetCommand } from './asset.js';
 import { loadConfig } from './config.js';
 import { boxProbe, check, lint, pixelProbe, stats, story, trace } from './blind.js';
 import { compareVideos } from './compare.js';
@@ -21,7 +22,7 @@ import { update } from './update.js';
 import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
-  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine'],
+  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
     'search', 'as', 'trace', 'export', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
@@ -50,6 +51,7 @@ export const execute = (argv, cwd = process.cwd()) => {
       ok: true, name: 'skac', version: version(),
       commands: ['--version', 'doctor', 'docs [topic [section]] [--search text]', 'create [dir]', 'add <Name> [--draw]', 'samples [name] [dir]', 'schema [Name]',
         'inspect [Name]', 'compare <mp4...>', 'lint [files...] [--fix]', 'update [--force] [--check]',
+        'asset guide | sample | image | check | trace | frame | pack',
         '<Name> --stats | --story | --check  (blind mode: no image; the first --check of a scene answers draft: improve the two weakest beats it names)',
         '<Name> --probe=x,y[;x,y] --at=t  (colour at points in pt, AARRGGBB, as rive)',
         '<Name> --probe-box=x,y,w,h --at=t  (the box\'s top 8 colours by pixel count, with share and bbox in pt)',
@@ -61,6 +63,7 @@ export const execute = (argv, cwd = process.cwd()) => {
     };
   }
   switch (first) {
+    case 'asset': return assetCommand(rest, flags, cwd);
     case 'doctor': return doctor(cfg, version());
     case 'docs': return docsCommand(cfg, { topic: rest[0], section: rest.slice(1).join(' ') || undefined, search: flags.search, as: flags.as });
     case 'create':

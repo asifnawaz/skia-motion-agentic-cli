@@ -67,39 +67,41 @@ test('export refuses with a hint when there is no draw.ts', () => {
   assert.throws(() => run(cfg, join(dir, 'app')), (e) => e instanceof CliError && /no Ball\.draw\.ts/.test(e.message) && /add <Name> --draw/.test(e.hint));
 });
 
-test('export checks the target install before the declared range and accepts the Skia floor and above', () => {
+test('export rejects installed v2 even if the target declares v3, and accepts v3 and newer', () => {
   const { dir, cfg } = project();
   const app = tmp('app-');
   const out = join(app, 'src', 'motion');
-  const name = '@shopify/react-native-skia';
+  const name = 'react-native-skia';
   const installed = join(app, 'node_modules', name, 'package.json');
-  write(join(app, 'package.json'), JSON.stringify({ dependencies: { [name]: '^2.6.0' } }));
-  write(installed, JSON.stringify({ name, version: '2.5.5' }));
+  write(join(app, 'package.json'), JSON.stringify({ dependencies: { [name]: '^3.0.0' } }));
+  write(installed, JSON.stringify({ name, version: '2.15.0' }));
 
   const result = spawnSync(process.execPath, [join(PACKAGE_ROOT, 'bin', 'skac.js'), 'Ball', '--export', out], { cwd: dir, encoding: 'utf8' });
   assert.equal(result.status, 1, result.stderr);
   const json = JSON.parse(result.stdout);
   assert.equal(json.ok, false);
-  assert.match(json.error, /@shopify\/react-native-skia.*2\.5\.5.*>=2\.6\.0/);
+  assert.match(json.error, /^react-native-skia 2\.15\.0.*>=3\.0\.0/);
   assert.ok(!existsSync(out));
 
-  for (const version of ['2.6.0', '2.14.0']) {
+  for (const version of ['3.0.0', '3.10.2']) {
     write(installed, JSON.stringify({ name, version }));
     assert.equal(run(cfg, out).ok, true, version);
   }
 });
 
-test('export uses the target manifest if Skia is not installed', () => {
+test('export checks the declared Skia range without an install and supports an alias to v3', () => {
   const { cfg } = project();
   const app = tmp('app-');
   const out = join(app, 'src');
   const manifest = join(app, 'package.json');
-  const declare = (specifier) => write(manifest, JSON.stringify({ dependencies: { '@shopify/react-native-skia': specifier } }));
-  declare('~2.5.0');
-  assert.throws(() => run(cfg, out), /~2\.5\.0.*>=2\.6\.0/);
-  declare('^2.5.0'); // This range can resolve to a release at or above the floor.
+  const declare = (name, specifier) => write(manifest, JSON.stringify({ dependencies: { [name]: specifier } }));
+  declare('react-native-skia', '^2.15.0');
+  assert.throws(() => run(cfg, out), /\^2\.15\.0.*>=3\.0\.0/);
+  declare('@shopify/react-native-skia', '2.14.0');
+  assert.throws(() => run(cfg, out), /2\.14\.0.*>=3\.0\.0/);
+  declare('react-native-skia', '^3.0.0');
   assert.equal(run(cfg, out).ok, true);
-  declare('npm:react-native-skia@^3.10.0');
+  declare('@shopify/react-native-skia', 'npm:react-native-skia@^3.10.0');
   assert.equal(run(cfg, out).ok, true);
 });
 
@@ -117,45 +119,33 @@ test('an explicit Skia package or npm alias controls the export import and versi
   };
   const generated = () => readFileSync(join(out, 'Ball.tsx'), 'utf8');
 
-  declare({ [unscoped]: '3.10.2' });
+  declare({ [unscoped]: '3.10.2', [scoped]: '2.14.0' });
   run(cfg, out);
   assert.ok(generated().includes(`from '${unscoped}'`));
-  run(configure(scoped), out);
-  assert.ok(generated().includes(`from '${scoped}'`), 'keep the configured scoped import');
+  assert.throws(() => run(configure(scoped), out), /2\.14\.0.*>=3\.0\.0/);
 
   const aliasCfg = configure(alias);
-  declare({ [unscoped]: '3.10.2', [alias]: `npm:${scoped}@2.5.5` });
-  assert.throws(() => run(aliasCfg, out), /app-skia.*2\.5\.5.*>=2\.6\.0/);
-  write(join(app, 'node_modules', alias, 'package.json'), JSON.stringify({ name: scoped, version: '2.6.0' }));
+  declare({ [alias]: `npm:${scoped}@2.14.0` });
+  assert.throws(() => run(aliasCfg, out), /app-skia.*2\.14\.0.*>=3\.0\.0/);
+  write(join(app, 'node_modules', alias, 'package.json'), JSON.stringify({ name: unscoped, version: '3.0.0' }));
   run(aliasCfg, out);
   assert.ok(generated().includes(`from '${alias}'`));
-
-  const unscopedCfg = configure(unscoped);
-  declare({ [scoped]: '2.14.0', [unscoped]: '2.6.0' });
-  assert.throws(() => run(unscopedCfg, out), /react-native-skia.*2\.6\.0.*>=2\.15\.0/);
-  declare({ [scoped]: '2.14.0', [unscoped]: '3.10.2' });
-  run(unscopedCfg, out);
-  assert.ok(generated().includes(`from '${unscoped}'`));
 });
 
 test('an explicit Skia subpath keeps its import and checks the package root', () => {
   const { dir } = project();
   const out = join(dir, 'app');
   const config = join(dir, 'skia-motion.json');
-  for (const [name, old, supported] of [
-    ['@shopify/react-native-skia', '2.5.5', '2.6.0'],
-    ['react-native-skia', '0.0.1', '2.15.0'],
-  ]) {
-    const specifier = `${name}/lib/module`;
-    write(config, JSON.stringify({ app: { skia: specifier } }));
-    const cfg = loadConfig(dir);
-    const installed = join(out, 'node_modules', name, 'package.json');
-    write(installed, JSON.stringify({ name, version: old }));
-    assert.throws(() => run(cfg, out), { message: `${name} ${old} does not meet the required range >=${supported}` });
-    write(installed, JSON.stringify({ name, version: supported }));
-    assert.equal(run(cfg, out).ok, true);
-    assert.ok(bundleText(dir).includes(`from '${specifier}'`));
-  }
+  const name = 'react-native-skia';
+  const specifier = `${name}/lib/module`;
+  write(config, JSON.stringify({ app: { skia: specifier } }));
+  const cfg = loadConfig(dir);
+  const installed = join(out, 'node_modules', name, 'package.json');
+  write(installed, JSON.stringify({ name, version: '2.15.0' }));
+  assert.throws(() => run(cfg, out), /2\.15\.0.*>=3\.0\.0/);
+  write(installed, JSON.stringify({ name, version: '3.0.0' }));
+  assert.equal(run(cfg, out).ok, true);
+  assert.ok(bundleText(dir).includes(`from '${specifier}'`));
 });
 
 const bundleText = (dir) => readFileSync(join(dir, 'app', 'Ball.tsx'), 'utf8');
@@ -314,7 +304,7 @@ test('a machine scene bundles its machine, clips, draw and helpers in one file a
   assert.deepEqual(r.files, ['Ball.tsx']);
   assert.deepEqual(readdirSync(out), ['Ball.tsx']);
   assert.match(r.usage, /from '\.\/app\/Ball'/);
-  assert.ok(r.needs.includes('react-native-skia (Skia >=2.15.0)'));
+  assert.ok(r.needs.includes('react-native-skia (Skia >=3.0.0)'));
   const text = bundleText(dir);
   assert.match(text, /^\/\/ skac export: .*Ball\.machine\.json.*numbers\.ts.*skia-motion-agentic-cli 9\.9\.9/);
   assert.match(text, /function lift\(ms: number\) \{ 'worklet'; return -ms \/ 50; \}/);
@@ -531,6 +521,36 @@ test('JS writes and trigger fires wake the frame callback after an already queue
   }
 });
 
+test('the app scheduler delivers state entries in order, then suspends its frame callback', () => {
+  const { useMachine, rn, ui, frame, active } = runtimeHarness(false);
+  const machine = {
+    schema: 'skac.machine/1',
+    values: { tap: { type: 'trigger' } },
+    layers: [{ name: 'main', entry: 'idle', states: { idle: {}, reacting: { clip: 'flash' }, done: {} },
+      transitions: [
+        { from: 'idle', to: 'reacting', when: [['tap']] },
+        { from: 'reacting', to: 'done', exit_at: 1 },
+      ] }],
+  };
+  const entries = [];
+  const handle = useMachine(machine, { flash: { ms: 10, play: () => ({ channels: {} }) } }, {
+    onStateEntries: (batch) => entries.push(...batch),
+  });
+  const run = (queue) => { while (queue.length) queue.shift()(); };
+  frame(0);
+  run(rn);
+  assert.equal(active(), false);
+  assert.equal(entries.length, 0);
+  handle.fire('tap');
+  run(ui);
+  run(rn);
+  frame(16);
+  frame(48, 32);
+  run(rn);
+  assert.deepEqual(entries.map(({ state }) => state), ['reacting', 'done']);
+  assert.equal(active(), false);
+});
+
 test('a settled pose stops rebuilding the picture, including on a shared clock', () => {
   const { useMachine, shared, observePose, flush, frame, active, rn } = runtimeHarness(true);
   const ambient = shared(0);
@@ -608,10 +628,10 @@ test('an inlined machine library keeps its notice and its generated-code directi
   assert.match(text, /function lift\(ms\) \{ 'worklet'; return ms; \}/);
 });
 
-test('a machine scene with the default config keeps @shopify/react-native-skia', () => {
+test('a machine scene with the default config targets react-native-skia v3', () => {
   const { dir, cfg } = machineProject();
   run(cfg, join(dir, 'app'));
-  assert.match(bundleText(dir), /from '@shopify\/react-native-skia'/);
+  assert.match(bundleText(dir), /from 'react-native-skia'/);
 });
 
 test('a machine export rewrites Skia imports to the config-relative wrapper and reports the configured spelling', () => {
@@ -628,7 +648,7 @@ test('a machine export rewrites Skia imports to the config-relative wrapper and 
   assert.equal(imports.length, 1);
   for (const name of ['Canvas', 'type SkCanvas', 'type SkPaint']) assert.ok(imports[0].includes(name));
   assert.doesNotMatch(text, /react-native-skia/);
-  assert.ok(r.needs.includes(`${skia} (Skia >=2.15.0)`));
+  assert.ok(r.needs.includes(`${skia} (Skia >=3.0.0)`));
 });
 
 test('a wrapper export checks Skia from the wrapper directory', () => {
@@ -641,7 +661,7 @@ test('a wrapper export checks Skia from the wrapper directory', () => {
   const install = (base, version) => write(join(base, 'node_modules', name, 'package.json'), JSON.stringify({ name, version }));
   install(app, '3.10.2');
   install(wrapperDir, '0.0.1');
-  assert.throws(() => run(cfg, out), /react-native-skia.*0\.0\.1.*>=2\.15\.0/);
+  assert.throws(() => run(cfg, out), /react-native-skia.*0\.0\.1.*>=3\.0\.0/);
   install(wrapperDir, '3.10.2');
   install(app, '0.0.1');
   assert.equal(run(cfg, out).ok, true);
@@ -661,7 +681,7 @@ test('a symlinked Skia wrapper checks dependencies from its real path', () => {
 
   const out = join(dir, 'app');
   write(installed, JSON.stringify({ name, version: '0.0.1' }));
-  assert.throws(() => run(cfg, out), /react-native-skia.*0\.0\.1.*>=2\.15\.0/);
+  assert.throws(() => run(cfg, out), /react-native-skia.*0\.0\.1.*>=3\.0\.0/);
   write(installed, JSON.stringify({ name, version: '3.10.2' }));
   assert.equal(run(cfg, out).ok, true);
   assert.match(bundleText(dir), /from '\.\.\/design-system\/skia'/);
