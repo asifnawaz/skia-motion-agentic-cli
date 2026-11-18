@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v2.0.0...v2.1.0) (2026-11-18)
+
+
+### Features
+
+* animate painted character meshes and pins in motion assets ([a9862af](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/a9862af9782c5bc54493388d01e481563559218b))
+
 # [2.0.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v1.3.0...v2.0.0) (2026-11-18)
 
 
