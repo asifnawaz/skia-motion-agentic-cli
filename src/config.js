@@ -53,8 +53,8 @@ export const loadConfig = (cwd, flags = {}) => {
   if (app === null || typeof app !== 'object' || Array.isArray(app) || (app.skia !== undefined && (typeof app.skia !== 'string' || !app.skia))) {
     fail(`"app" in ${configPath} is not {"skia": "<module or path>"}`, 'write "app": { "skia": "react-native-skia" }, or leave it out for @shopify/react-native-skia');
   }
-  const skiaSpecifier = app.skia ?? DEFAULT_SKIA;
-  const skia = skiaSpecifier.startsWith('.') || skiaSpecifier.startsWith('/') ? abs(skiaSpecifier, projectDir) : skiaSpecifier;
+  const skiaSpecifier = app.skia;
+  const skia = skiaSpecifier?.startsWith('.') || skiaSpecifier?.startsWith('/') ? abs(skiaSpecifier, projectDir) : skiaSpecifier;
   return {
     configPath,
     projectDir,

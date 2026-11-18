@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import semver from 'semver';
@@ -9,6 +9,7 @@ import { fail } from './util.js';
 
 const SKIA_PACKAGES = [DEFAULT_SKIA, 'react-native-skia'];
 const { peerDependencies } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const packageRoot = (spec) => spec.split('/').slice(0, spec.startsWith('@') ? 2 : 1).join('/');
 
 const readManifest = (path) => {
   try {
@@ -19,8 +20,8 @@ const readManifest = (path) => {
   }
 };
 
-const findDeclaration = (outDir, packages) => {
-  for (let dir = outDir; ; dir = dirname(dir)) {
+const findDeclaration = (fromDir, packages) => {
+  for (let dir = fromDir; ; dir = dirname(dir)) {
     const app = readManifest(join(dir, 'package.json'));
     const dependencies = { ...app.devDependencies, ...app.dependencies, ...app.optionalDependencies };
     const name = packages.find((pkg) => typeof dependencies[pkg] === 'string');
@@ -30,8 +31,8 @@ const findDeclaration = (outDir, packages) => {
 };
 
 // Read the installed manifest without executing React Native code or relying on package.json being exported.
-const findInstalled = (outDir, packages) => {
-  const require = createRequire(join(outDir, 'package.json'));
+const findInstalled = (fromDir, packages) => {
+  const require = createRequire(join(fromDir, 'package.json'));
   for (const name of packages) {
     for (const path of require.resolve.paths(name) ?? []) {
       const manifest = readManifest(join(path, name, 'package.json'));
@@ -41,28 +42,13 @@ const findInstalled = (outDir, packages) => {
   return {};
 };
 
-/** Resolve the Skia import for an export and validate the target app's version when known. */
-export const appSkia = (cfg, outDir) => {
-  const configured = cfg.skia ?? DEFAULT_SKIA;
-  const wrapper = isAbsolute(configured);
-  let specifier = configured;
-  let packages = configured === 'react-native-skia' ? [configured] : SKIA_PACKAGES;
-  if (wrapper) {
-    const file = ['', '.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs', '.cts', '.cjs']
-      .map((ext) => configured + ext).find((path) => statSync(path, { throwIfNoEntry: false })?.isFile());
-    if (!file) fail(`app.skia path ${configured} does not exist as a module file`, 'give the path to the Skia wrapper, relative to skia-motion.json');
-    const ts = loadTypeScript(cfg);
-    const dependency = specifiers(ts, parse(ts, file), { staticOnly: false }).find(({ spec }) => SKIA_PACKAGES.includes(spec));
-    if (dependency) packages = [dependency.spec];
-    specifier = relative(outDir, file).split('\\').join('/').replace(/\.[cm]?[jt]sx?$/, '');
-    if (!specifier.startsWith('../')) specifier = `./${specifier}`;
-  }
-
-  const declared = findDeclaration(outDir, packages);
-  const installed = findInstalled(outDir, declared.name ? [declared.name] : packages);
+const checkVersion = (fromDir, packages) => {
+  const declared = findDeclaration(fromDir, packages);
+  const installed = findInstalled(fromDir, declared.name ? [declared.name] : packages);
   const name = declared.name ?? installed.name ?? packages[0];
   const alias = declared.spec?.match(/^npm:(@?[^@]+)@(.+)$/);
-  const upstream = [installed.manifest?.name, alias?.[1]].find((pkg) => SKIA_PACKAGES.includes(pkg)) ?? name;
+  const upstream = [installed.manifest?.name, alias?.[1], name].find((pkg) => SKIA_PACKAGES.includes(pkg));
+  if (!upstream) return { name };
   const required = peerDependencies[upstream];
   const version = installed.manifest?.version;
   const range = alias?.[2] ?? declared.spec;
@@ -74,9 +60,32 @@ export const appSkia = (cfg, outDir) => {
       `use ${upstream} ${required} in the target app`, { package: name, found, required });
   }
 
-  if (configured === DEFAULT_SKIA) specifier = name;
+  return { name, required };
+};
+
+/** Resolve the Skia import for an export and validate the package's version when known. */
+export const appSkia = (cfg, outDir) => {
+  const configured = cfg.skia;
+  if (configured === undefined || !isAbsolute(configured)) {
+    const { name, required } = checkVersion(outDir, configured === undefined ? SKIA_PACKAGES : [packageRoot(configured)]);
+    const specifier = configured ?? name;
+    return {
+      mapExternal: (spec) => spec === DEFAULT_SKIA ? specifier : spec,
+      need: required ? `${specifier} (Skia ${required})` : specifier,
+    };
+  }
+
+  const file = ['', '.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs', '.cts', '.cjs']
+    .map((ext) => configured + ext).find((path) => statSync(path, { throwIfNoEntry: false })?.isFile());
+  if (!file) fail(`app.skia path ${configured} does not exist as a module file`, 'give the path to the Skia wrapper, relative to skia-motion.json');
+  const ts = loadTypeScript(cfg);
+  const dependency = specifiers(ts, parse(ts, file), { staticOnly: false }).find(({ spec }) => SKIA_PACKAGES.includes(spec));
+  const { required } = dependency ? checkVersion(dirname(realpathSync(file)), [dependency.spec]) : {};
+  let specifier = relative(outDir, file).split('\\').join('/').replace(/\.[cm]?[jt]sx?$/, '');
+  if (!specifier.startsWith('../')) specifier = `./${specifier}`;
   return {
-    mapExternal: (spec) => spec === DEFAULT_SKIA || (wrapper && spec === 'react-native-skia') ? specifier : spec,
-    need: `${wrapper ? cfg.skiaSpecifier : specifier} (Skia ${required})`,
+    mapExternal: (spec) => SKIA_PACKAGES.includes(spec) ? specifier : spec,
+    need: required ? `${cfg.skiaSpecifier} (Skia ${required})` : cfg.skiaSpecifier,
+    warning: dependency ? undefined : `Skia version not verified for wrapper ${cfg.skiaSpecifier}`,
   };
 };

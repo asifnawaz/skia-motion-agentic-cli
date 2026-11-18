@@ -54,6 +54,7 @@ export function PipButton({ motionAllowed }: { motionAllowed: boolean }) {
 - `live` (default true) advances time, and changing it pauses or resumes at any point. When false the drawing freezes where it was: pass your own reduced-motion and off-screen gate. The component never reads reduced motion itself.
 - One `<Canvas>` per component. Loops need nothing special: `rig()` is a function of absolute time.
 - The app needs `@shopify/react-native-skia` 2.6+ or `react-native-skia` 2.15+ (including Skia 3), plus `react-native-reanimated` 4 and its peer `react-native-worklets`.
+- The Skia version check reads ESM imports of `@shopify/react-native-skia` or `react-native-skia`. Other wrappers export with a warning.
 
 ## Not covered yet
 

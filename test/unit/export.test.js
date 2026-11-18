@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { buildSync } from 'esbuild';
@@ -101,6 +101,61 @@ test('export uses the target manifest if Skia is not installed', () => {
   assert.equal(run(cfg, out).ok, true);
   declare('npm:react-native-skia@^3.10.0');
   assert.equal(run(cfg, out).ok, true);
+});
+
+test('an explicit Skia package or npm alias controls the export import and version check', () => {
+  const { dir, cfg } = project();
+  const app = tmp('app-');
+  const out = join(app, 'src');
+  const scoped = '@shopify/react-native-skia';
+  const unscoped = 'react-native-skia';
+  const alias = 'app-skia';
+  const declare = (dependencies) => write(join(app, 'package.json'), JSON.stringify({ dependencies }));
+  const configure = (skia) => {
+    write(join(dir, 'skia-motion.json'), JSON.stringify({ app: { skia } }));
+    return loadConfig(dir);
+  };
+  const generated = () => readFileSync(join(out, 'Ball.tsx'), 'utf8');
+
+  declare({ [unscoped]: '3.10.2' });
+  run(cfg, out);
+  assert.ok(generated().includes(`from '${unscoped}'`));
+  run(configure(scoped), out);
+  assert.ok(generated().includes(`from '${scoped}'`), 'keep the configured scoped import');
+
+  const aliasCfg = configure(alias);
+  declare({ [unscoped]: '3.10.2', [alias]: `npm:${scoped}@2.5.5` });
+  assert.throws(() => run(aliasCfg, out), /app-skia.*2\.5\.5.*>=2\.6\.0/);
+  write(join(app, 'node_modules', alias, 'package.json'), JSON.stringify({ name: scoped, version: '2.6.0' }));
+  run(aliasCfg, out);
+  assert.ok(generated().includes(`from '${alias}'`));
+
+  const unscopedCfg = configure(unscoped);
+  declare({ [scoped]: '2.14.0', [unscoped]: '2.6.0' });
+  assert.throws(() => run(unscopedCfg, out), /react-native-skia.*2\.6\.0.*>=2\.15\.0/);
+  declare({ [scoped]: '2.14.0', [unscoped]: '3.10.2' });
+  run(unscopedCfg, out);
+  assert.ok(generated().includes(`from '${unscoped}'`));
+});
+
+test('an explicit Skia subpath keeps its import and checks the package root', () => {
+  const { dir } = project();
+  const out = join(dir, 'app');
+  const config = join(dir, 'skia-motion.json');
+  for (const [name, old, supported] of [
+    ['@shopify/react-native-skia', '2.5.5', '2.6.0'],
+    ['react-native-skia', '0.0.1', '2.15.0'],
+  ]) {
+    const specifier = `${name}/lib/module`;
+    write(config, JSON.stringify({ app: { skia: specifier } }));
+    const cfg = loadConfig(dir);
+    const installed = join(out, 'node_modules', name, 'package.json');
+    write(installed, JSON.stringify({ name, version: old }));
+    assert.throws(() => run(cfg, out), { message: `${name} ${old} does not meet the required range >=${supported}` });
+    write(installed, JSON.stringify({ name, version: supported }));
+    assert.equal(run(cfg, out).ok, true);
+    assert.ok(bundleText(dir).includes(`from '${specifier}'`));
+  }
 });
 
 const bundleText = (dir) => readFileSync(join(dir, 'app', 'Ball.tsx'), 'utf8');
@@ -576,19 +631,62 @@ test('a machine export rewrites Skia imports to the config-relative wrapper and 
   assert.ok(r.needs.includes(`${skia} (Skia >=2.15.0)`));
 });
 
-test('a wrapper export checks the underlying unscoped Skia package in the target app', () => {
+test('a wrapper export checks Skia from the wrapper directory', () => {
   const { dir, cfg } = machineProject({ config: { app: { skia: './design-system/skia' } } });
-  write(join(dir, 'design-system', 'skia.ts'), `export * from 'react-native-skia';\n`);
+  const wrapperDir = join(dir, 'design-system');
+  write(join(wrapperDir, 'skia.ts'), `export * from 'react-native-skia';\n`);
   const app = tmp('app-');
   const out = join(app, 'src');
   const name = 'react-native-skia';
-  const installed = join(app, 'node_modules', name, 'package.json');
-  write(join(app, 'package.json'), JSON.stringify({ dependencies: { '@shopify/react-native-skia': '2.14.0', [name]: '^3.10.0' } }));
+  const install = (base, version) => write(join(base, 'node_modules', name, 'package.json'), JSON.stringify({ name, version }));
+  install(app, '3.10.2');
+  install(wrapperDir, '0.0.1');
+  assert.throws(() => run(cfg, out), /react-native-skia.*0\.0\.1.*>=2\.15\.0/);
+  install(wrapperDir, '3.10.2');
+  install(app, '0.0.1');
+  assert.equal(run(cfg, out).ok, true);
+  assert.match(readFileSync(join(out, 'Ball.tsx'), 'utf8'), /from '\.\.\/.*\/design-system\/skia'/);
+});
+
+test('a symlinked Skia wrapper checks dependencies from its real path', () => {
+  const { dir, cfg } = machineProject({ config: { app: { skia: './design-system/skia' } } });
+  const linkDir = join(dir, 'design-system');
+  const realDir = join(tmp(), 'shared');
+  const wrapper = join(realDir, 'skia.ts');
+  const name = 'react-native-skia';
+  const installed = join(realDir, 'node_modules', name, 'package.json');
+  write(wrapper, `export * from '${name}';\n`);
+  write(join(linkDir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '3.10.2' }));
+  symlinkSync(wrapper, join(linkDir, 'skia.ts'));
+
+  const out = join(dir, 'app');
   write(installed, JSON.stringify({ name, version: '0.0.1' }));
   assert.throws(() => run(cfg, out), /react-native-skia.*0\.0\.1.*>=2\.15\.0/);
   write(installed, JSON.stringify({ name, version: '3.10.2' }));
   assert.equal(run(cfg, out).ok, true);
-  assert.match(readFileSync(join(out, 'Ball.tsx'), 'utf8'), /from '\.\.\/.*\/design-system\/skia'/);
+  assert.match(bundleText(dir), /from '\.\.\/design-system\/skia'/);
+});
+
+test('a wrapper without a direct Skia import is exported with a warning', () => {
+  const skia = './design-system/skia';
+  for (const makeProject of [project, machineProject]) {
+    const { dir } = makeProject();
+    write(join(dir, 'skia-motion.json'), JSON.stringify({ app: { skia } }));
+    write(join(dir, 'design-system', 'skia.ts'), `export * from './barrel';\n`);
+    write(join(dir, 'design-system', 'barrel.ts'), `export * from 'react-native-skia';\n`);
+    const out = join(dir, 'app');
+    const cfg = loadConfig(dir);
+    const doc = run(cfg, out);
+    assert.equal(doc.ok, true);
+    assert.deepEqual(doc.warnings, [`Skia version not verified for wrapper ${skia}`]);
+    assert.ok(doc.needs.includes(skia));
+    assert.match(bundleText(dir), /from '\.\.\/design-system\/skia'/);
+
+    write(join(dir, 'package.json'), JSON.stringify({ dependencies: {
+      '@shopify/react-native-skia': '2.5.5', 'react-native-skia': '0.0.1',
+    } }));
+    assert.deepEqual(run(cfg, out).warnings, doc.warnings);
+  }
 });
 
 test('machine export refuses a missing Skia wrapper with the resolved path in the error', () => {

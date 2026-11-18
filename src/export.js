@@ -198,6 +198,7 @@ export const exportScene = (cfg, name, { dir, force, version, gate }, deps, chec
       `ref.current?.fire('tap');`,
     ].join('\n'),
     needs: [skia.need, 'react-native-reanimated >= 4', 'react-native-worklets (Reanimated 4 peer)'],
+    ...(skia.warning && { warnings: [skia.warning] }),
   };
 };
 
@@ -366,5 +367,6 @@ const exportMachine = (cfg, name, { outDir, skia, force, version, mfile, gate, s
       `ref.current?.set('<value>', true);`,
     ].join('\n'),
     needs: [`skia-motion-agentic-cli@${version} (the runtime)`, skia.need, 'react-native-reanimated >= 4', 'react-native-worklets (Reanimated 4 peer)'],
+    ...(skia.warning && { warnings: [skia.warning] }),
   };
 };
