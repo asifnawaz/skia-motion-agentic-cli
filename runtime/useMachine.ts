@@ -15,6 +15,7 @@ import {
 import { assertRuntimeVersion } from './version';
 
 declare const __DEV__: boolean;
+const noClocks: Record<string, SharedValue<number>> = {};
 
 /** Dev-only timing probe (skac docs app): frame timestamps, in ms, of the frame that applied a write and of the first frame that drew something different after it. */
 export type MachineProbe = { onWrite?: (frameMs: number) => void; onChanged?: (frameMs: number) => void };
@@ -24,11 +25,18 @@ export type MachineOptions = {
   live?: boolean;
   /** Overrides the system's reduced-motion setting: once-clips show their end, loops their start. */
   reduced?: boolean;
-  /** Named clocks the machine's layers read, as shared values in ms (Word Quran passes its ambient phase × 64000). */
+  /** Target maximum cadence for passive frame-clock sampling. */
+  frameRate?: number;
+  /** Host clocks in milliseconds, keyed by the machine's declared clock names. */
   clocks?: Record<string, SharedValue<number>>;
   probe?: MachineProbe;
   /** Entries after initialization, in machine order. Delivered on the React Native thread. */
   onStateEntries?: (entries: StateEntry[]) => void;
+  /** Host values applied together before the first state is selected. */
+  initialValues?: Readonly<Partial<Record<string, Literal>>>;
+  /** Reports initial and changed values for the named properties on the React Native thread. */
+  observeValues?: readonly string[];
+  onValuesChange?: (values: Record<string, Literal>) => void;
   /** The skac version that wrote the exported machine module. */
   exportedBy?: string;
 };
@@ -41,14 +49,27 @@ type TriggerName<V> = string extends keyof V ? string : ValueName<{
 }>;
 type WriteValue<V> = V extends { type: 'boolean' } ? boolean
   : V extends { type: 'number' } ? number
+    : V extends { type: 'string' } ? string
     : V extends { type: 'enum'; options: readonly (infer O extends string)[] } ? O
       : V extends { type: 'trigger' } ? true : Literal;
+
+type StoredName<V> = ValueName<{ [K in keyof V as V[K] extends { type: 'trigger' } ? never : K]: V[K] }>;
+export type MachineInputs<M extends Machine> = Partial<{
+  [K in Extract<StoredName<Values<M>>, WritableName<Values<M>>>]: WriteValue<Values<M>[K]>;
+}>;
+export type MachineValues<M extends Machine> = Partial<{
+  [K in StoredName<Values<M>>]: WriteValue<Values<M>[K]>;
+}>;
 
 export type MachineHandle<M extends Machine = Machine> = {
   /** What to draw: channels and part boxes. Read it in a derived value or a Skia picture; it changes only when the drawing does. */
   pose: SharedValue<Pose>;
+  /** Shared state dependency for consumers that draw stored values. */
+  snapshot: Readonly<Pick<SharedValue<Snapshot>, 'value'>>;
   /** Write a value from JavaScript; it applies at the next frame. */
   set: <K extends WritableName<Values<M>>>(name: K, to: WriteValue<Values<M>[NoInfer<K>]>) => void;
+  /** Apply these values together at the next frame. */
+  setValues: (values: MachineInputs<M>) => void;
   /** Fire a trigger from JavaScript. */
   fire: (name: TriggerName<Values<M>>) => void;
   /** Write a value from the UI thread (a gesture worklet); it applies at the next frame. */
@@ -96,9 +117,12 @@ function samePose(left: Pose, right: Pose): boolean {
 /** Play `machine` with its `clips`. The machine and clips must be stable (module constants), as an exported scene's are. */
 export function useMachine<const M extends Machine>(machine: M, clips: Clips, options: MachineOptions = {}): MachineHandle<M> {
   if (__DEV__ && options.exportedBy !== undefined) assertRuntimeVersion(options.exportedBy);
-  const { live = true, clocks = {}, probe, onStateEntries } = options;
+  const { live = true, clocks = noClocks, probe, onStateEntries, onValuesChange, observeValues } = options;
   const systemReduced = useReducedMotion();
   const reduced = options.reduced ?? systemReduced;
+  const rate = options.frameRate;
+  if (rate !== undefined && (!Number.isFinite(rate) || rate <= 0)) throw new Error('useMachine: frameRate must be positive');
+  const frameInterval = rate === undefined ? 0 : 1000 / rate;
   const compiled = useMemo(() => compile(machine, clips), [machine, clips]);
   // The clocks its layers run on: the pose reads only these, and each must be passed, since a missing one would read
   // machine time, which stops while the machine rests.
@@ -107,14 +131,15 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
   if (missing.length) throw new Error(`useMachine: layers run on clock${missing.length > 1 ? 's' : ''} ${missing.join(', ')}; pass clocks={{ ${missing.join(', ')} }} as shared values in ms`);
 
   // The snapshot at machine time `ms`; writes wait in `pending` until the next frame stamps and applies them.
-  const read: ClockRead = (name: string, t: number) => {
+  const read = useCallback<ClockRead>((name, t) => {
     'worklet';
     const clock = clocks[name];
     return clock ? clock.value : t;
-  };
+  }, [clocks]);
   // Entered at mount, at machine time 0, with each named clock's reading now.
-  const first = useMemo(() => advance(compiled, start(compiled), 0, [], read), [compiled]); // eslint-disable-line react-hooks/exhaustive-deps
+  const first = useMemo(() => advance(compiled, start(compiled), 0, valueWrites(compiled, options.initialValues), read), [compiled]); // eslint-disable-line react-hooks/exhaustive-deps
   const ms = useSharedValue(0);
+  const elapsed = useSharedValue(0);
   const snapshot = useSharedValue<Snapshot>(first);
   const pending = useSharedValue<Write[]>([]);
   const lastChannels = useSharedValue('');
@@ -122,6 +147,26 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
   const liveNow = useSharedValue(live);
   const firstPose = useMemo(() => poseAt(compiled, clips, first, 0, read, reduced), [first]); // eslint-disable-line react-hooks/exhaustive-deps
   const pose = useSharedValue<Pose>(firstPose);
+
+  const observed = useMemo(() => Array.from(new Set(observeValues), (name) => {
+    if (!Object.hasOwn(compiled.index, name) || compiled.values[compiled.index[name]!]!.type === 'trigger') {
+      throw new Error(`useMachine: "${name}" is not a stored value`);
+    }
+    return { name, index: compiled.index[name]! };
+  }), [compiled, observeValues]);
+
+  useAnimatedReaction(
+    () => {
+      if (!onValuesChange || !observed.length) return null;
+      const values = snapshot.value.vals;
+      return Object.fromEntries(observed.map(({ name, index }) => [name, values[index]!]));
+    },
+    (next, previous) => {
+      if (!next || !onValuesChange) return;
+      const changes = Object.entries(next).filter(([name, value]) => previous?.[name] !== value);
+      if (changes.length) scheduleOnRN(onValuesChange, Object.fromEntries(changes));
+    },
+  );
 
   useAnimatedReaction(
     () => {
@@ -141,7 +186,12 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
     const writes = pending.value;
     // The first frame after a wake has no previous frame (dt 0); advance takes writes after the snapshot's time only,
     // so writes waiting then are stamped a hair later, or they would be lost.
-    const dt = frame.timeSincePreviousFrame ?? 0;
+    const dt = elapsed.value + (frame.timeSincePreviousFrame ?? 0);
+    if (!writes.length && frameInterval > 0 && dt + 0.1 < frameInterval) {
+      elapsed.value = dt;
+      return;
+    }
+    if (frameInterval > 0) elapsed.value = 0;
     const t = ms.value + (writes.length ? Math.max(dt, 0.001) : dt);
     ms.value = t;
     if (writes.length) {
@@ -160,7 +210,7 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
       }
     }
     if (pending.value.length === 0 && settled(compiled, next, read, reduced).frame) scheduleOnRN(sleep);
-  }, [compiled, clips, reduced, probe, onStateEntries]);
+  }, [compiled, clips, reduced, probe, onStateEntries, frameInterval, read]);
 
   const frames = useFrameCallback(tick, false);
   // The callback is switched from JavaScript only: switching it from a worklet makes a synchronous remote call that
@@ -174,18 +224,27 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
     liveNow.value = live;
     frames.setActive(live);
   }, [frames, live, liveNow, reduced]);
+  useEffect(() => { elapsed.value = 0; }, [elapsed, frameInterval]);
 
-  const setOnUI = useCallback((name: string, to: Literal) => {
+  const enqueue = useCallback((writes: Write[]) => {
     'worklet';
-    pending.value = [...pending.value, { at: 0, value: name, to }];
+    pending.value = [...pending.value, ...writes];
     scheduleOnRN(wake);
   }, [pending, wake]);
+  const setOnUI = useCallback((name: string, to: Literal) => {
+    'worklet';
+    enqueue([{ at: 0, value: name, to }]);
+  }, [enqueue]);
   const set = useCallback((name: string, to: Literal) => {
     const problem = writeProblem(compiled, name, to);
     if (problem) throw new Error(`useMachine set: ${problem}`);
     // The UI worklet queues the wake after any sleep the tick has already queued on JavaScript.
     scheduleOnUI(setOnUI, name, to);
   }, [compiled, setOnUI]);
+  const setValues = useCallback((values: MachineInputs<M>) => {
+    const writes = valueWrites(compiled, values);
+    if (writes.length) scheduleOnUI(enqueue, writes);
+  }, [compiled, enqueue]);
   const fire = useCallback((name: string) => set(name, true), [set]);
   const tapOnUI = useCallback((x: number, y: number) => {
     'worklet';
@@ -198,9 +257,20 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
   }, [compiled, pose, snapshot, pending, wake]);
   const readOnUI = useCallback((name: string) => {
     'worklet';
-    const i = compiled.index[name];
-    return i === undefined ? undefined : snapshot.value.vals[i];
+    return Object.hasOwn(compiled.index, name) ? snapshot.value.vals[compiled.index[name]!] : undefined;
   }, [compiled, snapshot]);
 
-  return { pose, set, fire, setOnUI, tapOnUI, readOnUI };
+  return { pose, snapshot, set, setValues, fire, setOnUI, tapOnUI, readOnUI };
+}
+
+function valueWrites(compiled: ReturnType<typeof compile>, values?: Readonly<Partial<Record<string, Literal>>>): Write[] {
+  return Object.entries(values ?? {}).flatMap(([name, to]) => {
+    if (to === undefined) return [];
+    const problem = writeProblem(compiled, name, to);
+    if (problem) throw new Error(`useMachine values: ${problem}`);
+    if (compiled.values[compiled.index[name]!]!.type === 'trigger') {
+      throw new Error(`useMachine values: use fire for "${name}"`);
+    }
+    return [{ at: 0, value: name, to }];
+  });
 }

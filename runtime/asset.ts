@@ -6,6 +6,7 @@ import { imageSize } from './asset-image';
 import type { MeshNode, MeshVertex } from './asset-mesh';
 
 export const ASSET_SCHEMA = 'skac.asset/1';
+export const ASSET_BUNDLE_SCHEMA = 'skac.bundle/1';
 export const MAX_ASSET_BYTES = 1024 * 1024;
 export const MAX_FEATHER = 64;
 
@@ -18,7 +19,14 @@ export type PathCommand =
   | readonly [op: 'Q', controlX: Scalar, controlY: Scalar, x: Scalar, y: Scalar]
   | readonly [op: 'C', control1X: Scalar, control1Y: Scalar, control2X: Scalar, control2Y: Scalar, x: Scalar, y: Scalar]
   | readonly [op: 'Z'];
-type Shade = string | { kind: 'radial'; x: Scalar; y: Scalar; radius: Scalar; colors: readonly [string, string] };
+export type AssetColor = string | { palette: string };
+type Shade = AssetColor | { kind: 'radial'; x: Scalar; y: Scalar; radius: Scalar; colors: readonly [string, string] };
+export type AssetStroke = {
+  color: AssetColor; width: Scalar;
+  cap?: 'butt' | 'round' | 'square'; join?: 'miter' | 'round' | 'bevel';
+  trim?: { start?: Scalar; end?: Scalar };
+  dash?: { intervals: readonly number[]; phase?: Scalar };
+};
 
 type Group = {
   kind: 'group'; x?: Scalar; y?: Scalar; scaleX?: Scalar; scaleY?: Scalar; rotation?: Scalar;
@@ -27,10 +35,10 @@ type Group = {
   points?: Readonly<Record<string, { x: Scalar; y: Scalar }>>;
   children: readonly AssetNode[];
 };
-type Shape = { fill: Shade; opacity?: Scalar; feather?: Scalar } & (
-  | { kind: 'ellipse'; x: Scalar; y: Scalar; width: Scalar; height: Scalar }
-  | { kind: 'roundRect'; x: Scalar; y: Scalar; width: Scalar; height: Scalar; radius: Scalar }
-  | { kind: 'path'; commands: readonly PathCommand[] }
+type Shape = { opacity?: Scalar; feather?: Scalar } & (
+  | { kind: 'ellipse'; x: Scalar; y: Scalar; width: Scalar; height: Scalar; fill: Shade }
+  | { kind: 'roundRect'; x: Scalar; y: Scalar; width: Scalar; height: Scalar; radius: Scalar; fill: Shade }
+  | { kind: 'path'; commands: readonly PathCommand[]; fill?: Shade; stroke?: AssetStroke }
 );
 
 type ImageNode = {
@@ -38,8 +46,19 @@ type ImageNode = {
   x: Scalar; y: Scalar; width: Scalar; height: Scalar;
 };
 
-export type AssetNode = Group | Shape | ImageNode | MeshNode;
-export type AssetMarker = { name: string; layer: string; state: string };
+export type BoundText = string | { value: string };
+export type AssetTextNode = {
+  kind: 'text'; text: BoundText; x: Scalar; y: Scalar; width: number; fontSize: number; fill: string;
+  fonts?: readonly string[]; direction?: 'ltr' | 'rtl'; align?: 'start' | 'center' | 'end'; maxLines?: number;
+};
+export type AssetSemantic = {
+  name: string; label: BoundText; role: 'button' | 'image' | 'text' | 'header';
+  bounds: readonly [x: number, y: number, width: number, height: number];
+  trigger?: string;
+};
+
+export type AssetNode = Group | Shape | ImageNode | MeshNode | AssetTextNode;
+export type AssetMarker = { name: string; layer: string; state: string; audio?: string };
 export type AssetMarkerEvent = AssetMarker & { at: number };
 export type AssetAttachment = { from: string; to: string; maxDistance: number };
 export type MotionAsset<M extends Machine = Machine> = {
@@ -48,14 +67,31 @@ export type MotionAsset<M extends Machine = Machine> = {
   artboard: { width: number; height: number; nodes: readonly AssetNode[] };
   channels: Readonly<Record<string, number>>;
   images?: Readonly<Record<string, string>>;
+  imageSlots?: Readonly<Record<string, string>>;
+  palette?: Readonly<Record<string, string>>;
+  fonts?: Readonly<Record<string, string>>;
+  fontLicenses?: Readonly<Record<string, string>>;
+  audio?: Readonly<Record<string, string>>;
+  semantics?: readonly AssetSemantic[];
   clips: Readonly<Record<string, { ms: number; reducedAt?: number; tracks: Readonly<Record<string, Track>> }>>;
   machine: M;
   markers?: readonly AssetMarker[];
   attachments?: readonly AssetAttachment[];
 };
+export type MotionAssetFile = MotionAsset | {
+  schema: typeof ASSET_BUNDLE_SCHEMA;
+  name: string;
+  defaultArtboard: string;
+  artboards: Readonly<Record<string, MotionAsset>>;
+  fonts?: MotionAsset['fonts'];
+  fontLicenses?: MotionAsset['fontLicenses'];
+  audio?: MotionAsset['audio'];
+};
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+const FONT_URI = /^data:font\/(ttf|otf);base64,([A-Za-z0-9+/]+={0,2})$/;
+const AUDIO_URI = /^data:audio\/(mpeg|wav|mp4|aac);base64,([A-Za-z0-9+/]+={0,2})$/;
 const PATH_ARGUMENTS: Record<string, number> = { M: 2, L: 2, Q: 4, C: 6, Z: 0 };
 const EASES = ['linear', 'in', 'out', 'inOut', 'hold'];
 const RESERVED_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype']);
@@ -114,8 +150,70 @@ function checkPath(value: unknown, at: string, channels: Record<string, unknown>
 type NodeValidation = {
   channels: Record<string, unknown>;
   images: Record<string, unknown>;
+  imageSlots: Record<string, unknown>;
   points: Set<string>;
+  fonts: Record<string, unknown>;
+  values: Record<string, unknown>;
+  palette: Record<string, unknown>;
 };
+
+function checkColor(value: unknown, at: string, palette: Record<string, unknown>): void {
+  if (typeof value === 'string') return color(value, at);
+  const name = identifier(record(value, at, ['palette']).palette, `${at}.palette`);
+  if (!Object.hasOwn(palette, name)) invalid(at, `unknown palette entry "${name}"`);
+}
+
+function checkStroke(value: unknown, at: string, { channels, palette }: NodeValidation): void {
+  const stroke = record(value, at, ['color', 'width', 'cap', 'join', 'trim', 'dash']);
+  checkColor(stroke.color, `${at}.color`, palette);
+  scalar(stroke.width, `${at}.width`, channels, 0, 4096);
+  if (stroke.cap !== undefined && !['butt', 'round', 'square'].includes(stroke.cap as string)) invalid(`${at}.cap`, 'expected butt, round or square');
+  if (stroke.join !== undefined && !['miter', 'round', 'bevel'].includes(stroke.join as string)) invalid(`${at}.join`, 'expected miter, round or bevel');
+  if (stroke.trim !== undefined) {
+    const trim = record(stroke.trim, `${at}.trim`, ['start', 'end']);
+    for (const key of ['start', 'end']) if (trim[key] !== undefined) scalar(trim[key], `${at}.trim.${key}`, channels, 0, 1);
+  }
+  if (stroke.dash !== undefined) {
+    const dash = record(stroke.dash, `${at}.dash`, ['intervals', 'phase']);
+    const intervals = list(dash.intervals, `${at}.dash.intervals`, 32);
+    if (intervals.length < 2 || intervals.length % 2) invalid(`${at}.dash.intervals`, 'expected an even number of intervals');
+    intervals.forEach((interval, i) => number(interval, `${at}.dash.intervals[${i}]`, 0.001, 4096));
+    if (dash.phase !== undefined) scalar(dash.phase, `${at}.dash.phase`, channels);
+  }
+}
+
+function checkText(value: unknown, at: string, values: Record<string, unknown>): void {
+  if (typeof value === 'string') {
+    if (value.length > 4096) invalid(at, 'expected at most 4096 characters');
+    return;
+  }
+  const input = identifier(record(value, at, ['value']).value, `${at}.value`);
+  if ((values[input] as { type?: string } | undefined)?.type !== 'string') {
+    invalid(`${at}.value`, 'expected a string value from machine.values');
+  }
+}
+
+function resourceMap(value: unknown, at: string, pattern: RegExp) {
+  if (value === undefined) return {};
+  const resources = record(value, at);
+  if (Object.keys(resources).length > 32) invalid(at, 'expected at most 32 resources');
+  for (const [name, uri] of Object.entries(resources)) {
+    const key = `${at}.${name}`;
+    identifier(name, key);
+    const match = typeof uri === 'string' ? pattern.exec(uri) : null;
+    if (!match || match[0] !== uri || match[2]!.length % 4 !== 0) invalid(key, 'expected an embedded base64 data URI');
+  }
+  return resources;
+}
+
+function checkFontLicenses(value: unknown, fonts: Record<string, unknown>, at: string): void {
+  if (value === undefined) return;
+  for (const [name, license] of Object.entries(record(value, at))) {
+    if (!Object.hasOwn(fonts, name) || typeof license !== 'string' || license.length > 16_384) {
+      invalid(`${at}.${name}`, 'expected a license of up to 16384 characters for a declared font');
+    }
+  }
+}
 
 function registerPoint(name: string, at: string, points: Set<string>): void {
   identifier(name, at);
@@ -171,8 +269,26 @@ function checkMesh(node: Record<string, unknown>, at: string, context: NodeValid
 }
 
 function checkNode(value: unknown, at: string, context: NodeValidation, depth: number): void {
-  const { channels, images, points } = context;
+  const { channels, images, imageSlots, points } = context;
   const node = record(value, at);
+  if (node.kind === 'text') {
+    record(node, at, ['kind', 'text', 'x', 'y', 'width', 'fontSize', 'fill', 'fonts', 'direction', 'align', 'maxLines']);
+    checkText(node.text, `${at}.text`, context.values);
+    scalar(node.x, `${at}.x`, channels);
+    scalar(node.y, `${at}.y`, channels);
+    number(node.width, `${at}.width`, 1, 4096);
+    number(node.fontSize, `${at}.fontSize`, 1, 512);
+    color(node.fill, `${at}.fill`);
+    if (node.fonts !== undefined) list(node.fonts, `${at}.fonts`, 8).forEach((name, i) => {
+      if (typeof name !== 'string' || !Object.hasOwn(context.fonts, name)) invalid(`${at}.fonts[${i}]`, 'unknown embedded font');
+    });
+    if (node.direction !== undefined && node.direction !== 'ltr' && node.direction !== 'rtl') invalid(`${at}.direction`, 'expected ltr or rtl');
+    if (node.align !== undefined && !['start', 'center', 'end'].includes(node.align as string)) invalid(`${at}.align`, 'expected start, center or end');
+    if (node.maxLines !== undefined && !Number.isInteger(number(node.maxLines, `${at}.maxLines`, 1, 16))) {
+      invalid(`${at}.maxLines`, 'expected an integer');
+    }
+    return;
+  }
   if (node.kind === 'group') {
     record(node, at, ['kind', 'children', 'x', 'y', 'scaleX', 'scaleY', 'rotation', 'anchor', 'clip', 'points']);
     for (const key of ['x', 'y', 'scaleX', 'scaleY', 'rotation']) {
@@ -203,7 +319,9 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     return;
   }
   if (node.kind === 'image' || node.kind === 'mesh') {
-    if (typeof node.image !== 'string' || !Object.hasOwn(images, node.image)) invalid(`${at}.image`, 'expected a name from images');
+    if (typeof node.image !== 'string' || (!Object.hasOwn(images, node.image) && !Object.hasOwn(imageSlots, node.image))) {
+      invalid(`${at}.image`, 'expected a name from images or imageSlots');
+    }
     if (node.opacity !== undefined) scalar(node.opacity, `${at}.opacity`, channels, 0, 1);
     if (node.kind === 'mesh') {
       checkMesh(node, at, context, depth);
@@ -215,8 +333,9 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     return;
   }
   if (node.kind === 'path') {
-    record(node, at, ['kind', 'fill', 'opacity', 'feather', 'commands']);
+    record(node, at, ['kind', 'fill', 'opacity', 'feather', 'commands', 'stroke']);
     checkPath(node.commands, `${at}.commands`, channels);
+    if (node.stroke !== undefined) checkStroke(node.stroke, `${at}.stroke`, context);
   } else if (node.kind === 'ellipse' || node.kind === 'roundRect') {
     const keys = ['kind', 'fill', 'opacity', 'feather', 'x', 'y', 'width', 'height'];
     if (node.kind === 'roundRect') keys.push('radius');
@@ -224,12 +343,17 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     for (const key of ['x', 'y', 'width', 'height']) scalar(node[key], `${at}.${key}`, channels, key === 'x' || key === 'y' ? undefined : 0);
     if (node.kind === 'roundRect') scalar(node.radius, `${at}.radius`, channels, 0);
   } else {
-    invalid(`${at}.kind`, 'expected ellipse, roundRect, path, image, mesh or group');
+    invalid(`${at}.kind`, 'expected ellipse, roundRect, path, image, mesh, text or group');
   }
   if (node.opacity !== undefined) scalar(node.opacity, `${at}.opacity`, channels, 0, 1);
   if (node.feather !== undefined) scalar(node.feather, `${at}.feather`, channels, 0, MAX_FEATHER);
+  if (node.kind === 'path' && node.fill === undefined && node.stroke !== undefined) return;
   if (typeof node.fill === 'string') {
     color(node.fill, `${at}.fill`);
+    return;
+  }
+  if (node.fill && typeof node.fill === 'object' && Object.hasOwn(node.fill, 'palette')) {
+    checkColor(node.fill, `${at}.fill`, context.palette);
     return;
   }
   const fill = record(node.fill, `${at}.fill`, ['kind', 'x', 'y', 'radius', 'colors']);
@@ -243,15 +367,34 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
 }
 
 function validateAsset(value: unknown): MotionAsset {
-  const data = record(value, 'asset', ['schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'attachments']);
+  const data = record(value, 'asset', [
+    'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'palette', 'attachments', 'fonts', 'fontLicenses', 'audio', 'semantics',
+  ]);
   if (data.schema !== ASSET_SCHEMA) invalid('asset.schema', `this player reads ${ASSET_SCHEMA}`);
   identifier(data.name, 'asset.name');
+  const machine = record(data.machine, 'machine');
+  const values = machine.values === undefined ? {} : record(machine.values, 'machine.values');
+  const fonts = resourceMap(data.fonts, 'fonts', FONT_URI);
+  checkFontLicenses(data.fontLicenses, fonts, 'fontLicenses');
+  const audio = resourceMap(data.audio, 'audio', AUDIO_URI);
+  const palette = data.palette === undefined ? {} : record(data.palette, 'palette');
+  for (const [name, value] of Object.entries(palette)) {
+    identifier(name, `palette.${name}`);
+    color(value, `palette.${name}`);
+  }
   const channels = record(data.channels, 'channels');
   for (const [name, value] of Object.entries(channels)) {
     identifier(name, `channels.${name}`);
     number(value, `channels.${name}`);
   }
   const images = data.images === undefined ? {} : record(data.images, 'images');
+  const imageSlots = data.imageSlots === undefined ? {} : record(data.imageSlots, 'imageSlots');
+  for (const [name, fallback] of Object.entries(imageSlots)) {
+    const at = `imageSlots.${name}`;
+    identifier(name, at);
+    if (Object.hasOwn(images, name)) invalid(at, 'the slot name must be distinct from its embedded fallback');
+    if (typeof fallback !== 'string' || !Object.hasOwn(images, fallback)) invalid(at, 'expected an embedded fallback from images');
+  }
   let pixels = 0;
   for (const [name, uri] of Object.entries(images)) {
     const at = `images.${name}`;
@@ -268,8 +411,30 @@ function validateAsset(value: unknown): MotionAsset {
   number(artboard.height, 'artboard.height', 1, 4096);
   const nodes = list(artboard.nodes, 'artboard.nodes', 256);
   if (!nodes.length) invalid('artboard.nodes', 'add at least one shape');
-  const context = { channels, images, points: new Set<string>() };
+  const context = { channels, images, imageSlots, fonts, values, palette, points: new Set<string>() };
   nodes.forEach((node, i) => checkNode(node, `artboard.nodes[${i}]`, context, 0));
+  if (data.semantics !== undefined) {
+    const names = new Set<string>();
+    list(data.semantics, 'semantics', 64).forEach((item, i) => {
+      const at = `semantics[${i}]`;
+      const entry = record(item, at, ['name', 'role', 'label', 'bounds', 'trigger']);
+      const name = identifier(entry.name, `${at}.name`);
+      if (names.has(name)) invalid(`${at}.name`, 'duplicate semantic name');
+      names.add(name);
+      if (!['button', 'image', 'text', 'header'].includes(entry.role as string)) invalid(`${at}.role`, 'unknown role');
+      checkText(entry.label, `${at}.label`, values);
+      const bounds = list(entry.bounds, `${at}.bounds`, 4);
+      if (bounds.length !== 4) invalid(`${at}.bounds`, 'expected x, y, width and height');
+      bounds.forEach((side, index) => number(side, `${at}.bounds[${index}]`, index < 2 ? -4096 : 1, 4096));
+      if (entry.trigger !== undefined) {
+        const trigger = identifier(entry.trigger, `${at}.trigger`);
+        const property = values[trigger] as { type?: string; bind?: string } | undefined;
+        if (entry.role !== 'button' || property?.type !== 'trigger' || property.bind === 'out') {
+          invalid(`${at}.trigger`, 'expected a writable trigger on a button');
+        }
+      }
+    });
+  }
   if (data.attachments !== undefined) {
     list(data.attachments, 'attachments', 256).forEach((item, i) => {
       const at = `attachments[${i}]`;
@@ -308,8 +473,7 @@ function validateAsset(value: unknown): MotionAsset {
       });
     }
   }
-  const machine = record(data.machine, 'machine');
-  if (machine.clocks !== undefined || machine.hits !== undefined) invalid('machine', 'this asset version uses frame clocks and host input');
+  if (machine.hits !== undefined) invalid('machine.hits', 'packed scenes use host input and semantic regions');
   list(machine.layers, 'machine.layers', 32).forEach((value, i) => {
     const at = `machine.layers[${i}]`;
     const layer = record(value, at);
@@ -326,20 +490,23 @@ function validateAsset(value: unknown): MotionAsset {
   if (data.markers !== undefined) {
     list(data.markers, 'markers', 256).forEach((item, i) => {
       const at = `markers[${i}]`;
-      const marker = record(item, at, ['name', 'layer', 'state']);
+      const marker = record(item, at, ['name', 'layer', 'state', 'audio']);
       const name = identifier(marker.name, `${at}.name`);
       if (names.has(name)) invalid(`${at}.name`, 'duplicate marker name');
       names.add(name);
       const layer = typed.machine.layers.find((layer) => layer.name === marker.layer);
       const state = identifier(marker.state, `${at}.state`);
       if (!layer || !Object.hasOwn(layer.states, state)) invalid(at, 'unknown layer or state');
+      if (marker.audio !== undefined && (typeof marker.audio !== 'string' || !Object.hasOwn(audio, marker.audio))) {
+        invalid(`${at}.audio`, 'unknown embedded audio cue');
+      }
     });
   }
   return typed;
 }
 
 /** Decode the same data file on a React Native JS thread and in the CLI. */
-export function parseAsset(text: string): MotionAsset {
+export function parseAssetFile(text: string): MotionAssetFile {
   if (typeof text !== 'string' || text.length > MAX_ASSET_BYTES) invalid('asset', 'expected a JSON asset of at most 1 MiB');
   const bytes = encodeURI(text).replace(/%[0-9A-F]{2}/g, 'x').length;
   if (bytes > MAX_ASSET_BYTES) invalid('asset', 'expected a JSON asset of at most 1 MiB');
@@ -348,7 +515,77 @@ export function parseAsset(text: string): MotionAsset {
     if (typeof value === 'number' && !Number.isFinite(value)) invalid(key, 'expected a finite number');
     return value;
   });
-  return validateAsset(decoded);
+  const file = record(decoded, 'asset');
+  if (file.schema !== ASSET_BUNDLE_SCHEMA) return validateAsset(file);
+  record(file, 'bundle', ['schema', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontLicenses', 'audio']);
+  const name = identifier(file.name, 'bundle.name');
+  const defaultArtboard = identifier(file.defaultArtboard, 'bundle.defaultArtboard');
+  const artboards = record(file.artboards, 'bundle.artboards');
+  const fonts = resourceMap(file.fonts, 'bundle.fonts', FONT_URI) as NonNullable<MotionAsset['fonts']>;
+  checkFontLicenses(file.fontLicenses, fonts, 'bundle.fontLicenses');
+  const fontLicenses = file.fontLicenses as MotionAsset['fontLicenses'];
+  const audio = resourceMap(file.audio, 'bundle.audio', AUDIO_URI) as NonNullable<MotionAsset['audio']>;
+  const entries = Object.entries(artboards);
+  if (entries.length < 1 || entries.length > 16) invalid('bundle.artboards', 'expected one to sixteen artboards');
+  if (!Object.hasOwn(artboards, defaultArtboard)) invalid('bundle.defaultArtboard', 'unknown artboard');
+  return {
+    schema: ASSET_BUNDLE_SCHEMA, name, defaultArtboard,
+    ...(Object.keys(fonts).length && { fonts }),
+    ...(fontLicenses && { fontLicenses }),
+    ...(Object.keys(audio).length && { audio }),
+    artboards: Object.fromEntries(entries.map(([key, value]) => {
+      identifier(key, `bundle.artboards.${key}`);
+      try {
+        const board = record(value, `bundle.artboards.${key}`);
+        const localFonts = board.fonts === undefined ? {} : record(board.fonts, 'fonts');
+        const localAudio = board.audio === undefined ? {} : record(board.audio, 'audio');
+        const localLicenses = board.fontLicenses === undefined ? {} : record(board.fontLicenses, 'fontLicenses');
+        validateAsset({
+          ...board, fonts: { ...fonts, ...localFonts },
+          fontLicenses: { ...fontLicenses, ...localLicenses }, audio: { ...audio, ...localAudio },
+        });
+        return [key, board as MotionAsset];
+      } catch (error) {
+        invalid(`bundle.artboards.${key}`, (error as Error).message);
+      }
+    })),
+  };
+}
+
+export function selectArtboard(file: MotionAssetFile, artboard?: string): MotionAsset {
+  if (file.schema === ASSET_SCHEMA) {
+    if (artboard === undefined || artboard === file.name) return file;
+    invalid('artboard', `unknown artboard "${artboard}". Available: ${file.name}`);
+  }
+  const name = artboard ?? file.defaultArtboard;
+  if (!Object.hasOwn(file.artboards, name)) {
+    invalid('artboard', `unknown artboard "${name}". Available: ${Object.keys(file.artboards).join(', ')}`);
+  }
+  const selected = file.artboards[name]!;
+  return {
+    ...selected,
+    ...(file.fonts && { fonts: { ...file.fonts, ...selected.fonts } }),
+    ...(file.fontLicenses && { fontLicenses: { ...file.fontLicenses, ...selected.fontLicenses } }),
+    ...(file.audio && { audio: { ...file.audio, ...selected.audio } }),
+  };
+}
+
+export function parseAsset(text: string, artboard?: string): MotionAsset {
+  return selectArtboard(parseAssetFile(text), artboard);
+}
+
+export function resolveAssetColor(value: AssetColor, palette: Readonly<Record<string, string>>): string {
+  'worklet';
+  return typeof value === 'string' ? value : palette[value.palette]!;
+}
+
+export function bindAssetPalette(asset: MotionAsset, overrides?: Readonly<Record<string, string>>): MotionAsset {
+  if (!overrides) return asset;
+  for (const [name, value] of Object.entries(overrides)) {
+    if (!asset.palette || !Object.hasOwn(asset.palette, name)) invalid(`palette.${name}`, 'unknown palette entry');
+    color(value, `palette.${name}`);
+  }
+  return { ...asset, palette: { ...asset.palette, ...overrides } };
 }
 
 /** Image names used by the drawing. Unreferenced library entries can be omitted from playback. */

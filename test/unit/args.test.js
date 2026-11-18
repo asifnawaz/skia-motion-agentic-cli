@@ -33,6 +33,19 @@ test('parseCommands: inline shorthand and a commands file', () => {
   assert.throws(() => parseCommands(f), /unknown command/);
 });
 
+test('quoted writes preserve spaces, punctuation, and string literals', () => {
+  const label = 'Good work, @friend #1 "today"';
+  const quoted = JSON.stringify(label);
+  assert.deepEqual(parseEvents(`title=${quoted}@0.5,tap:12,5@1`), [
+    { name: 'title', to: label, at: 0.5 }, { pointer: 'tap', x: 12, y: 5, at: 1 },
+  ]);
+  const file = join(tmp(), 'run.txt');
+  write(file, `set title ${quoted} 0.5 # comment\nset title "true" 1\n`);
+  assert.deepEqual(parseCommands(file).events, [
+    { name: 'title', to: label, at: 0.5 }, { name: 'title', to: 'true', at: 1 },
+  ]);
+});
+
 test('parseArgs: both flag spellings, lists, and unknown flags', () => {
   const r = parseArgs(['X', '--at=1,2', '--scale', '3', '--render', '--docs-dir', 'a', '--docs-dir=b'],
     { bool: ['render'], str: ['at', 'scale'], list: ['docs-dir'] });

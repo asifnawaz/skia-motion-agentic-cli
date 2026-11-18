@@ -1,26 +1,20 @@
 ---
 name: skia-motion-agentic-cli
-description: Makes, checks and renders motion for characters and interfaces drawn with Skia (idle life, a reaction to a tap, a face, a wind-up and hop, a scene on a Skia layer), rendered headlessly by Remotion, through skia-motion-agentic-cli (skac) commands that all answer in JSON. Checks timing, smoothness and numbered motion rules without opening an image. Use when asked to animate a character, mascot or interface in Skia, to plan or time Skia motion for an app screen, to produce an mp4 of it, or to check a motion's timing, smoothness, rules or blank frames.
+description: Author, validate, preview, and play portable .skmotion assets in React Native and Expo with Skia v3. Use skac for interactive game HUDs, characters, rewards, onboarding, or QA of existing .skmotion files.
 ---
 
 # skia-motion-agentic-cli
 
-Every command prints one JSON document. Read `ok`; on `false`, read `error` and `hint`.
+For app motion, start with an editable `.motion.json` scene, ship a packed `.skmotion` file, and play it with `MotionPlayer` from `skia-motion-runtime`. When given a `.skmotion` file, check and preview that file directly. Use the TypeScript workflow below only for requested video work or a custom Skia drawing.
 
-No PNG is needed. Check first; look once at the end.
+## Packed motion for mobile apps
 
-1. Before you write any motion, read these topics whole, in this order (about 20 KB in all): `skac docs`, `skac docs blind`, `skac docs workflow`, `skac docs rules`, `skac docs gotchas`. They teach the loop, every rule and the known traps.
-2. Then `skac docs motion/skill`, and each motion topic it names when your step needs it (`motion/body`, `motion/faces`, `motion/anticipation`, `motion/idle`, `motion/checks`). Read `skac docs commands` by section. A project's own motion skill, if it has one, adds its rules on top.
-3. Start with `create <dir>` or, in a project, `add <Name>` (60 fps, 480 frames; 120 is allowed). Write `meta` and the request's beats in `src/<Name>.rig.ts` before any motion. Keep the motion in the rig, a pure function of time; draw from it.
-4. If the task gives `<Name>.spec.json`, it is the judge; its shapes win over the starter's example shapes.
-5. `<Name> --stats` and `<Name> --story`: the motion as numbers and as text. Check it against the request, beat by beat.
-6. `<Name> --check`. Read `ok`, then each item in `failures`: rule, place, time, `fix`, `docs` topic. Fix there and run it again until `ok`.
-7. `<Name> --probe=x,y --at=s` reads a colour at a point, as AARRGGBB.
-8. `<Name> --render`. Its `compare` block gates `ok` on `spec_ok` and `blank_frames`; `jerk`, `peak` and `longest_still_s` are advice (`skac docs motion/checks`).
-9. Look once at the end: `<Name> --screenshot --at=<key times> --sheet`. Looks are counted in `views`.
-10. For an app: scaffold with `add <Name> --draw`; when `--check` is ok, `skac <Name> --export <app-dir>`. `skac docs app` has the usage.
-    skac renders through Remotion on `@shopify/react-native-skia` (CanvasKit), and the export imports that package. An app on `react-native-skia` 3 (Word Quran) changes the export's Skia import to the app's own path (Word Quran: `src/design-system/game/skia/skia`, which lint enforces); the drawing API is the same.
+1. Read `skac asset guide workflow` and `skac asset guide format`. For new artwork, start from `skac asset sample versus-hud` or `skac asset sample sprout` and edit the resulting `.motion.json`. Define app inputs and test their normal, interrupted, and repeated transitions with `skac asset trace`.
+2. After editing, run `skac asset check scene.motion.json` and `skac asset pack scene.motion.json`. For both new and supplied assets, run `skac asset check scene.skmotion` on the packed file. Skac returns JSON. Read `ok`, and inspect `error` and `hint` on failure.
+3. Run `skac asset preview scene.skmotion` and open the returned HTML. Try the inputs, time scrubber, narrow viewport, and reduced motion. When regenerating the same file, use `--force`. On older CLI builds, `skac asset` lists available commands. Use `skac asset frame scene.skmotion --trace=250` for a scripted SVG still if browser preview is unavailable.
+4. Load the same file in React Native or an Expo development build with `skia-motion-runtime` and `react-native-skia` 3. Pass UTF-8 text or the result of `loadMotionAsset` to `MotionPlayer`. For Expo, add `skmotion` to Metro's `resolver.assetExts` and use `useExpoMotionAsset(require('./scene.skmotion'))` from `skia-motion-runtime/expo`. Pass the ready result's `asset` to the player. Keep app state and user actions in the host. Smoke-test on a device when native visuals or frame timing matter.
+5. Run `skac asset guide images` for embedded art and image slots. Run `skac asset guide playback` for shared-value controls and clips inside an existing Canvas. For bundles, pass `--artboard` when checking or previewing a named board.
 
-Other commands: `lint [files] [--fix]`, `update`. Every flag and field: `skac docs commands`.
+## Custom Skia drawings and video
 
-Checks carry the code quality and the motion rules, so your attention goes to the motion. If you cannot view images, report the `--story` and `--check` output as your evidence.
+Use `skac docs workflow` for rig authoring and `skac docs motion/skill` for motion and drawing guidance. Define the beats in the rig and honor any supplied scene spec. Use `--story`, `--stats`, and `--check` to verify the beats and diagnose failures. For video, render via Remotion with `skac <Name> --render` and inspect key frames with `--screenshot`. For a custom app component, scaffold with `skac add <Name> --draw` and export the checked component with `skac <Name> --export <app-dir>`. See `skac docs app` for Skia v3 setup.

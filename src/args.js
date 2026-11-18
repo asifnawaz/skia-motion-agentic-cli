@@ -38,7 +38,12 @@ export const parseArgs = (argv, spec = {}) => {
   return { pos, flags };
 };
 
-/** A value as a command writes it: true, false, a number, or else a string (an enum option). */
+const quotedValue = String.raw`"(?:[^"\\]|\\.)*"`;
+const eventToken = new RegExp(String.raw`tap:-?\d*\.?\d+,-?\d*\.?\d+@\d*\.?\d+(?=$|[\s,])|(?:${quotedValue}|[^\s,])+`, 'g');
+const writeToken = new RegExp(String.raw`^([A-Za-z_][\w-]*)=(${quotedValue}|[^@\s]+)@(\d*\.?\d+)$`);
+const commandWord = new RegExp(String.raw`${quotedValue}|#.*|[^\s#]+`, 'g');
+
+/** A value as a command writes it: true, false, a number, or a string. */
 const literal = (v) => {
   if (v.startsWith('"') && v.endsWith('"')) {
     try { return JSON.parse(v); } catch { fail(`bad quoted value ${v}`, 'use a JSON string, like "true"'); }
@@ -53,14 +58,11 @@ const literal = (v) => {
  */
 export const parseEvents = (text) => {
   const events = [];
-  // Tokens part at spaces or commas; the comma inside tap:x,y is kept by marking it first.
-  const marked = text.trim().replace(/(tap:-?\d*\.?\d+),(-?\d*\.?\d+@)/g, '$1\u0001$2');
-  for (const raw of marked.split(/[\s,]+/)) {
-    const tok = raw.replace('\u0001', ',');
-    if (!tok) continue;
+  // Quoted strings and tap coordinates can contain delimiters.
+  for (const tok of text.match(eventToken) ?? []) {
     let m = /^([A-Za-z_][\w-]*)@(\d*\.?\d+)$/.exec(tok);
     if (m) { events.push({ name: m[1], at: Number(m[2]) }); continue; }
-    m = /^([A-Za-z_][\w-]*)=([^@\s]+)@(\d*\.?\d+)$/.exec(tok);
+    m = writeToken.exec(tok);
     if (m) { events.push({ name: m[1], to: literal(m[2]), at: Number(m[3]) }); continue; }
     m = /^(tap):(-?\d*\.?\d+),(-?\d*\.?\d+)@(\d*\.?\d+)$/.exec(tok);
     if (m) { events.push({ pointer: m[1], x: Number(m[2]), y: Number(m[3]), at: Number(m[4]) }); continue; }
@@ -82,9 +84,8 @@ export const parseCommands = (text, readFile = readFileSync, exists = existsSync
   const captures = [];
   let clock = 0;
   readFile(text, 'utf8').split('\n').forEach((raw, i) => {
-    const line = raw.replace(/#.*/, '').trim();
-    if (!line) return;
-    const [verb, a, b, c] = line.split(/\s+/);
+    const [verb, a, b, c] = raw.match(commandWord) ?? [];
+    if (!verb || verb.startsWith('#')) return;
     const secs = (v) => {
       if (!/^\d*\.?\d+$/.test(v || '')) fail(`line ${i + 1}: expected seconds, got ${JSON.stringify(v)}`, 'commands file: event <name> <seconds> | advance <seconds> | screenshot');
       return Number(v);

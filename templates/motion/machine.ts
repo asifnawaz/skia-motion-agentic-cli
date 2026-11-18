@@ -101,12 +101,13 @@ export function compile(m: Machine, clips: Clips): Compiled {
   for (const name of Object.keys(m.values ?? {})) {
     const v = m.values![name]!;
     index[name] = values.length;
-    const def: Literal = v.default !== undefined ? v.default : v.type === 'number' ? 0 : v.type === 'enum' ? v.options![0]! : false;
+    const def: Literal = v.default !== undefined ? v.default
+      : v.type === 'number' ? 0 : v.type === 'enum' ? v.options![0]! : v.type === 'string' ? '' : false;
     values.push({ name, type: v.type, def, bind: v.bind ?? 'in', options: v.options ?? [] });
   }
   // A string operand names a value unless it is an option of the enum it is compared with or written to.
   const ref = (x: Literal, owner: string): number =>
-    (typeof x === 'string' && index[x] !== undefined && !(m.values?.[owner]?.options ?? []).includes(x) ? index[x]! : -1);
+    (typeof x === 'string' && Object.hasOwn(index, x) && !(m.values?.[owner]?.options ?? []).includes(x) ? index[x]! : -1);
   const conds = (when: readonly Condition[] | undefined): CCond[] =>
     (when ?? []).map(([name, op, rhs]): CCond => {
       const owner = name as string;
@@ -273,13 +274,14 @@ function step(c: Compiled, s: Snapshot, li: number, t: number, clock: ClockRead,
  */
 export function writeProblem(c: Compiled, name: string, to: Literal): string {
   'worklet';
-  const i = c.index[name];
-  if (i === undefined) return `the machine has no value "${name}"`;
+  if (!Object.hasOwn(c.index, name)) return `the machine has no value "${name}"`;
+  const i = c.index[name]!;
   const v = c.values[i]!;
   if (v.bind === 'out') return `"${name}" is an out-value: the machine writes it, the app reads it`;
   const fits = v.type === 'trigger' ? to === true
     : v.type === 'boolean' ? typeof to === 'boolean'
       : v.type === 'number' ? typeof to === 'number' && Number.isFinite(to)
+        : v.type === 'string' ? typeof to === 'string' && to.length <= 4096
         : typeof to === 'string' && v.options.includes(to);
   if (fits) return '';
   const wanted = v.type === 'trigger' ? 'a fire (true)' : v.type === 'enum' ? `one of ${v.options.join(', ')}` : `a ${v.type}`;
