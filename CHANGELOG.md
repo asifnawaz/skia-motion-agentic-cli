@@ -1,3 +1,10 @@
+## [3.1.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.1.0...v3.1.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* preserve smooth asset playback and guide upgrades ([86e9421](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/86e9421ae0464e15f5165783c6fc316d880724be))
+
 # [3.1.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.0.0...v3.1.0) (2026-11-18)
 
 
