@@ -305,13 +305,14 @@ test('a machine scene bundles its machine, clips, draw and helpers in one file a
   assert.deepEqual(readdirSync(out), ['Ball.tsx']);
   assert.match(r.usage, /from '\.\/app\/Ball'/);
   assert.ok(r.needs.includes('react-native-skia (Skia >=3.0.0)'));
+  assert.match(r.needs[0], /^skia-motion-runtime@9\.9\.9 \(https:\/\/.*\/releases\/download\/v9\.9\.9\/skia-motion-runtime\.tgz\)$/);
   const text = bundleText(dir);
   assert.match(text, /^\/\/ skac export: .*Ball\.machine\.json.*numbers\.ts.*skia-motion-agentic-cli 9\.9\.9/);
   assert.match(text, /function lift\(ms: number\) \{ 'worklet'; return -ms \/ 50; \}/);
   assert.match(text, /const clips = \{/);
   assert.match(text, /function draw\(canvas: SkCanvas/);
   assert.match(text, /export const Ball = forwardRef/);
-  const runtimeImports = text.match(/^import .* from 'skia-motion-agentic-cli\/runtime';$/gm);
+  const runtimeImports = text.match(/^import .* from 'skia-motion-runtime\/machine';$/gm);
   assert.equal(runtimeImports.length, 1);
   for (const name of ['EASE_OUT', 'blinkKeys', 'type Pose', 'useMachine', 'type Machine']) assert.ok(runtimeImports[0].includes(name));
   assert.doesNotMatch(text, /function (?:bezier|machineRig|compile|blinkKeys)\(|const EASE_OUT =|from ['"]\./);
@@ -613,7 +614,7 @@ test('helpers can re-export named runtime bindings while their code stays extern
   write(join(dir, 'src', 'curve.ts'), `export { CUBIC_OUT as EASE_OUT } from './motion/motion';\n`);
   run(cfg, join(dir, 'app'));
   const text = bundleText(dir);
-  assert.match(text, /CUBIC_OUT as EASE_OUT.*from 'skia-motion-agentic-cli\/runtime'/);
+  assert.match(text, /CUBIC_OUT as EASE_OUT.*from 'skia-motion-runtime\/machine'/);
   assert.doesNotMatch(text, /function CUBIC_OUT|from '\.\/curve'/);
 });
 
