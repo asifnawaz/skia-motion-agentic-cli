@@ -1,7 +1,8 @@
 # Making motion with `skia-motion-agentic-cli`
 
-`skac` (the package `skia-motion-agentic-cli`) turns a project of Skia drawings into an mp4. You draw with
-`@shopify/react-native-skia`; Remotion renders every frame headlessly. Its verbs follow the `rive` CLI.
+`skac` (the package `skia-motion-agentic-cli`) authors and checks interactive `.skmotion` assets and
+renders Skia projects to MP4. For video, draw with `@shopify/react-native-skia` and let Remotion
+render every frame headlessly.
 
 Every command prints exactly one JSON document. A failure is
 `{"ok":false,"error":"...","hint":"..."}` with exit code 1. Read `ok` first.
@@ -10,6 +11,24 @@ Read any topic below with `skac docs <topic>`. The topic is the file name withou
 [workflow.md](workflow.md) is `docs workflow`. `docs` on its own returns this index, and
 `docs --search <text>` lists each line, in every topic, that mentions the text.
 Topics a project adds through the `docs` list in `skia-motion.json` appear too.
+
+## Pack an interactive asset
+
+```sh
+skac asset guide
+skac asset sample game-hud
+skac asset check game-hud.motion.json
+skac asset pack game-hud.motion.json
+```
+
+In a React Native or Expo app, install the standalone player and pass the packed file's UTF-8
+text to `MotionPlayer` from `skia-motion-runtime`.
+
+```sh
+npm install --save-exact skia-motion-runtime@3.0.0
+```
+
+[Runtime on npm](https://www.npmjs.com/package/skia-motion-runtime) · [App playback example](https://github.com/asifnawaz/skia-motion-agentic-cli#play-an-asset-in-react-native-or-expo)
 
 ## The loop
 
@@ -62,6 +81,7 @@ Every flag, file and output field is in [commands.md](commands.md).
 | Every rule, its fix and its topic | `docs rules` |
 | Every command, flag and output field | [commands.md](commands.md) |
 | The order of work, step by step | [workflow.md](workflow.md) |
+| Authoring, checking, and packing a `.skmotion` asset | `asset guide` |
 | Shipping a checked scene to an app | [app.md](app.md) |
 | Things that fail silently: colours, blank frames, setup order | [gotchas.md](gotchas.md) |
 | Motion rules: start with `docs motion/skill`, then the topics it names | `docs motion/skill`, `motion/principles`, `motion/body`, `motion/faces`, `motion/anticipation`, `motion/idle`, `motion/remotion-and-app`, `motion/checks` |

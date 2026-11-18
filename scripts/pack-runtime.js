@@ -5,25 +5,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const name = 'skia-motion-runtime';
-const files = [
-  'LICENSE',
-  'NOTICE.md',
-  'runtime/asset-draw.ts',
-  'runtime/asset-image.ts',
-  'runtime/asset-layout.ts',
-  'runtime/asset-mesh.ts',
-  'runtime/asset.ts',
-  'runtime/index.ts',
-  'runtime/machine-schema.d.ts',
-  'runtime/machine-schema.js',
-  'runtime/mobile.tsx',
-  'runtime/useMachine.ts',
-  'runtime/version.ts',
-  'templates/motion/face.ts',
-  'templates/motion/machine.ts',
-  'templates/motion/motion.ts',
-];
+const { private: _private, ...definition } = JSON.parse(
+  readFileSync(join(root, 'packages/runtime/package.json'), 'utf8'),
+);
 
 /** Pack the same TypeScript sources as the CLI runtime, with an app-only manifest. */
 export function packRuntime(destination, expectedVersion) {
@@ -35,24 +19,17 @@ export function packRuntime(destination, expectedVersion) {
   mkdirSync(target, { recursive: true });
   const stage = mkdtempSync(join(tmpdir(), 'skac-runtime-'));
   try {
-    const mobile = './runtime/mobile.tsx';
     const manifest = {
-      name,
+      ...definition,
       version: cli.version,
-      description: 'React Native and Expo player for interactive .skmotion assets',
-      type: 'module',
-      main: mobile,
-      types: mobile,
-      exports: { '.': mobile, './machine': './runtime/index.ts' },
       license: cli.license,
       repository: cli.repository,
       homepage: cli.homepage,
       bugs: cli.bugs,
       peerDependencies: cli.peerDependencies,
-      files,
     };
     writeFileSync(join(stage, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
-    for (const file of files) {
+    for (const file of manifest.files) {
       const destination = join(stage, file);
       mkdirSync(dirname(destination), { recursive: true });
       copyFileSync(join(root, file), destination);
@@ -72,7 +49,7 @@ export function packRuntime(destination, expectedVersion) {
 export function prepare(_config, { cwd, logger, nextRelease }) {
   const destination = join(cwd, '.release');
   const packed = packRuntime(destination, nextRelease.version);
-  const asset = `${name}.tgz`;
+  const asset = `${definition.name}.tgz`;
   renameSync(packed.path, join(destination, asset));
   logger.log('Packed %s (%d bytes)', asset, packed.size);
 }

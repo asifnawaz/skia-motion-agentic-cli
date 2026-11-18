@@ -1,0 +1,62 @@
+name: publish runtime to npm
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published Skia Motion version (for example 3.0.0)
+        required: true
+        type: string
+      dry_run:
+        description: Verify the release archive without publishing
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-runtime-${{ inputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Verify the published runtime archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf '%s\n' 'Use the version of a stable Skia Motion release.' >&2
+            exit 1
+          fi
+
+          tag="v$RELEASE_VERSION"
+          directory="$RUNNER_TEMP/runtime-npm"
+          asset="skia-motion-runtime.tgz"
+          archive="$directory/$asset"
+          digest="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" |
+            jq -er --arg tag "$tag" --arg asset "$asset" '
+              select(.tag_name == $tag and .draft == false and .prerelease == false)
+              | .assets[] | select(.name == $asset)
+              | .digest | select(test("^sha256:[0-9a-f]{64}$"))
+            ')"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$directory"
+          printf '%s  %s\n' "${digest#sha256:}" "$archive" | sha256sum --check
+          tar -xOzf "$archive" package/package.json |
+            jq -e --arg version "$RELEASE_VERSION" '
+              .name == "skia-motion-runtime" and .version == $version and
+              .private != true and .bin == null and
+              ((.dependencies // {}) | length == 0) and
+              ((.optionalDependencies // {}) | length == 0)
+            '
+      - name: Publish to npm with trusted publishing
+        if: ${{ !inputs.dry_run }}
+        run: npm publish "$RUNNER_TEMP/runtime-npm/skia-motion-runtime.tgz" --access public
