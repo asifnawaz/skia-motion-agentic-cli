@@ -15,6 +15,8 @@ jobs:
   release:
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,6 +27,31 @@ jobs:
         with:
           node-version: 24
       - run: npm ci || npm install
-      - run: npx semantic-release
+      - name: Publish the CLI and GitHub release
+        id: publish
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          import semanticRelease from 'semantic-release';
+
+          const result = await semanticRelease();
+          if (result) {
+            appendFileSync(process.env.GITHUB_OUTPUT, `version=${result.nextRelease.version}\n`);
+          }
+          JS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dispatch-runtime:
+    needs: release
+    if: ${{ needs.release.outputs.version != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      # Dispatch directly so the npm publisher retains its approved workflow identity.
+      - name: Start the runtime publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.release.outputs.version }}
+        run: gh workflow run publish-runtime.yml --repo "$GITHUB_REPOSITORY" --ref main -f "version=$RELEASE_VERSION"
