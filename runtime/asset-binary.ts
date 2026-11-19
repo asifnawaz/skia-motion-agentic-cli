@@ -13,6 +13,9 @@ const MAGIC = 0x534b4d4f; // SKMO
 const VERSION = 1;
 const MAX_RESOURCES = 4096;
 const RESOURCE_KEYS = ['images', 'fonts', 'audio'] as const;
+type ResourceKind = typeof RESOURCE_KEYS[number];
+type SizeBreakdown = Record<ResourceKind | 'scene', number>;
+type MapResource = (value: unknown, kind: ResourceKind) => unknown;
 const RESOURCE_MIMES = new Set([
   'image/png', 'image/webp', 'font/ttf', 'font/otf', 'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/aac',
 ]);
@@ -43,19 +46,19 @@ export function decodeAssetText(bytes: Uint8Array): string {
   return decodeURIComponent(chunks.join('')).replace(/^\uFEFF/, '');
 }
 
-function mapResources(value: unknown, map: (value: unknown) => unknown): unknown {
+function mapResources(value: unknown, map: MapResource): unknown {
   if (!isRecord(value)) return value;
   const result = { ...value };
   for (const key of RESOURCE_KEYS) {
     const resources = value[key];
     if (isRecord(resources)) {
-      result[key] = Object.fromEntries(Object.entries(resources).map(([name, resource]) => [name, map(resource)]));
+      result[key] = Object.fromEntries(Object.entries(resources).map(([name, resource]) => [name, map(resource, key)]));
     }
   }
   return result;
 }
 
-export function mapFileResources(value: unknown, map: (value: unknown) => unknown): unknown {
+export function mapFileResources(value: unknown, map: MapResource): unknown {
   const file = mapResources(value, map);
   if (isRecord(file) && file.schema === 'skac.bundle/1' && isRecord(file.artboards)) {
     file.artboards = Object.fromEntries(Object.entries(file.artboards).map(([name, board]) => [name, mapResources(board, map)]));
@@ -103,11 +106,12 @@ export function decodeBinaryAsset(bytes: Uint8Array, parseJSON: (text: string) =
 }
 
 /** The authoring CLI writes a validated legacy scene into an SKMO container. */
-export function encodeBinaryAsset(file: unknown, encodeText: (text: string) => Uint8Array, limit: number): Uint8Array {
+export function encodeBinaryAsset(file: unknown, encodeText: (text: string) => Uint8Array, limit: number) {
   const uriIndices = new Map<string, number>();
   const payloadIndices = new Map<string, number[]>();
   const payload: ResourceBytes[] = [];
-  const asset = mapFileResources(file, (resource) => {
+  const sizeBreakdown: SizeBreakdown = { scene: HEADER_SIZE, images: 0, fonts: 0, audio: 0 };
+  const asset = mapFileResources(file, (resource, kind) => {
     if (typeof resource !== 'string') invalid('expected a data URI to pack');
     const known = uriIndices.get(resource);
     if (known !== undefined) return known;
@@ -125,6 +129,7 @@ export function encodeBinaryAsset(file: unknown, encodeText: (text: string) => U
       index = payload.length;
       if (index >= MAX_RESOURCES) invalid('too many resources');
       payload.push({ mime, bytes });
+      sizeBreakdown[kind] += bytes.length;
       candidates.push(index);
       payloadIndices.set(key, candidates);
     }
@@ -132,8 +137,9 @@ export function encodeBinaryAsset(file: unknown, encodeText: (text: string) => U
     return index;
   });
   const manifest = encodeText(JSON.stringify({ asset, resources: payload.map(({ mime, bytes }) => [mime, bytes.length]) }));
-  const size = payload.reduce((total, { bytes }) => total + bytes.length, HEADER_SIZE + manifest.length);
-  if (size > limit) throw new Error('packed asset exceeds 1 MiB');
+  sizeBreakdown.scene += manifest.length;
+  const size = Object.values(sizeBreakdown).reduce((total, value) => total + value, 0);
+  if (size > limit) throw Object.assign(new Error('packed asset exceeds 1 MiB'), { bytes: size, sizeBreakdown });
   const result = new Uint8Array(size);
   const view = new DataView(result.buffer);
   view.setUint32(0, MAGIC);
@@ -145,5 +151,5 @@ export function encodeBinaryAsset(file: unknown, encodeText: (text: string) => U
     result.set(resource.bytes, offset);
     offset += resource.bytes.length;
   }
-  return result;
+  return { data: result, sizeBreakdown };
 }

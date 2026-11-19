@@ -1,10 +1,161 @@
-# Shipping a scene to an app
+# Shipping motion to a React Native or Expo app
 
-The video and the generated app component run one `draw()`. `skac <Name> --export <dir>` writes the checked scene into the app as `<dir>/<Name>.tsx`. For a self-contained data asset loaded by the shared player, run `skac asset guide`.
+## Packed motion and Skia Canvas
+
+For a self-contained HUD, reward, gesture response or character, author `.motion.json` and
+ship the packed `.skmotion`. Check the actual tool version and available commands before deciding
+that a capability is missing.
+
+```sh
+skac --version
+skac asset
+skac asset guide format
+skac asset guide playback
+npm ls skia-motion-runtime --depth=0
+```
+
+| Runtime entry point | Use it when |
+| --- | --- |
+| `MotionPlayer` | The asset's state machine owns transitions, markers, audio cues and semantic tap regions. The player fits a measured React Native view. |
+| `MotionPicture` | Your app already owns a Skia `Canvas` and wants a named clip at a specific time. Provide `width`, `height` and a shared `timeMs`. Drawing starts without a separate player view's layout pass. Supply optional text overrides with `text={{ xpLabel: label }}`. |
+| `drawMotionClip` | Your worklet already owns the `SkCanvas` and needs to draw the named clip at an exact time or draw order. |
+
+In Expo, add `skmotion` to Metro's `resolver.assetExts`. Load the bundled asset via
+`useExpoMotionAsset(require('./reward-counter.skmotion'))` from `skia-motion-runtime/expo`
+and use the result when its status is `ready`. For a legacy JSON pack loaded by another
+React Native asset loader, pass UTF-8 text. When `skac asset` lists `--format=binary`, a matching
+runtime can load the file as bytes. See `skac asset guide binary`.
+
+### Count up with real text
+
+```sh
+skac asset sample reward-counter
+skac asset pack reward-counter.motion.json
+skac asset preview reward-counter.skmotion
+```
+
+The sample binds its text node to the `xpLabel` string and pulses when the `land` trigger fires.
+Format the count in the host and send it to the same text node. A Reanimated reaction can
+call `setOnUI` from the UI thread each time the rounded integer changes.
+
+```tsx
+import { useState } from 'react';
+import { Button } from 'react-native';
+import { useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
+import { MotionPlayer, type MotionPlayerHandle } from 'skia-motion-runtime';
+
+export function RewardCounter({ source }: { source: string }) {
+  const [player, setPlayer] = useState<MotionPlayerHandle | null>(null);
+  const points = useSharedValue(0);
+  const write = player?.setOnUI;
+
+  useAnimatedReaction(
+    () => Math.round(points.value),
+    (current, previous) => {
+      if (current !== previous) write?.('xpLabel', `+${current} XP`);
+    },
+    [write],
+  );
+
+  return (
+    <>
+      <MotionPlayer ref={setPlayer} source={source} />
+      <Button
+        title="Count XP"
+        disabled={player === null}
+        onPress={() => {
+          points.value = 0;
+          points.value = withTiming(42, { duration: 600 }, (finished) => {
+            if (finished) write?.('land', true);
+          });
+        }}
+      />
+    </>
+  );
+}
+```
+
+For a skip button, cancel the host animation, set the final label with `setValues`, and
+fire `land`. Generate typed bindings with `skac asset types reward-counter.skmotion`.
+
+### Text limits and fallback
+
+- `fontSize` is 1–512 artboard points. `maxLines` is 1–16 and defaults to one.
+- Add `"fontFeatures": [{ "name": "tnum", "value": 1 }]` to a text node for equal digit
+  advances in a supporting font such as Allo Regular. The list accepts up to 16 distinct
+  four-letter or digit tags with integer values from 0 to 65,535. Install a runtime that supports
+  the field before shipping assets that use it.
+- The 1 MiB packed budget covers the entire file, including images, audio, fonts and data.
+  `asset resource` accepts up to 786,400 raw bytes per font or audio input. Base64 expands
+  raw bytes by roughly one third in JSON packs. The default Allo Regular is 96,216 raw bytes.
+  Embed a family with the glyphs you need for each script.
+
+When `skac asset` lists `--text-layout`, use it to shape sample values with the packed fonts
+and find paragraphs that exceed `maxLines`. Include the longest labels and representative
+localized values in the command trace.
+
+```sh
+skac asset check reward-counter.skmotion --text-layout --size=360x640 --trace=0,420 \
+  --commands 'xpLabel="+1,250 XP gained today"@0.42'
+```
+
+Read `textLayout` and `warnings` even when `ok` is true. Each `text-overflow` warning identifies
+the node, value, first sample time, authored width, and line count. `text-layout-unavailable`
+reports platform fonts or missing glyph coverage. The viewport is recorded for the replay.
+Text width and font size stay in artboard units as the whole asset scales. The check covers
+paragraph layout for the sampled strings. Verify masks, platform font fallback, and host-applied
+layout or text scaling in the app.
+
+## Reuse the app’s fonts
+
+Declare a named slot such as `"fontSlots": { "Counter": {} }` on the asset. A text node
+selects it with `"fonts": ["Counter"]`. If you declare a slot on a bundle, individual artboards
+can use it or provide their own slot declarations. An optional `{"fallback":"EmbeddedName"}`
+uses that entry from the asset’s `fonts` map when the host supplies no binding.
+
+```sh
+skac asset pack scoreboard.motion.json --format=binary --fonts=host
+skac asset check scoreboard.skmotion --text-layout --font=Counter=./fonts/Counter.ttf
+skac asset preview scoreboard.skmotion --font=Counter=./fonts/Counter.ttf
+```
+
+Load each Skia typeface in your app’s shared font setup and pass it to asset preparation once
+it is ready. The loader borrows the face. Keep it available while prepared motions use it.
+The same typeface can serve any number of assets. Use `loadMotionAsset`, `preloadMotionAsset`,
+or `useMotionAsset` for the same options outside the Expo adapter.
+
+```tsx
+import type { SkTypeface } from 'react-native-skia';
+import { MotionPlayer } from 'skia-motion-runtime';
+import { useExpoMotionAsset } from 'skia-motion-runtime/expo';
+
+export function Scoreboard({ counter }: { counter: SkTypeface | null }) {
+  const motion = useExpoMotionAsset(
+    counter ? require('./scoreboard.skmotion') : null,
+    counter ? { fontSlots: { Counter: counter } } : undefined,
+  );
+  return motion.status === 'ready' ? <MotionPlayer source={motion.asset} /> : null;
+}
+```
+
+For host-only packs, give every text node an explicit slot or the platform font with
+`fonts: []`. Normal packing preserves embedded fallbacks. The pack result reports
+`sizeBreakdown` for scene data, images, fonts, and audio. Pass the app’s actual font files to
+preview or text QA so glyph coverage, tabular digits, and line fit match the app’s choices.
+The offline HTML contains its preview fonts separately from the original packed asset.
+
+To edit an existing asset, run `skac asset unpack scoreboard.skmotion --out=scoreboard.edit.motion.json`,
+edit the scene, and pack the recovered source to a new output. Host fonts remain app assets.
+Use a CLI and runtime that support font slots before shipping the new declaration.
+
+## Export a custom Skia drawing as TypeScript
+
+The video and the generated app component run one `draw()`. `skac <Name> --export <dir>`
+writes the checked scene into the app as `<dir>/<Name>.tsx`.
 
 ## When
 
-Use `add <Name> --draw` for any scene the app will play. A scene made without `--draw` (its drawing is JSX in `<Name>.tsx`) renders to video as before but cannot be exported.
+Use `add <Name> --draw` for the TypeScript export workflow. The exporter requires a draw file and a worklet-compatible rig.
 
 ## Steps
 

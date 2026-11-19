@@ -135,6 +135,27 @@ test('asset loading shares pending resources, aborts released sources, and ignor
   assert.notEqual(use(appC, 'photo', colorVariant).asset, photoA);
   for (const consumer of [appA, appB, appC]) consumer.cleanup();
 
+  const firstFace = {};
+  const secondFace = {};
+  const fontA = {};
+  const fontB = {};
+  const fontC = {};
+  const withFace = (face) => ({ fontSlots: { label: face } });
+  use(fontA, 'caption', withFace(firstFace));
+  use(fontB, 'caption', withFace(secondFace));
+  use(fontC, 'caption', withFace(firstFace));
+  await setImmediate();
+  const firstFontAsset = use(fontA, 'caption', withFace(firstFace)).asset;
+  const secondFontAsset = use(fontB, 'caption', withFace(secondFace)).asset;
+  assert.notEqual(firstFontAsset, secondFontAsset);
+  assert.equal(firstFontAsset, use(fontC, 'caption', withFace(firstFace)).asset);
+  assert.equal(firstFontAsset.options.fontSlots.label, firstFace);
+  assert.equal(secondFontAsset.options.fontSlots.label, secondFace);
+  assert.equal(use(fontC, 'caption', withFace(secondFace)).status, 'loading');
+  await setImmediate();
+  assert.equal(use(fontC, 'caption', withFace(secondFace)).asset, secondFontAsset);
+  for (const consumer of [fontA, fontB, fontC]) consumer.cleanup();
+
   const bytes = Uint8Array.of(83, 75, 77, 79);
   const binaryA = {};
   const binaryB = {};

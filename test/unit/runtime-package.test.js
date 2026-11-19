@@ -32,6 +32,8 @@ test('the released player installs without CLI dependencies and its app imports 
     execFileSync(npm ? process.execPath : 'npm', npm ? [npm, ...npmArgs] : npmArgs, { cwd: app, env });
 
     const readJson = (file) => JSON.parse(readFileSync(join(app, file), 'utf8'));
+    const readme = readFileSync(new URL('../../packages/runtime/README.md', import.meta.url), 'utf8');
+    assert.equal(readFileSync(join(app, 'node_modules/skia-motion-runtime/README.md'), 'utf8'), readme);
     const lock = readJson('package-lock.json');
     assert.deepEqual(Object.keys(lock.packages).sort(), ['', 'node_modules/skia-motion-runtime']);
     const manifest = readJson('node_modules/skia-motion-runtime/package.json');

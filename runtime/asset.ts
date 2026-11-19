@@ -75,6 +75,7 @@ export type MotionAsset<M extends Machine = Machine, R extends AssetResource = s
   imageSlots?: Readonly<Record<string, string>>;
   palette?: Readonly<Record<string, string>>;
   fonts?: Readonly<Record<string, R>>;
+  fontSlots?: Readonly<Record<string, { readonly fallback?: string }>>;
   fontLicenses?: Readonly<Record<string, string>>;
   audio?: Readonly<Record<string, R>>;
   semantics?: readonly AssetSemantic[];
@@ -90,6 +91,7 @@ export type MotionAssetFile<R extends AssetResource = string> = MotionAsset<Mach
   defaultArtboard: string;
   artboards: Readonly<Record<string, MotionAsset<Machine, R>>>;
   fonts?: MotionAsset<Machine, R>['fonts'];
+  fontSlots?: MotionAsset['fontSlots'];
   fontLicenses?: MotionAsset['fontLicenses'];
   audio?: MotionAsset<Machine, R>['audio'];
 };
@@ -159,6 +161,7 @@ type NodeValidation = {
   imageSlots: Record<string, unknown>;
   points: Set<string>;
   fonts: Record<string, unknown>;
+  fontSlots: NonNullable<MotionAsset['fontSlots']>;
   values: Record<string, unknown>;
   palette: Record<string, unknown>;
 };
@@ -242,6 +245,24 @@ function checkFontLicenses(value: unknown, fonts: Record<string, unknown>, at: s
   }
 }
 
+function checkFontSlots(value: unknown, fonts: Record<string, unknown>, at: string): NonNullable<MotionAsset['fontSlots']> {
+  if (value === undefined) return {};
+  const slots = Object.entries(record(value, at));
+  if (slots.length > 32) invalid(at, 'expected at most 32 font slots');
+  const names = new Set(Object.keys(fonts).map((name) => name.toLowerCase()));
+  for (const [name, entry] of slots) {
+    const key = `${at}.${name}`;
+    identifier(name, key);
+    if (names.has(name.toLowerCase())) invalid(key, 'font names and slot aliases must be distinct');
+    names.add(name.toLowerCase());
+    const { fallback } = record(entry, key, ['fallback']);
+    if (fallback !== undefined && (typeof fallback !== 'string' || !Object.hasOwn(fonts, fallback))) {
+      invalid(`${key}.fallback`, 'expected an embedded font name');
+    }
+  }
+  return value as NonNullable<MotionAsset['fontSlots']>;
+}
+
 function registerPoint(name: string, at: string, points: Set<string>): void {
   identifier(name, at);
   if (points.has(name)) invalid(at, 'duplicate point name');
@@ -307,7 +328,9 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     number(node.fontSize, `${at}.fontSize`, 1, 512);
     color(node.fill, `${at}.fill`);
     if (node.fonts !== undefined) list(node.fonts, `${at}.fonts`, 8).forEach((name, i) => {
-      if (typeof name !== 'string' || !Object.hasOwn(context.fonts, name)) invalid(`${at}.fonts[${i}]`, 'unknown embedded font');
+      if (typeof name !== 'string' || (!Object.hasOwn(context.fonts, name) && !Object.hasOwn(context.fontSlots, name))) {
+        invalid(`${at}.fonts[${i}]`, 'unknown embedded font or font slot');
+      }
     });
     if (node.fontFeatures !== undefined) {
       const names = new Set<string>();
@@ -410,13 +433,14 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
 
 function validateAsset(value: unknown): DrawableMotionAsset {
   const data = record(value, 'asset', [
-    'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'palette', 'attachments', 'fonts', 'fontLicenses', 'audio', 'semantics',
+    'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'palette', 'attachments', 'fonts', 'fontSlots', 'fontLicenses', 'audio', 'semantics',
   ]);
   if (data.schema !== ASSET_SCHEMA) invalid('asset.schema', `this player reads ${ASSET_SCHEMA}`);
   identifier(data.name, 'asset.name');
   const machine = record(data.machine, 'machine');
   const values = machine.values === undefined ? {} : record(machine.values, 'machine.values');
   const fonts = resourceMap(data.fonts, 'fonts', FONT_URI);
+  const fontSlots = checkFontSlots(data.fontSlots, fonts, 'fontSlots');
   checkFontLicenses(data.fontLicenses, fonts, 'fontLicenses');
   const audio = resourceMap(data.audio, 'audio', AUDIO_URI);
   const palette = data.palette === undefined ? {} : record(data.palette, 'palette');
@@ -453,7 +477,7 @@ function validateAsset(value: unknown): DrawableMotionAsset {
   number(artboard.height, 'artboard.height', 1, 4096);
   const nodes = list(artboard.nodes, 'artboard.nodes', 256);
   if (!nodes.length) invalid('artboard.nodes', 'add at least one shape');
-  const context = { channels, images, imageSlots, fonts, values, palette, points: new Set<string>() };
+  const context = { channels, images, imageSlots, fonts, fontSlots, values, palette, points: new Set<string>() };
   nodes.forEach((node, i) => checkNode(node, `artboard.nodes[${i}]`, context, 0));
   if (data.semantics !== undefined) {
     const names = new Set<string>();
@@ -586,11 +610,12 @@ function parseJSON(text: string): unknown {
 function validateAssetFile(decoded: unknown): MotionAssetFile<AssetResource> {
   const file = record(decoded, 'asset');
   if (file.schema !== ASSET_BUNDLE_SCHEMA) return validateAsset(file);
-  record(file, 'bundle', ['schema', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontLicenses', 'audio']);
+  record(file, 'bundle', ['schema', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontSlots', 'fontLicenses', 'audio']);
   const name = identifier(file.name, 'bundle.name');
   const defaultArtboard = identifier(file.defaultArtboard, 'bundle.defaultArtboard');
   const artboards = record(file.artboards, 'bundle.artboards');
   const fonts = resourceMap(file.fonts, 'bundle.fonts', FONT_URI) as NonNullable<DrawableMotionAsset['fonts']>;
+  const fontSlots = checkFontSlots(file.fontSlots, fonts, 'bundle.fontSlots');
   checkFontLicenses(file.fontLicenses, fonts, 'bundle.fontLicenses');
   const fontLicenses = file.fontLicenses as MotionAsset['fontLicenses'];
   const audio = resourceMap(file.audio, 'bundle.audio', AUDIO_URI) as NonNullable<DrawableMotionAsset['audio']>;
@@ -600,6 +625,7 @@ function validateAssetFile(decoded: unknown): MotionAssetFile<AssetResource> {
   return {
     schema: ASSET_BUNDLE_SCHEMA, name, defaultArtboard,
     ...(Object.keys(fonts).length && { fonts }),
+    ...(Object.keys(fontSlots).length && { fontSlots }),
     ...(fontLicenses && { fontLicenses }),
     ...(Object.keys(audio).length && { audio }),
     artboards: Object.fromEntries(entries.map(([key, value]) => {
@@ -607,10 +633,11 @@ function validateAssetFile(decoded: unknown): MotionAssetFile<AssetResource> {
       try {
         const board = record(value, `bundle.artboards.${key}`);
         const localFonts = board.fonts === undefined ? {} : record(board.fonts, 'fonts');
+        const localSlots = board.fontSlots === undefined ? {} : record(board.fontSlots, 'fontSlots');
         const localAudio = board.audio === undefined ? {} : record(board.audio, 'audio');
         const localLicenses = board.fontLicenses === undefined ? {} : record(board.fontLicenses, 'fontLicenses');
         validateAsset({
-          ...board, fonts: { ...fonts, ...localFonts },
+          ...board, fonts: { ...fonts, ...localFonts }, fontSlots: { ...fontSlots, ...localSlots },
           fontLicenses: { ...fontLicenses, ...localLicenses }, audio: { ...audio, ...localAudio },
         });
         return [key, board as DrawableMotionAsset];
@@ -634,6 +661,7 @@ export function selectArtboard<R extends AssetResource>(file: MotionAssetFile<R>
   return {
     ...selected,
     ...(file.fonts && { fonts: { ...file.fonts, ...selected.fonts } }),
+    ...(file.fontSlots && { fontSlots: { ...file.fontSlots, ...selected.fontSlots } }),
     ...(file.fontLicenses && { fontLicenses: { ...file.fontLicenses, ...selected.fontLicenses } }),
     ...(file.audio && { audio: { ...file.audio, ...selected.audio } }),
   };
@@ -646,6 +674,57 @@ export function parseAsset(source: MotionAssetData, artboard?: string): MotionAs
 /** Decode a scene for drawing and preserve encoded image and font bytes for Skia. */
 export function parseDrawableAsset(source: MotionAssetData, artboard?: string): DrawableMotionAsset {
   return selectArtboard(parseDrawableFile(source), artboard);
+}
+
+export function assetTextNodes(
+  nodes: readonly AssetNode[], parent = 'artboard.nodes', text: { node: AssetTextNode; where: string }[] = [],
+) {
+  nodes.forEach((node, index) => {
+    const where = `${parent}[${index}]`;
+    if (node.kind === 'text') text.push({ node, where });
+    if (node.kind === 'group') assetTextNodes(node.children, `${where}.children`, text);
+    if (node.kind === 'mesh') {
+      for (const [name, pin] of Object.entries(node.pins ?? {})) {
+        if (pin.children) assetTextNodes(pin.children, `${where}.pins.${name}.children`, text);
+      }
+    }
+  });
+  return text;
+}
+
+/** Bind fonts for the selected board and report referenced slots that still need a face. */
+export function resolveAssetFonts<R extends AssetResource, Host>(
+  asset: MotionAsset<Machine, R>, overrides: Readonly<Record<string, Host>> = {},
+) {
+  const slots = asset.fontSlots ?? {};
+  for (const name of Object.keys(overrides)) {
+    if (!Object.hasOwn(slots, name)) invalid(`fontSlots.${name}`, 'unknown font slot');
+  }
+  const fonts: Record<string, R | Host> = { ...asset.fonts };
+  const missing: string[] = [];
+  if (Object.keys(slots).length) {
+    const used = new Set<string>();
+    for (const { node } of assetTextNodes(asset.artboard.nodes)) {
+      for (const name of node.fonts ?? []) used.add(name);
+    }
+    const replacedFallbacks = new Set<string>();
+    const activeFallbacks = new Set<string>();
+    for (const [name, { fallback }] of Object.entries(slots)) {
+      if (!used.has(name)) continue;
+      const host = Object.hasOwn(overrides, name) ? overrides[name] : undefined;
+      const face = host ?? (fallback === undefined ? undefined : asset.fonts?.[fallback]);
+      if (face === undefined) missing.push(name);
+      else fonts[name] = face;
+      if (fallback !== undefined) {
+        if (host == null) activeFallbacks.add(fallback);
+        else replacedFallbacks.add(fallback);
+      }
+    }
+    replacedFallbacks.forEach((fallback) => {
+      if (!used.has(fallback) && !activeFallbacks.has(fallback)) delete fonts[fallback];
+    });
+  }
+  return { fonts, missing };
 }
 
 export function resolveAssetColor(value: AssetColor, palette: Readonly<Record<string, string>>): string {

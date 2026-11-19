@@ -6,7 +6,7 @@ let player;
 let typeface;
 
 /** Pack the viewer and its source together so the result can open offline. */
-export function previewHTML(source, size, reduced, artboard) {
+export function previewHTML(source, size, reduced, artboard, hostFonts = {}) {
   player ??= buildSync({
     entryPoints: [fileURLToPath(new URL('./asset-preview.ts', import.meta.url))],
     bundle: true,
@@ -24,6 +24,7 @@ export function previewHTML(source, size, reduced, artboard) {
   const binary = typeof source !== 'string';
   const data = JSON.stringify({
     source: binary ? source.toString('base64') : source, size, reduced, artboard, ...(binary && { binary }),
+    ...(Object.keys(hostFonts).length && { hostFonts }),
   }).replaceAll('<', '\\u003c');
   const license = JSON.stringify(typeface.license).replaceAll('<', '\\u003c');
   return `${template}<script id="font-license" type="application/json">${license}</script>

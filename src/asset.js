@@ -19,16 +19,16 @@ const SAMPLES = {
 };
 
 const USAGE = [
-  'skac asset guide [workflow|format|binary|text|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|migrate]',
+  'skac asset guide [workflow|format|binary|text|font-slots|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|migrate]',
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
-  'skac asset check <file> [--text-layout] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',
+  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
-  'skac asset frame <file> --trace=250 [--size=1200x240] [--out=<frame.svg>]',
-  'skac asset preview <file.skmotion> [--artboard=<name>] [--size=1200x240] [--out=<preview.html>] [--force]',
+  'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg>]',
+  'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
   'skac asset types <file> [--artboard=<name>] [--out=<bindings.d.ts>] [--force|--check]',
-  'skac asset pack <file> [--format=json|binary] [--out=<name.skmotion>] [--force]',
+  'skac asset pack <file> [--format=json|binary] [--fonts=host] [--out=<name.skmotion>] [--force]',
   'skac asset unpack <file.skmotion> [--out=<source.motion.json>] [--force]',
 ];
 let runtime;
@@ -57,6 +57,7 @@ function describe(asset) {
     clips: Object.fromEntries(Object.entries(asset.clips).map(([name, clip]) => [name, clip.ms])),
     layers: asset.machine.layers.map(({ name, states }) => ({ name, states: Object.keys(states) })),
     markers: asset.markers ?? [],
+    ...(asset.fontSlots && { fontSlots: asset.fontSlots }),
   };
 }
 
@@ -144,26 +145,24 @@ function readAsset(path, authoring) {
   }
 }
 
-function serializeJSON(file, limit, indent = 0) {
-  let payloadBytes = 0;
-  const metadata = assetRuntime().mapFileResources(file, (uri) => {
-    payloadBytes += uri.length;
+function jsonAssetSize(file, indent = 0) {
+  const sizeBreakdown = { scene: 0, images: 0, fonts: 0, audio: 0 };
+  const metadata = assetRuntime().mapFileResources(file, (uri, kind) => {
+    sizeBreakdown[kind] += uri.length;
     return '';
   });
-  if (payloadBytes + Buffer.byteLength(JSON.stringify(metadata, null, indent)) > limit) {
-    fail('expanded JSON exceeds the output limit', 'keep the binary asset or reduce the repeated embedded resources');
-  }
-  return JSON.stringify(file, null, indent);
+  sizeBreakdown.scene = Buffer.byteLength(JSON.stringify(metadata, null, indent));
+  const bytes = Object.values(sizeBreakdown).reduce((sum, value) => sum + value, 0);
+  return { bytes, sizeBreakdown };
 }
 
-function embedResource(path) {
+function embedResource(path, limit = Math.floor(assetRuntime().MAX_ASSET_BYTES * 0.75) - 32) {
   const types = {
     '.ttf': 'font/ttf', '.otf': 'font/otf', '.wav': 'audio/wav',
     '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
   };
   const type = types[extname(path).toLowerCase()];
   if (!type) fail('unsupported resource type', 'use a TTF or OTF font, or a WAV, MP3, M4A or AAC sound');
-  const limit = Math.floor(assetRuntime().MAX_ASSET_BYTES * 0.75) - 32;
   let bytes;
   try {
     const stat = statSync(path);
@@ -177,6 +176,38 @@ function embedResource(path) {
     fail('invalid TTF or OTF font header', 'use a valid font file');
   }
   return { ok: true, bytes: bytes.length, uri: `data:${type};base64,${bytes.toString('base64')}` };
+}
+
+function readFontOverrides(asset, entries = [], cwd) {
+  if (!entries.length) return {};
+  const overrides = new Map();
+  const files = new Map();
+  let total = 0;
+  const limit = 16 * 1024 * 1024;
+  for (const entry of entries) {
+    const separator = entry.indexOf('=');
+    const name = entry.slice(0, separator);
+    if (separator < 1 || !entry.slice(separator + 1)) fail('invalid --font mapping', 'use --font=slot=path/to/font.ttf');
+    if (!Object.hasOwn(asset.fontSlots ?? {}, name)) fail(`unknown font slot "${name}"`, 'run asset check to list the declared font slots');
+    if (overrides.has(name)) fail(`duplicate --font mapping for "${name}"`, 'supply one local file per font slot');
+    const path = resolve(cwd, entry.slice(separator + 1));
+    if (!['.ttf', '.otf'].includes(extname(path).toLowerCase())) fail('expected a TTF or OTF font', 'pass --font=slot=path/to/font.ttf');
+    let font = files.get(path);
+    if (!font) {
+      font = embedResource(path, limit - total);
+      files.set(path, font);
+      total += font.bytes;
+    }
+    overrides.set(name, font.uri);
+  }
+  return Object.fromEntries(overrides);
+}
+
+function requirePreviewFonts({ fonts, missing }) {
+  if (missing.length) {
+    fail(`missing font slots: ${missing.join(', ')}`, 'supply --font=slot=path/to/font.ttf for each required slot', { missingFontSlots: missing });
+  }
+  return fonts;
 }
 
 function traceTimes(spec) {
@@ -253,10 +284,42 @@ function packArtboard(asset) {
   return { ...asset, images };
 }
 
+function removeEmbeddedFonts(file) {
+  const { fonts, fontLicenses, fontSlots, ...rest } = file;
+  return { ...rest, ...(fontSlots && { fontSlots: Object.fromEntries(Object.keys(fontSlots).map((name) => [name, {}])) }) };
+}
+
+function packHostFonts(file) {
+  const runtime = assetRuntime();
+  const bundle = file.schema === 'skac.bundle/1';
+  for (const artboard of bundle ? Object.keys(file.artboards) : [undefined]) {
+    const board = runtime.selectArtboard(file, artboard);
+    for (const { node, where } of runtime.assetTextNodes(board.artboard.nodes)) {
+      const embedded = node.fonts?.find((name) => !Object.hasOwn(board.fontSlots ?? {}, name));
+      if (!node.fonts || embedded) {
+        const field = artboard ? `artboards.${artboard}.${where}.fonts` : `${where}.fonts`;
+        fail(`${field}: host export would remove the ${embedded ?? 'default'} font`,
+          'reference a declared font slot, or use fonts: [] for the platform font', { where: field, ...(embedded && { font: embedded }) });
+      }
+    }
+  }
+  return bundle ? {
+    ...removeEmbeddedFonts(file),
+    artboards: Object.fromEntries(Object.entries(file.artboards).map(([name, board]) => [name, removeEmbeddedFonts(board)])),
+  } : removeEmbeddedFonts(file);
+}
+
 export function assetCommand(args, flags, cwd) {
   const [action, input, output] = args;
   if (!action) return { ok: true, commands: USAGE, schema: 'skac.asset/1', next: 'skac asset guide' };
   if (flags['text-layout'] && action !== 'check') fail('--text-layout is for asset check', 'run skac asset check <file> --text-layout');
+  if (flags.fonts !== undefined && action !== 'pack') {
+    fail('--fonts=host is for asset pack', 'use it to omit embedded fonts from an asset that uses font slots');
+  }
+  if (flags.fonts !== undefined && flags.fonts !== 'host') fail('unknown font export option', 'use --fonts=host or omit --fonts to keep the authored fallbacks');
+  if (flags.font?.length && !(action === 'preview' || action === 'frame' || (action === 'check' && flags['text-layout']))) {
+    fail('--font is for asset preview, frame, or check --text-layout', 'supply --font=slot=path/to/font.ttf');
+  }
   if (action === 'sample') return sample(input, output, cwd, flags.force);
   if (action === 'guide' && !output) {
     const guide = assetGuide(input);
@@ -274,12 +337,17 @@ export function assetCommand(args, flags, cwd) {
   if (action === 'unpack') {
     const destination = resolve(cwd, flags.out ?? `${stem}.unpacked.motion.json`);
     if (destination === path) fail('unpack output is the same file', 'use a different --out path');
-    const json = serializeJSON(file, assetRuntime().MAX_ASSET_SOURCE_BYTES - 1, 2) + '\n';
+    const size = jsonAssetSize(file, 2);
+    if (size.bytes >= assetRuntime().MAX_ASSET_SOURCE_BYTES) {
+      fail('expanded JSON exceeds the output limit', 'keep the binary asset or reduce the repeated embedded resources', size);
+    }
+    const json = JSON.stringify(file, null, 2) + '\n';
     writeOutput(destination, json, flags.force);
     return { ok: true, file: destination, bytes: Buffer.byteLength(json), name: file.name };
   }
   const isBundle = file.schema === 'skac.bundle/1';
   const asset = assetRuntime().selectArtboard(file, flags.artboard);
+  const hostFonts = readFontOverrides(asset, flags.font, cwd);
   const bundleInfo = isBundle ? {
     bundle: file.name, artboards: Object.keys(file.artboards), defaultArtboard: file.defaultArtboard,
     selectedArtboard: flags.artboard ?? file.defaultArtboard,
@@ -305,7 +373,7 @@ export function assetCommand(args, flags, cwd) {
     if (!flags['text-layout']) return summary;
     const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
     const samples = new Set(rows.map(({ t_ms }) => t_ms)).size;
-    return measureTextLayout(visual, runtime.assetTextSamples(visual, rows), viewport, samples)
+    return measureTextLayout(runtime.resolveAssetFonts(visual, hostFonts), runtime.assetTextSamples(visual, rows), viewport, samples)
       .then(({ stats, warnings: textWarnings }) => ({ ...summary, textLayout: stats, warnings: [...summary.warnings, ...textWarnings] }));
   }
   if (action === 'trace') return { ok: true, name: asset.name, trace: trace(asset, flags) };
@@ -315,7 +383,8 @@ export function assetCommand(args, flags, cwd) {
     const suffix = flags.artboard && isBundle ? `.${flags.artboard}` : '';
     const destination = resolve(cwd, flags.out ?? `${stem}${suffix}.preview.html`);
     if (destination === path) fail('preview output is the same file', 'use a different --out path');
-    writeOutput(destination, previewHTML(source, size, Boolean(flags.reduced), flags.artboard), flags.force);
+    requirePreviewFonts(assetRuntime().resolveAssetFonts(asset, hostFonts));
+    writeOutput(destination, previewHTML(source, size, Boolean(flags.reduced), flags.artboard, hostFonts), flags.force);
     return { ok: true, file: destination, source: path, name: asset.name, renderer: 'svg', ...bundleInfo };
   }
   if (action === 'types') {
@@ -341,36 +410,43 @@ export function assetCommand(args, flags, cwd) {
     const [row] = trace(asset, flags);
     const destination = resolve(cwd, flags.out ?? `${stem}-${row.t_ms}.svg`);
     if (destination === path) fail('source and destination are the same file', 'choose another path with --out');
-    const visual = extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
-    writeOutput(destination, assetRuntime().assetSVG(visual, row.channels, size, row.values), flags.force);
+    const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
+    const fonts = requirePreviewFonts(assetRuntime().resolveAssetFonts(visual, hostFonts));
+    writeOutput(destination, assetRuntime().assetSVG({ ...visual, fonts }, row.channels, size, row.values), flags.force);
     return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states };
   }
   const destination = resolve(cwd, flags.out ?? `${stem}.skmotion`);
   if (destination === path) fail('source and destination are the same file', 'choose another path with --out');
   const format = flags.format ?? 'json';
   if (format !== 'json' && format !== 'binary') fail('unknown asset format', 'choose --format=json or --format=binary');
-  const packedFile = applyDefaultFont(isBundle ? {
+  const pruned = isBundle ? {
     ...file, artboards: Object.fromEntries(Object.entries(file.artboards).map(([name, artboard]) => [name, packArtboard(artboard)])),
-  } : packArtboard(asset));
+  } : packArtboard(asset);
+  const packedFile = flags.fonts === 'host' ? packHostFonts(pruned) : applyDefaultFont(pruned);
   const limit = assetRuntime().MAX_ASSET_BYTES;
   let packed;
+  let sizeBreakdown;
   if (format === 'binary') {
     try {
-      packed = assetRuntime().encodeBinaryAsset(packedFile, (text) => Buffer.from(text, 'utf8'), limit);
+      ({ data: packed, sizeBreakdown } = assetRuntime().encodeBinaryAsset(packedFile, (text) => Buffer.from(text, 'utf8'), limit));
       // Inspect with the same decoder as the preview and app.
       assetRuntime().parseAssetFile(packed);
     } catch (error) {
-      fail(error.message, 'check embedded resources and pack again');
+      const details = error.sizeBreakdown ? { bytes: error.bytes, sizeBreakdown: error.sizeBreakdown } : undefined;
+      fail(error.message, 'check embedded resources and pack again', details);
     }
   } else {
-    const json = binary ? serializeJSON(packedFile, limit) : JSON.stringify(packedFile);
-    const size = Buffer.byteLength(json);
-    if (size > limit) fail('packed asset exceeds 1 MiB', 'reduce embedded resources or pack with --format=binary');
+    const size = jsonAssetSize(packedFile);
+    if (size.bytes > limit) fail('packed asset exceeds 1 MiB', 'reduce embedded resources or pack with --format=binary', size);
+    sizeBreakdown = size.sizeBreakdown;
+    const json = JSON.stringify(packedFile);
     assetRuntime().parseAssetFile(json);
-    packed = size < limit ? `${json}\n` : json;
+    packed = size.bytes < limit ? `${json}\n` : json;
+    if (size.bytes < limit) sizeBreakdown.scene++;
   }
   writeOutput(destination, packed, flags.force);
-  return { ok: true, file: destination, bytes: Buffer.byteLength(packed), format, ...describe(asset), ...bundleInfo,
+  return { ok: true, file: destination, bytes: Buffer.byteLength(packed), sizeBreakdown, format,
+    ...describe(assetRuntime().selectArtboard(packedFile, flags.artboard)), ...bundleInfo,
     next: 'skac asset preview <file.skmotion>',
   };
 }

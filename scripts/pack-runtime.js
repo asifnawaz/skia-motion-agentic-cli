@@ -5,8 +5,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const runtimePackage = join(root, 'packages/runtime');
 const { private: _private, ...definition } = JSON.parse(
-  readFileSync(join(root, 'packages/runtime/package.json'), 'utf8'),
+  readFileSync(join(runtimePackage, 'package.json'), 'utf8'),
 );
 
 /** Pack the same TypeScript sources as the CLI runtime, with an app-only manifest. */
@@ -29,6 +30,7 @@ export function packRuntime(destination, expectedVersion) {
       peerDependencies: { ...cli.peerDependencies, ...definition.peerDependencies },
     };
     writeFileSync(join(stage, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
+    copyFileSync(join(runtimePackage, 'README.md'), join(stage, 'README.md'));
     for (const file of manifest.files) {
       const destination = join(stage, file);
       mkdirSync(dirname(destination), { recursive: true });

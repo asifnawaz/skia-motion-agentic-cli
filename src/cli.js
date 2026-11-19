@@ -24,8 +24,8 @@ import { CliError, errorDoc, fail, toJson } from './util.js';
 const SPEC = {
   bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced', 'text-layout'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
-    'search', 'as', 'trace', 'artboard', 'format', 'export', 'entry', 'root', 'out-dir', 'gl'],
-  list: ['docs-dir'],
+    'search', 'as', 'trace', 'artboard', 'format', 'fonts', 'export', 'entry', 'root', 'out-dir', 'gl'],
+  list: ['docs-dir', 'font'],
 };
 
 // What the blind-mode commands in blind.js compose; unit tests pass stubs instead.

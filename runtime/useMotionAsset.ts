@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { preloadMotionAsset, type LoadedMotionAsset, type MotionPrepareOptions } from './asset-load';
-import type { AssetImages } from './asset-draw';
 import type { MotionAssetData } from './asset-binary';
 
 export type MotionAssetSource = MotionAssetData | { uri: string } | {
@@ -23,20 +22,20 @@ type CacheEntry = {
 
 // Cache prepared resources while subscribers own them. Each player creates its own machine snapshot.
 const cache = new Map<string, CacheEntry>();
-const imageIds = new WeakMap<object, number>();
+const slotIds = new WeakMap<object, number>();
 const byteIds = new WeakMap<Uint8Array, number>();
-let nextImageId = 0;
+let nextSlotId = 0;
 let nextByteId = 0;
 const idle = { status: 'idle', asset: null, error: null } as const;
 const loading = { status: 'loading', asset: null, error: null } as const;
 
-function slotKey(images: AssetImages | undefined) {
-  return Object.keys(images ?? {}).sort().map((name) => {
-    const image = images![name]!;
-    let id = imageIds.get(image);
+function slotKey(slots: Readonly<Record<string, object>> | undefined) {
+  return Object.keys(slots ?? {}).sort().map((name) => {
+    const resource = slots![name]!;
+    let id = slotIds.get(resource);
     if (id === undefined) {
-      id = nextImageId++;
-      imageIds.set(image, id);
+      id = nextSlotId++;
+      slotIds.set(resource, id);
     }
     return [name, id];
   });
@@ -83,15 +82,15 @@ function retain(key: string, source: MotionAssetSource, options: MotionAssetOpti
 
 /** Asynchronously load and share an asset. For Expo module IDs use the /expo entry point. */
 export function useMotionAsset(source?: MotionAssetSource | null, options: MotionAssetOptions = {}): MotionAssetResult {
-  const { uploadImages = false, artboard, imageSlots, palette } = options;
+  const { uploadImages = false, artboard, imageSlots, fontSlots, palette } = options;
   const kind = source == null ? undefined : typeof source === 'string' ? 'text'
     : source instanceof Uint8Array ? 'bytes' : 'uri' in source ? 'uri' : 'custom';
   const id = source == null || typeof source === 'string' ? source
     : source instanceof Uint8Array ? byteId(source) : 'uri' in source ? source.uri : source.key;
   const key = useMemo(() => kind === undefined ? undefined : JSON.stringify([
-    kind, id, uploadImages, artboard, slotKey(imageSlots),
+    kind, id, uploadImages, artboard, slotKey(imageSlots), slotKey(fontSlots),
     Object.keys(palette ?? {}).sort().map((name) => [name, palette![name]]),
-  ]), [kind, id, uploadImages, artboard, imageSlots, palette]);
+  ]), [kind, id, uploadImages, artboard, imageSlots, fontSlots, palette]);
   const [state, setState] = useState<{ key: string; result: MotionAssetResult }>();
   useEffect(() => {
     setState((previous) => previous?.key === key ? previous : undefined);

@@ -39,7 +39,8 @@ export function applyDefaultFont(file) {
   if (!boards.some(({ artboard }) => needsFont(artboard.nodes))) return file;
 
   const { uri, license } = fontResource();
-  const reserved = new Set([file, ...boards].flatMap(({ fonts }) => Object.keys(fonts ?? {}).map((name) => name.toLowerCase())));
+  const reserved = new Set([file, ...boards].flatMap(({ fonts, fontSlots }) =>
+    [...Object.keys(fonts ?? {}), ...Object.keys(fontSlots ?? {})].map((name) => name.toLowerCase())));
   let name = 'SkacAllo';
   for (let suffix = 2; reserved.has(name.toLowerCase()); suffix++) name = `SkacAllo${suffix}`;
   const withFont = (board) => ({
