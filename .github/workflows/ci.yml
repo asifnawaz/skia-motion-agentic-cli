@@ -31,6 +31,10 @@ jobs:
             case "$path" in
               .github/workflows/*|.releaserc.json|README.md|docs/README.md|packages/runtime/package.json|scripts/pack-runtime.js|test/unit/*)
                 ;;
+              # Packed assets use the unit suite. Shared runtime and CLI files still run video tests.
+              runtime/asset.ts|runtime/asset-*.ts|runtime/base64.ts|runtime/expo.ts|runtime/expo-audio.ts|\
+              runtime/mobile.tsx|runtime/useMotionAsset.ts|templates/assets/*)
+                ;;
               *)
                 printf '%s\n' 'render=true' >> "$GITHUB_OUTPUT"
                 exit 0
