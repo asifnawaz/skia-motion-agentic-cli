@@ -1,3 +1,10 @@
+# [3.3.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.2.0...v3.3.0) (2026-11-19)
+
+
+### Features
+
+* reuse app fonts in packed motion assets ([2283c7f](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/2283c7f0152c5a51d46cba45b1b517aa2a2ee1f6))
+
 # [3.2.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.1.1...v3.2.0) (2026-11-19)
 
 
