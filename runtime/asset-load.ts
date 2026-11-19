@@ -1,6 +1,6 @@
 import type { SkImage } from 'react-native-skia';
 import { assetClips, bindAssetPalette, parseDrawableAsset, type MotionAsset } from './asset';
-import { resourceDataUri, type MotionAssetData } from './asset-binary';
+import { resourceDataUri, type MotionAssetData, type ResourceBytes } from './asset-binary';
 import { decodeAssetImages, prepareAssetDrawing, rebindAssetMeshShaders, type AssetImages, type DrawableAsset } from './asset-draw';
 
 let nextAssetKey = 0;
@@ -22,6 +22,11 @@ export type MotionPrepareOptions = { artboard?: string; imageSlots?: AssetImages
 export function loadMotionAsset(source: MotionAssetData, { artboard, imageSlots, palette }: MotionPrepareOptions = {}): LoadedMotionAsset {
   const asset = bindAssetPalette(parseDrawableAsset(source, artboard), palette);
   const images = decodeAssetImages(asset, imageSlots);
+  let audio: LoadedMotionAsset['audio'];
+  if (asset.audio) {
+    const uris = new Map<ResourceBytes, string>();
+    audio = Object.fromEntries(Object.entries(asset.audio).map(([name, resource]) => [name, resourceDataUri(resource, uris)]));
+  }
   return {
     key: nextAssetKey++,
     machine: asset.machine,
@@ -30,7 +35,7 @@ export function loadMotionAsset(source: MotionAssetData, { artboard, imageSlots,
     images,
     clips: assetClips(asset),
     semantics: asset.semantics,
-    audio: asset.audio && Object.fromEntries(Object.entries(asset.audio).map(([name, resource]) => [name, resourceDataUri(resource)])),
+    audio,
   };
 }
 

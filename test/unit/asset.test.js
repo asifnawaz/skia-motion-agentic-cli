@@ -166,6 +166,34 @@ test('binary bundles deduplicate media and round trip through the CLI without ch
   reject(Buffer.concat([header, badManifest, bytes.subarray(manifestEnd)]), /unknown resource index/);
 });
 
+test('binary packing shares decoded audio bytes across noncanonical Base64 aliases', () => {
+  const { file, run } = fixture('game-hud');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const payload = Buffer.alloc(540_001, 0);
+  const canonical = payload.toString('base64');
+  const alias = canonical.slice(0, -3) + 'P==';
+  assert.notEqual(alias, canonical);
+  assert.deepEqual(Buffer.from(alias, 'base64'), payload);
+  scene.audio = {
+    first: `data:audio/wav;base64,${canonical}`,
+    second: `data:audio/wav;base64,${alias}`,
+    wav: 'data:audio/wav;base64,AA==',
+    aac: 'data:audio/aac;base64,AA==',
+    different: 'data:audio/wav;base64,AQ==',
+  };
+  write(file, JSON.stringify(scene));
+
+  const packed = run('pack', file, '--format=binary');
+  const bytes = readFileSync(packed.file);
+  const manifest = JSON.parse(bytes.toString('utf8', 12, 12 + bytes.readUInt32LE(8)));
+  const { first, second, wav, aac, different } = manifest.asset.audio;
+  assert.equal(first, second);
+  assert.equal(new Set([first, wav, aac, different]).size, 4);
+  assert.equal(manifest.resources.length, 4);
+  const unpacked = JSON.parse(readFileSync(run('unpack', packed.file).file, 'utf8'));
+  assert.deepEqual(unpacked.audio, { ...scene.audio, second: scene.audio.first });
+});
+
 test('artboard bundles pack every board and expose bound text, semantics, audio and declarations', () => {
   const { file, cwd, run } = fixture('sprout');
   const visual = JSON.parse(readFileSync(file, 'utf8'));

@@ -63,8 +63,13 @@ export function mapFileResources(value: unknown, map: (value: unknown) => unknow
   return file;
 }
 
-export function resourceDataUri(resource: AssetResource): string {
-  return typeof resource === 'string' ? resource : `data:${resource.mime};base64,${encodeBase64(resource.bytes)}`;
+export function resourceDataUri(resource: AssetResource, cache?: Map<ResourceBytes, string>): string {
+  if (typeof resource === 'string') return resource;
+  const cached = cache?.get(resource);
+  if (cached !== undefined) return cached;
+  const uri = `data:${resource.mime};base64,${encodeBase64(resource.bytes)}`;
+  cache?.set(resource, uri);
+  return uri;
 }
 
 export function decodeBinaryAsset(bytes: Uint8Array, parseJSON: (text: string) => unknown): unknown {
@@ -99,18 +104,31 @@ export function decodeBinaryAsset(bytes: Uint8Array, parseJSON: (text: string) =
 
 /** The authoring CLI writes a validated legacy scene into an SKMO container. */
 export function encodeBinaryAsset(file: unknown, encodeText: (text: string) => Uint8Array, limit: number): Uint8Array {
-  const indices = new Map<string, number>();
+  const uriIndices = new Map<string, number>();
+  const payloadIndices = new Map<string, number[]>();
   const payload: ResourceBytes[] = [];
   const asset = mapFileResources(file, (resource) => {
     if (typeof resource !== 'string') invalid('expected a data URI to pack');
-    const existing = indices.get(resource);
-    if (existing !== undefined) return existing;
+    const known = uriIndices.get(resource);
+    if (known !== undefined) return known;
     const header = /^data:([^;,]+);base64,/.exec(resource);
     if (!header || !RESOURCE_MIMES.has(header[1]!)) invalid('unsupported resource type');
-    const index = payload.length;
-    if (index >= MAX_RESOURCES) invalid('too many resources');
-    indices.set(resource, index);
-    payload.push({ mime: header[1]!, bytes: decodeBase64(resource.slice(header[0].length)) });
+    const mime = header[1]!;
+    const bytes = decodeBase64(resource.slice(header[0].length));
+    // Use FNV-1a to narrow candidates, then compare every byte before reusing an entry.
+    let hash = 2166136261;
+    for (const byte of bytes) hash = Math.imul(hash ^ byte, 16777619);
+    const key = `${mime}:${bytes.length}:${hash}`;
+    const candidates = payloadIndices.get(key) ?? [];
+    let index = candidates.find((candidate) => bytes.every((byte, i) => byte === payload[candidate]!.bytes[i]));
+    if (index === undefined) {
+      index = payload.length;
+      if (index >= MAX_RESOURCES) invalid('too many resources');
+      payload.push({ mime, bytes });
+      candidates.push(index);
+      payloadIndices.set(key, candidates);
+    }
+    uriIndices.set(resource, index);
     return index;
   });
   const manifest = encodeText(JSON.stringify({ asset, resources: payload.map(({ mime, bytes }) => [mime, bytes.length]) }));

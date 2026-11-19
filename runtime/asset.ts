@@ -4,7 +4,7 @@ import type { Clips, Machine, StateEntry } from '../templates/motion/machine';
 import type { AssetAnchor } from './asset-layout';
 import { imageSize } from './asset-image';
 import { decodeBase64 } from './base64';
-import { decodeAssetText, decodeBinaryAsset, isBinaryAsset, isResourceBytes, mapFileResources, resourceDataUri, type AssetResource, type MotionAssetData } from './asset-binary';
+import { decodeAssetText, decodeBinaryAsset, isBinaryAsset, isResourceBytes, mapFileResources, resourceDataUri, type AssetResource, type MotionAssetData, type ResourceBytes } from './asset-binary';
 import type { MeshNode, MeshVertex } from './asset-mesh';
 
 export const ASSET_SCHEMA = 'skac.asset/1';
@@ -534,15 +534,8 @@ function validateAsset(value: unknown): DrawableMotionAsset {
 export function parseAssetFile(source: MotionAssetData): MotionAssetFile {
   const file = parseDrawableFile(source);
   if (typeof source === 'string' || !isBinaryAsset(source)) return file as MotionAssetFile;
-  const uris = new Map<AssetResource, string>();
-  return mapFileResources(file, (value) => {
-    const resource = value as AssetResource;
-    const existing = uris.get(resource);
-    if (existing !== undefined) return existing;
-    const uri = resourceDataUri(resource);
-    uris.set(resource, uri);
-    return uri;
-  }) as MotionAssetFile;
+  const uris = new Map<ResourceBytes, string>();
+  return mapFileResources(file, (value) => resourceDataUri(value as AssetResource, uris)) as MotionAssetFile;
 }
 
 /** The CLI may prune unused resources before enforcing the shipped limit. */
