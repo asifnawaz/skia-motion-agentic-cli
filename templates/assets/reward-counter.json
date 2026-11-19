@@ -1,0 +1,52 @@
+{
+  "schema": "skac.asset/1",
+  "name": "RewardCounter",
+  "artboard": {
+    "width": 280,
+    "height": 114,
+    "nodes": [
+      {"kind": "roundRect", "x": 2, "y": 2, "width": 276, "height": 110, "radius": 20, "fill": "#34214C"},
+      {"kind": "roundRect", "x": 3, "y": 3, "width": 274, "height": 108, "radius": 19, "fill": "#241633"},
+      {"kind": "text", "text": "REWARD", "x": 20, "y": 13, "width": 240, "fontSize": 12, "align": "center", "fill": "#D9B8F2"},
+      {
+        "kind": "group", "x": 140, "y": 65, "scaleX": "landScale", "scaleY": "landScale",
+        "children": [
+          {"kind": "roundRect", "x": -107, "y": -24, "width": 214, "height": 48, "radius": 12, "fill": "#452B60"},
+          {"kind": "roundRect", "x": -107, "y": -24, "width": 214, "height": 48, "radius": 12, "fill": "#84569E", "opacity": "landGlow"},
+          {"kind": "text", "text": {"value": "xpLabel"}, "x": -96, "y": -20, "width": 192, "fontSize": 31, "maxLines": 1, "align": "center", "fill": "#FFF4CA"}
+        ]
+      }
+    ]
+  },
+  "channels": {"landScale": 1, "landGlow": 0},
+  "clips": {
+    "rest": {"ms": 0, "tracks": {"landScale": [[0, 1]], "landGlow": [[0, 0]]}},
+    "pulse": {
+      "ms": 280,
+      "reducedAt": 280,
+      "tracks": {
+        "landScale": [[0, 1], [85, 1.075, "out"], [280, 1, "inOut"]],
+        "landGlow": [[0, 0], [85, 0.75, "out"], [280, 0, "inOut"]]
+      }
+    }
+  },
+  "machine": {
+    "schema": "skac.machine/1",
+    "values": {
+      "xpLabel": {"type": "string", "default": "+0 XP"},
+      "land": {"type": "trigger"}
+    },
+    "layers": [
+      {
+        "name": "reward",
+        "entry": "idle",
+        "states": {"idle": {"clip": "rest"}, "landing": {"clip": "pulse"}},
+        "transitions": [
+          {"from": "idle", "to": "landing", "when": [["land"]]},
+          {"from": "landing", "to": "idle", "exit_at": 1}
+        ]
+      }
+    ]
+  },
+  "markers": [{"name": "rewardLanded", "layer": "reward", "state": "landing"}]
+}

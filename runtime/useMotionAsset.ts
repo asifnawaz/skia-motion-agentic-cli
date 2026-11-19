@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { preloadMotionAsset, type LoadedMotionAsset, type MotionPrepareOptions } from './asset-load';
 import type { AssetImages } from './asset-draw';
+import type { MotionAssetData } from './asset-binary';
 
-export type MotionAssetSource = string | { uri: string } | {
+export type MotionAssetSource = MotionAssetData | { uri: string } | {
   /** Stable identity for a custom loader. Change it when the source changes. */
   key: string;
-  read: (signal: AbortSignal) => Promise<string>;
+  read: (signal: AbortSignal) => Promise<MotionAssetData>;
 };
 export type MotionAssetOptions = MotionPrepareOptions & { uploadImages?: boolean };
 type Failure = { status: 'error'; asset: null; error: Error };
@@ -23,7 +24,9 @@ type CacheEntry = {
 // Cache prepared resources while subscribers own them. Each player creates its own machine snapshot.
 const cache = new Map<string, CacheEntry>();
 const imageIds = new WeakMap<object, number>();
+const byteIds = new WeakMap<Uint8Array, number>();
 let nextImageId = 0;
+let nextByteId = 0;
 const idle = { status: 'idle', asset: null, error: null } as const;
 const loading = { status: 'loading', asset: null, error: null } as const;
 
@@ -40,11 +43,20 @@ function slotKey(images: AssetImages | undefined) {
 }
 
 async function readSource(source: MotionAssetSource, signal: AbortSignal) {
-  if (typeof source === 'string') return source;
+  if (typeof source === 'string' || source instanceof Uint8Array) return source;
   if ('read' in source) return source.read(signal);
   const response = await fetch(source.uri, { signal });
   if (!response.ok) throw new Error(`Unable to load motion asset (HTTP ${response.status})`);
-  return response.text();
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function byteId(bytes: Uint8Array) {
+  let id = byteIds.get(bytes);
+  if (id === undefined) {
+    id = nextByteId++;
+    byteIds.set(bytes, id);
+  }
+  return id;
 }
 
 function retain(key: string, source: MotionAssetSource, options: MotionAssetOptions) {
@@ -54,9 +66,9 @@ function retain(key: string, source: MotionAssetSource, options: MotionAssetOpti
     const signal = controller.signal;
     const promise = Promise.resolve().then(async () => {
       if (signal.aborted) throw new Error('Motion asset load cancelled');
-      const text = await readSource(source, signal);
+      const data = await readSource(source, signal);
       if (signal.aborted) throw new Error('Motion asset load cancelled');
-      return preloadMotionAsset(text, options);
+      return preloadMotionAsset(data, options);
     });
     entry = { promise, controller, users: 0 };
     const created = entry;
@@ -72,8 +84,10 @@ function retain(key: string, source: MotionAssetSource, options: MotionAssetOpti
 /** Asynchronously load and share an asset. For Expo module IDs use the /expo entry point. */
 export function useMotionAsset(source?: MotionAssetSource | null, options: MotionAssetOptions = {}): MotionAssetResult {
   const { uploadImages = false, artboard, imageSlots, palette } = options;
-  const kind = source == null ? undefined : typeof source === 'string' ? 'text' : 'uri' in source ? 'uri' : 'custom';
-  const id = typeof source === 'string' ? source : source == null ? undefined : 'uri' in source ? source.uri : source.key;
+  const kind = source == null ? undefined : typeof source === 'string' ? 'text'
+    : source instanceof Uint8Array ? 'bytes' : 'uri' in source ? 'uri' : 'custom';
+  const id = source == null || typeof source === 'string' ? source
+    : source instanceof Uint8Array ? byteId(source) : 'uri' in source ? source.uri : source.key;
   const key = useMemo(() => kind === undefined ? undefined : JSON.stringify([
     kind, id, uploadImages, artboard, slotKey(imageSlots),
     Object.keys(palette ?? {}).sort().map((name) => [name, palette![name]]),

@@ -2,7 +2,8 @@ import {
   BlendMode, BlurStyle, ClipOp, FilterMode, MipmapMode, PaintStyle, Skia, StrokeCap, StrokeJoin, TextAlign, TextDirection, TileMode, VertexMode,
   type SkCanvas, type SkData, type SkImage, type SkPaint, type SkParagraph, type SkPath, type SkShader, type SkTypeface, type SkTypefaceFontProvider,
 } from 'react-native-skia';
-import { MAX_FEATHER, resolveAssetColor, usedAssetImages, type AssetNode, type AssetStroke, type AssetTextNode, type MotionAsset, type PathCommand } from './asset';
+import { MAX_FEATHER, resolveAssetColor, usedAssetImages, type AssetNode, type AssetStroke, type AssetTextNode, type DrawableMotionAsset, type MotionAsset, type PathCommand } from './asset';
+import type { AssetResource } from './asset-binary';
 import { fitAsset, fittedAnchorOffset, type AssetLayoutOptions } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshNode, type MeshPin } from './asset-mesh';
 
@@ -37,8 +38,15 @@ export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
 export type AssetImages = Readonly<Record<string, SkImage>>;
 export type AssetMeshShaders = Readonly<Record<string, SkShader>>;
 
+function skiaData(resource: AssetResource): SkData {
+  if (typeof resource === 'string') return Skia.Data.fromBase64(resource.slice(resource.indexOf(',') + 1));
+  const { bytes } = resource;
+  // Skia v3 reads the whole backing buffer. Give it only this resource.
+  return Skia.Data.fromBytes(bytes.byteOffset === 0 && bytes.length === bytes.buffer.byteLength ? bytes : new Uint8Array(bytes));
+}
+
 /** Decode on the JS thread once per loaded file. Only the native images enter the UI worklet. */
-export function decodeAssetImages(asset: MotionAsset, slots: AssetImages = {}): AssetImages {
+export function decodeAssetImages(asset: DrawableMotionAsset, slots: AssetImages = {}): AssetImages {
   for (const name of Object.keys(slots)) {
     if (!asset.imageSlots || !Object.hasOwn(asset.imageSlots, name)) throw new Error(`Unknown motion image slot "${name}"`);
   }
@@ -48,18 +56,18 @@ export function decodeAssetImages(asset: MotionAsset, slots: AssetImages = {}): 
     MakeFromEncoded?: (data: SkData) => SkImage | null;
     MakeImageFromEncoded?: (data: SkData) => SkImage | null;
   };
-  const byUri = new Map<string, SkImage>();
+  const byResource = new Map<AssetResource, SkImage>();
   const embedded = asset.images;
   const used = usedAssetImages(asset.artboard.nodes);
   return Object.fromEntries(Array.from(used, (name) => {
     if (Object.hasOwn(slots, name)) return [name, slots[name]!];
-    const uri = embedded[asset.imageSlots?.[name] ?? name]!;
-    const previous = byUri.get(uri);
+    const resource = embedded[asset.imageSlots?.[name] ?? name]!;
+    const previous = byResource.get(resource);
     if (previous) return [name, previous];
-    const data = Skia.Data.fromBase64(uri.slice(uri.indexOf(',') + 1));
+    const data = skiaData(resource);
     const image = factory.MakeFromEncoded ? factory.MakeFromEncoded(data) : factory.MakeImageFromEncoded?.(data);
     if (!image) throw new Error(`images.${name}: could not decode the embedded image`);
-    byUri.set(uri, image);
+    byResource.set(resource, image);
     return [name, image];
   }));
 }
@@ -192,20 +200,26 @@ function prepareNode(
 }
 
 /** Build fixed geometry and paints once. Channel-driven paths and clips are still evaluated for each pose. */
-export function prepareAssetDrawing(asset: MotionAsset, images: AssetImages = {}): DrawableAsset {
+export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetImages = {}): DrawableAsset {
   const shaders: Record<string, SkShader> = {};
   const shadersByImage = new Map<SkImage, SkShader>();
   let fontProvider: SkTypefaceFontProvider | undefined;
-  for (const [name, uri] of Object.entries(asset.fonts ?? {})) {
+  const typefaces = new Map<AssetResource, SkTypeface>();
+  for (const [name, resource] of Object.entries(asset.fonts ?? {})) {
     fontProvider ??= Skia.TypefaceFontProvider.Make();
-    const data = Skia.Data.fromBase64(uri.slice(uri.indexOf(',') + 1));
-    // Match the renamed factory while retaining the Skia 3.0 peer floor.
-    const factory = Skia.Typeface as {
-      MakeFromData?: (data: SkData) => SkTypeface | null;
-      MakeFreeTypeFaceFromData?: (data: SkData) => SkTypeface | null;
-    };
-    const typeface = factory.MakeFromData ? factory.MakeFromData(data) : factory.MakeFreeTypeFaceFromData?.(data);
-    if (!typeface) throw new Error(`fonts.${name}: Skia could not decode the font`);
+    let typeface = typefaces.get(resource);
+    if (!typeface) {
+      const data = skiaData(resource);
+      // Match the renamed factory while retaining the Skia 3.0 peer floor.
+      const factory = Skia.Typeface as {
+        MakeFromData?: (data: SkData) => SkTypeface | null;
+        MakeFreeTypeFaceFromData?: (data: SkData) => SkTypeface | null;
+      };
+      const decoded = factory.MakeFromData ? factory.MakeFromData(data) : factory.MakeFreeTypeFaceFromData?.(data);
+      if (!decoded) throw new Error(`fonts.${name}: Skia could not decode the font`);
+      typefaces.set(resource, decoded);
+      typeface = decoded;
+    }
     fontProvider.registerFont(typeface, name);
   }
   const textBindings = new Set<string>();

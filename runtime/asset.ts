@@ -4,12 +4,13 @@ import type { Clips, Machine, StateEntry } from '../templates/motion/machine';
 import type { AssetAnchor } from './asset-layout';
 import { imageSize } from './asset-image';
 import { decodeBase64 } from './base64';
+import { decodeAssetText, decodeBinaryAsset, isBinaryAsset, isResourceBytes, mapFileResources, resourceDataUri, type AssetResource, type MotionAssetData, type ResourceBytes } from './asset-binary';
 import type { MeshNode, MeshVertex } from './asset-mesh';
 
 export const ASSET_SCHEMA = 'skac.asset/1';
 export const ASSET_BUNDLE_SCHEMA = 'skac.bundle/1';
 export const MAX_ASSET_BYTES = 1024 * 1024;
-const MAX_ASSET_SOURCE_BYTES = 8 * MAX_ASSET_BYTES;
+export const MAX_ASSET_SOURCE_BYTES = 8 * MAX_ASSET_BYTES;
 export const MAX_FEATHER = 64;
 
 export type Scalar = number | string;
@@ -63,31 +64,32 @@ export type AssetNode = Group | Shape | ImageNode | MeshNode | AssetTextNode;
 export type AssetMarker = { name: string; layer: string; state: string; audio?: string };
 export type AssetMarkerEvent = AssetMarker & { at: number };
 export type AssetAttachment = { from: string; to: string; maxDistance: number };
-export type MotionAsset<M extends Machine = Machine> = {
+export type MotionAsset<M extends Machine = Machine, R extends AssetResource = string> = {
   schema: typeof ASSET_SCHEMA;
   name: string;
   artboard: { width: number; height: number; nodes: readonly AssetNode[] };
   channels: Readonly<Record<string, number>>;
-  images?: Readonly<Record<string, string>>;
+  images?: Readonly<Record<string, R>>;
   imageSlots?: Readonly<Record<string, string>>;
   palette?: Readonly<Record<string, string>>;
-  fonts?: Readonly<Record<string, string>>;
+  fonts?: Readonly<Record<string, R>>;
   fontLicenses?: Readonly<Record<string, string>>;
-  audio?: Readonly<Record<string, string>>;
+  audio?: Readonly<Record<string, R>>;
   semantics?: readonly AssetSemantic[];
   clips: Readonly<Record<string, { ms: number; reducedAt?: number; tracks: Readonly<Record<string, Track>> }>>;
   machine: M;
   markers?: readonly AssetMarker[];
   attachments?: readonly AssetAttachment[];
 };
-export type MotionAssetFile = MotionAsset | {
+export type DrawableMotionAsset = MotionAsset<Machine, AssetResource>;
+export type MotionAssetFile<R extends AssetResource = string> = MotionAsset<Machine, R> | {
   schema: typeof ASSET_BUNDLE_SCHEMA;
   name: string;
   defaultArtboard: string;
-  artboards: Readonly<Record<string, MotionAsset>>;
-  fonts?: MotionAsset['fonts'];
+  artboards: Readonly<Record<string, MotionAsset<Machine, R>>>;
+  fonts?: MotionAsset<Machine, R>['fonts'];
   fontLicenses?: MotionAsset['fontLicenses'];
-  audio?: MotionAsset['audio'];
+  audio?: MotionAsset<Machine, R>['audio'];
 };
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
@@ -202,6 +204,11 @@ function resourceMap(value: unknown, at: string, pattern: RegExp) {
   for (const [name, uri] of Object.entries(resources)) {
     const key = `${at}.${name}`;
     identifier(name, key);
+    if (isResourceBytes(uri)) {
+      if (!pattern.test(`data:${uri.mime};base64,AAAA`)) invalid(key, 'invalid embedded resource media type');
+      if (pattern === FONT_URI && !hasFontHeader(uri.bytes)) invalid(key, 'expected a TTF or OTF font header');
+      continue;
+    }
     const match = typeof uri === 'string' ? pattern.exec(uri) : null;
     if (!match || match[0] !== uri || match[2]!.length % 4 !== 0) invalid(key, 'expected an embedded base64 data URI');
     if (pattern === FONT_URI) {
@@ -384,7 +391,7 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
   colors.forEach((item, i) => color(item, `${at}.fill.colors[${i}]`));
 }
 
-function validateAsset(value: unknown): MotionAsset {
+function validateAsset(value: unknown): DrawableMotionAsset {
   const data = record(value, 'asset', [
     'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'palette', 'attachments', 'fonts', 'fontLicenses', 'audio', 'semantics',
   ]);
@@ -503,7 +510,7 @@ function validateAsset(value: unknown): MotionAsset {
     const { where, error, hint } = checked.problems[0]!;
     invalid(where ? `machine.${where}` : 'machine', `${error}. ${hint}`);
   }
-  const typed = data as MotionAsset;
+  const typed = data as DrawableMotionAsset;
   const names = new Set();
   if (data.markers !== undefined) {
     list(data.markers, 'markers', 256).forEach((item, i) => {
@@ -523,36 +530,53 @@ function validateAsset(value: unknown): MotionAsset {
   return typed;
 }
 
-/** Decode the same data file on a React Native JS thread and in the CLI. */
-export function parseAssetFile(text: string): MotionAssetFile {
-  return parseAssetJSON(text, MAX_ASSET_BYTES);
+/** Read the portable scene as editable JSON-compatible data. */
+export function parseAssetFile(source: MotionAssetData): MotionAssetFile {
+  const file = parseDrawableFile(source);
+  if (typeof source === 'string' || !isBinaryAsset(source)) return file as MotionAssetFile;
+  const uris = new Map<ResourceBytes, string>();
+  return mapFileResources(file, (value) => resourceDataUri(value as AssetResource, uris)) as MotionAssetFile;
 }
 
 /** The CLI may prune unused resources before enforcing the shipped limit. */
 export function parseAssetSource(text: string): MotionAssetFile {
-  return parseAssetJSON(text, MAX_ASSET_SOURCE_BYTES);
+  return parseAssetText(text, MAX_ASSET_SOURCE_BYTES) as MotionAssetFile;
 }
 
-function parseAssetJSON(text: string, limit: number): MotionAssetFile {
+function parseDrawableFile(source: MotionAssetData): MotionAssetFile<AssetResource> {
+  if (typeof source === 'string') return parseAssetText(source, MAX_ASSET_BYTES);
+  if (!(source instanceof Uint8Array) || source.length > MAX_ASSET_BYTES) invalid('asset', 'expected an asset of at most 1 MiB');
+  if (isBinaryAsset(source)) return validateAssetFile(decodeBinaryAsset(source, parseJSON));
+  return validateAssetFile(parseJSON(decodeAssetText(source)));
+}
+
+function parseAssetText(text: string, limit: number): MotionAssetFile<AssetResource> {
   const message = `expected a JSON asset of at most ${limit / MAX_ASSET_BYTES} MiB`;
   if (typeof text !== 'string' || text.length > limit) invalid('asset', message);
   const bytes = encodeURI(text).replace(/%[0-9A-F]{2}/g, 'x').length;
   if (bytes > limit) invalid('asset', message);
-  const decoded: unknown = JSON.parse(text, (key, value: unknown) => {
+  return validateAssetFile(parseJSON(text));
+}
+
+function parseJSON(text: string): unknown {
+  return JSON.parse(text, (key, value: unknown) => {
     if (RESERVED_KEYS.has(key)) invalid(key, 'reserved field name');
     if (typeof value === 'number' && !Number.isFinite(value)) invalid(key, 'expected a finite number');
     return value;
   });
+}
+
+function validateAssetFile(decoded: unknown): MotionAssetFile<AssetResource> {
   const file = record(decoded, 'asset');
   if (file.schema !== ASSET_BUNDLE_SCHEMA) return validateAsset(file);
   record(file, 'bundle', ['schema', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontLicenses', 'audio']);
   const name = identifier(file.name, 'bundle.name');
   const defaultArtboard = identifier(file.defaultArtboard, 'bundle.defaultArtboard');
   const artboards = record(file.artboards, 'bundle.artboards');
-  const fonts = resourceMap(file.fonts, 'bundle.fonts', FONT_URI) as NonNullable<MotionAsset['fonts']>;
+  const fonts = resourceMap(file.fonts, 'bundle.fonts', FONT_URI) as NonNullable<DrawableMotionAsset['fonts']>;
   checkFontLicenses(file.fontLicenses, fonts, 'bundle.fontLicenses');
   const fontLicenses = file.fontLicenses as MotionAsset['fontLicenses'];
-  const audio = resourceMap(file.audio, 'bundle.audio', AUDIO_URI) as NonNullable<MotionAsset['audio']>;
+  const audio = resourceMap(file.audio, 'bundle.audio', AUDIO_URI) as NonNullable<DrawableMotionAsset['audio']>;
   const entries = Object.entries(artboards);
   if (entries.length < 1 || entries.length > 16) invalid('bundle.artboards', 'expected one to sixteen artboards');
   if (!Object.hasOwn(artboards, defaultArtboard)) invalid('bundle.defaultArtboard', 'unknown artboard');
@@ -572,7 +596,7 @@ function parseAssetJSON(text: string, limit: number): MotionAssetFile {
           ...board, fonts: { ...fonts, ...localFonts },
           fontLicenses: { ...fontLicenses, ...localLicenses }, audio: { ...audio, ...localAudio },
         });
-        return [key, board as MotionAsset];
+        return [key, board as DrawableMotionAsset];
       } catch (error) {
         invalid(`bundle.artboards.${key}`, (error as Error).message);
       }
@@ -580,7 +604,7 @@ function parseAssetJSON(text: string, limit: number): MotionAssetFile {
   };
 }
 
-export function selectArtboard(file: MotionAssetFile, artboard?: string): MotionAsset {
+export function selectArtboard<R extends AssetResource>(file: MotionAssetFile<R>, artboard?: string): MotionAsset<Machine, R> {
   if (file.schema === ASSET_SCHEMA) {
     if (artboard === undefined || artboard === file.name) return file;
     invalid('artboard', `unknown artboard "${artboard}". Available: ${file.name}`);
@@ -598,8 +622,13 @@ export function selectArtboard(file: MotionAssetFile, artboard?: string): Motion
   };
 }
 
-export function parseAsset(text: string, artboard?: string): MotionAsset {
-  return selectArtboard(parseAssetFile(text), artboard);
+export function parseAsset(source: MotionAssetData, artboard?: string): MotionAsset {
+  return selectArtboard(parseAssetFile(source), artboard);
+}
+
+/** Decode a scene for drawing and preserve encoded image and font bytes for Skia. */
+export function parseDrawableAsset(source: MotionAssetData, artboard?: string): DrawableMotionAsset {
+  return selectArtboard(parseDrawableFile(source), artboard);
 }
 
 export function resolveAssetColor(value: AssetColor, palette: Readonly<Record<string, string>>): string {
@@ -607,7 +636,7 @@ export function resolveAssetColor(value: AssetColor, palette: Readonly<Record<st
   return typeof value === 'string' ? value : palette[value.palette]!;
 }
 
-export function bindAssetPalette(asset: MotionAsset, overrides?: Readonly<Record<string, string>>): MotionAsset {
+export function bindAssetPalette<R extends AssetResource>(asset: MotionAsset<Machine, R>, overrides?: Readonly<Record<string, string>>): MotionAsset<Machine, R> {
   if (!overrides) return asset;
   for (const [name, value] of Object.entries(overrides)) {
     if (!asset.palette || !Object.hasOwn(asset.palette, name)) invalid(`palette.${name}`, 'unknown palette entry');
@@ -653,7 +682,7 @@ function trackValue(track: Track, ms: number): number {
 }
 
 /** Adapt data tracks to the existing state-machine clip interface. */
-export function assetClips(asset: MotionAsset): Clips {
+export function assetClips(asset: Pick<MotionAsset, 'clips'>): Clips {
   return Object.fromEntries(Object.entries(asset.clips).map(([name, { ms, reducedAt, tracks }]) => {
     const channels = Object.entries(tracks);
     return [name, {

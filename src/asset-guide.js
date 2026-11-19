@@ -6,11 +6,44 @@ const topics = {
       'Draw the important poses before adding in-betweens. Use a shared pivot for connected parts and hold the endpoint long enough to read.',
       'Wire game or app inputs to named states. Place visual cues on state entry. Keep score, answers, ammo and other authoritative data in the host.',
       'Run asset check, replay repeated and interrupted inputs with asset trace, then open selected asset frame SVGs and refine.',
-      'Run asset pack and pass the resulting file text to MotionPlayer from skia-motion-runtime.',
+      'Run asset pack and load the resulting file with MotionPlayer from skia-motion-runtime. See the binary guide for compact exports and app loading.',
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
-    examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample sprout'],
-    topics: ['format', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout', 'playback', 'migrate'],
+    examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout', 'playback', 'migrate'],
+  },
+  binary: {
+    steps: [
+      'Keep an editable .motion.json source. Pack with --format=binary to store embedded media as bytes and share exact duplicates.',
+      'Upgrade the runtime before shipping binary files. JSON remains the default pack format.',
+      'Check and preview the packed .skmotion file. Binary and JSON files use the same scene and state machine.',
+      'For Expo use useExpoMotionAsset. In other React Native apps, pass the file as a Uint8Array to loadMotionAsset or MotionPlayer. Read the file as bytes.',
+      'Recover editable JSON with asset unpack. If the expanded file exceeds the authoring budget, keep the binary file for playback.',
+    ],
+    commands: [
+      'skac asset pack scene.motion.json --format=binary',
+      'skac asset check scene.skmotion',
+      'skac asset preview scene.skmotion',
+      'skac asset unpack scene.skmotion --out=scene.recovered.motion.json',
+    ],
+  },
+  text: {
+    binding: { kind: 'text', text: { value: 'xpLabel' }, x: 12, y: 12, width: 140, fontSize: 30, maxLines: 1, fill: '#FFFFFF' },
+    machineValues: { xpLabel: { type: 'string', default: '+0 XP' } },
+    steps: [
+      'A real text node can show digits, localized labels, and punctuation. Bind text to a string machine value. Format numeric amounts in app code.',
+      'From a Reanimated worklet, call the mounted MotionPlayer handle’s setOnUI("xpLabel", label). Update when the visible count changes. From normal app code use set or setValues.',
+      'For MotionPicture in an existing Skia Canvas, supply text={{ xpLabel: label }} along with the named clip, width, height and shared timeMs. See docs app for the choice of player.',
+      'maxLines accepts 1 through 16 and defaults to 1. Native paragraphs that exceed the line budget can end in an ellipsis. Asset check does not warn about text truncation. Inspect the longest strings on device.',
+      'fontSize accepts 1 through 512 artboard points. The 1 MiB packed budget includes artwork, fonts, audio and scene data. The asset resource command accepts up to 786400 raw bytes per font or audio file.',
+      'Legacy JSON adds Base64 overhead. The default Allo Regular is 96216 raw bytes. Use an explicit embedded family for Urdu or other scripts. Font features such as tnum are not exposed by the current text schema.',
+    ],
+    commands: [
+      'skac asset sample reward-counter',
+      `skac asset trace reward-counter.motion.json --trace=0,180,420,600 --commands 'xpLabel="+18 XP"@0.15 xpLabel="+42 XP"@0.4 land@0.4'`,
+      'skac asset pack reward-counter.motion.json',
+      'skac asset preview reward-counter.skmotion',
+    ],
   },
   migrate: {
     steps: [
@@ -19,7 +52,7 @@ const topics = {
       'Replay the same commands and millisecond samples with both CLI versions. Include the first, middle, and last frame of each affected transition. Open both previews and test the exact file with the new native runtime.',
       'A sparse blend falls back to the current lower layer or authored channel default for each missing channel. Key both clips explicitly for a different resting pose, or use a zero-duration transition for an intentional cut.',
       'Replace a font with a valid TTF or OTF if asset check reports a font header error. Repack edited sources to a fresh output and compare before replacing the app asset.',
-      'If only the packed file is available, copy its JSON to a .motion.json file before editing. Assets discarded by the original pack are unavailable in that copy.',
+      'If only the packed file is available, run asset unpack to recover its .motion.json source. Assets discarded by the original pack are unavailable in that copy.',
       'Test a hidden or backgrounded MotionPlayer if host shared values drive its channels. It should hold the last sampled values while paused and catch up on resume.',
     ],
     commands: [
@@ -82,7 +115,9 @@ const topics = {
     runtime: [
       'Pass clocks={{ beat: hostTimeMs }} to MotionPlayer. The clock is a Reanimated shared value in milliseconds. A state starts its clip from the clock value at entry.',
       'Pass channels={{ progress: amount }} to MotionPlayer to sample host numeric shared values on the UI thread.',
-      'To seek a named clip from absolute local time, place MotionPicture in an existing Skia Canvas or call drawMotionClip in a canvas worklet.',
+      'Use MotionPlayer for state machines, named inputs, marker cues and semantic regions. Its view measures before drawing.',
+      'Call a mounted MotionPlayer handle’s setOnUI from a Reanimated worklet to queue a bound text or machine input update. Use set or setValues on the React Native thread.',
+      'Use MotionPicture for one named clip inside an existing Skia Canvas. Supply width, height and timeMs to begin without waiting for a separate player view to measure. Use drawMotionClip for an imperative canvas worklet.',
     ],
     commands: ['skac asset preview scene.skmotion', 'skac asset preview scene.skmotion --artboard=reward --size=360x640'],
   },

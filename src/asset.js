@@ -12,13 +12,14 @@ import { fail } from './util.js';
 
 const SAMPLES = {
   'game-hud': 'Health and ammo bindings, low-health feedback, and a reload cue',
+  'reward-counter': 'A real-text XP label with a landing pulse and reduced-motion rest pose',
   sprout: 'Mascot reactions with a host-controlled highlight',
   'versus-hud': 'Two fighter health and super meters, a round timer, and feathered hit flashes',
 };
 
 const USAGE = [
-  'skac asset guide [workflow|format|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|migrate]',
-  'skac asset sample [game-hud|sprout|versus-hud] [output.json]',
+  'skac asset guide [workflow|format|binary|text|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|migrate]',
+  'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
   'skac asset check <file> [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',
@@ -26,7 +27,8 @@ const USAGE = [
   'skac asset frame <file> --trace=250 [--size=1200x240] [--out=<frame.svg>]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--size=1200x240] [--out=<preview.html>] [--force]',
   'skac asset types <file> [--artboard=<name>] [--out=<bindings.d.ts>] [--force|--check]',
-  'skac asset pack <file> [--out=<name.skmotion>] [--force]',
+  'skac asset pack <file> [--format=json|binary] [--out=<name.skmotion>] [--force]',
+  'skac asset unpack <file.skmotion> [--out=<source.motion.json>] [--force]',
 ];
 let runtime;
 
@@ -123,20 +125,34 @@ function embedImage(path, requestedSize) {
 }
 
 function readAsset(path, authoring) {
-  let source;
+  let bytes;
   try {
-    source = readFileSync(path, 'utf8');
+    bytes = readFileSync(path);
   } catch {
     fail(`cannot read ${path}`, 'pass a JSON source or a .skmotion file');
   }
   try {
     const runtime = assetRuntime();
+    if (runtime.isBinaryAsset(bytes)) return { file: runtime.parseAssetFile(bytes), source: bytes, binary: true };
+    const source = bytes.toString('utf8');
     const file = authoring && extname(path).toLowerCase() !== '.skmotion'
       ? runtime.parseAssetSource(source) : runtime.parseAssetFile(source);
     return { file, source };
   } catch (error) {
     fail(error.message, 'see skac asset sample for an example of skac.asset/1', { file: path });
   }
+}
+
+function serializeJSON(file, limit, indent = 0) {
+  let payloadBytes = 0;
+  const metadata = assetRuntime().mapFileResources(file, (uri) => {
+    payloadBytes += uri.length;
+    return '';
+  });
+  if (payloadBytes + Buffer.byteLength(JSON.stringify(metadata, null, indent)) > limit) {
+    fail('expanded JSON exceeds the output limit', 'keep the binary asset or reduce the repeated embedded resources');
+  }
+  return JSON.stringify(file, null, indent);
 }
 
 function embedResource(path) {
@@ -243,11 +259,19 @@ export function assetCommand(args, flags, cwd) {
   }
   if (action === 'image' && input && !output) return embedImage(resolve(cwd, input), flags.size);
   if (action === 'resource' && input && !output) return embedResource(resolve(cwd, input));
-  if (!['check', 'trace', 'frame', 'pack', 'types', 'preview'].includes(action) || !input || output) {
+  if (!['check', 'trace', 'frame', 'pack', 'unpack', 'types', 'preview'].includes(action) || !input || output) {
     fail('invalid asset command', 'run skac asset for the command list');
   }
   const path = resolve(cwd, input);
-  const { file, source } = readAsset(path, action === 'pack' || action === 'check');
+  const { file, source, binary } = readAsset(path, action === 'pack' || action === 'check');
+  const stem = input.replace(/(?:\.motion)?\.json$|\.skmotion$/i, '');
+  if (action === 'unpack') {
+    const destination = resolve(cwd, flags.out ?? `${stem}.unpacked.motion.json`);
+    if (destination === path) fail('unpack output is the same file', 'use a different --out path');
+    const json = serializeJSON(file, assetRuntime().MAX_ASSET_SOURCE_BYTES - 1, 2) + '\n';
+    writeOutput(destination, json, flags.force);
+    return { ok: true, file: destination, bytes: Buffer.byteLength(json), name: file.name };
+  }
   const isBundle = file.schema === 'skac.bundle/1';
   const asset = assetRuntime().selectArtboard(file, flags.artboard);
   const bundleInfo = isBundle ? {
@@ -270,7 +294,6 @@ export function assetCommand(args, flags, cwd) {
     return { ...summary, attachments, samples: rows.length };
   }
   if (action === 'trace') return { ok: true, name: asset.name, trace: trace(asset, flags) };
-  const stem = input.replace(/(?:\.motion)?\.json$|\.skmotion$/i, '');
   if (action === 'preview') {
     const size = flags.size === undefined ? [asset.artboard.width, asset.artboard.height] : dimensions(flags.size);
     if (!size) fail('invalid preview size', 'use two dimensions from 1 to 4096, like --size=360x640');
@@ -309,17 +332,30 @@ export function assetCommand(args, flags, cwd) {
   }
   const destination = resolve(cwd, flags.out ?? `${stem}.skmotion`);
   if (destination === path) fail('source and destination are the same file', 'choose another path with --out');
+  const format = flags.format ?? 'json';
+  if (format !== 'json' && format !== 'binary') fail('unknown asset format', 'choose --format=json or --format=binary');
   const packedFile = applyDefaultFont(isBundle ? {
     ...file, artboards: Object.fromEntries(Object.entries(file.artboards).map(([name, artboard]) => [name, packArtboard(artboard)])),
   } : packArtboard(asset));
-  const json = JSON.stringify(packedFile);
-  const size = Buffer.byteLength(json);
   const limit = assetRuntime().MAX_ASSET_BYTES;
-  if (size > limit) fail('packed asset exceeds 1 MiB', 'reduce embedded resources and pack again');
-  assetRuntime().parseAssetFile(json);
-  const packed = size < limit ? `${json}\n` : json;
+  let packed;
+  if (format === 'binary') {
+    try {
+      packed = assetRuntime().encodeBinaryAsset(packedFile, (text) => Buffer.from(text, 'utf8'), limit);
+      // Inspect with the same decoder as the preview and app.
+      assetRuntime().parseAssetFile(packed);
+    } catch (error) {
+      fail(error.message, 'check embedded resources and pack again');
+    }
+  } else {
+    const json = binary ? serializeJSON(packedFile, limit) : JSON.stringify(packedFile);
+    const size = Buffer.byteLength(json);
+    if (size > limit) fail('packed asset exceeds 1 MiB', 'reduce embedded resources or pack with --format=binary');
+    assetRuntime().parseAssetFile(json);
+    packed = size < limit ? `${json}\n` : json;
+  }
   writeOutput(destination, packed, flags.force);
-  return { ok: true, file: destination, bytes: Buffer.byteLength(packed), ...describe(asset), ...bundleInfo,
+  return { ok: true, file: destination, bytes: Buffer.byteLength(packed), format, ...describe(asset), ...bundleInfo,
     next: 'skac asset preview <file.skmotion>',
   };
 }

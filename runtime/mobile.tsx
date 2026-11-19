@@ -4,6 +4,7 @@ import { AppState, Pressable, StyleSheet, View, type LayoutChangeEvent, type Vie
 import { Canvas, Picture, Skia, createPicture, type SkCanvas } from 'react-native-skia';
 import { useAnimatedReaction, useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { assetMarkerEvents, type AssetMarkerEvent, type AssetSemantic } from './asset';
+import type { MotionAssetData } from './asset-binary';
 import { drawAsset, type AssetImages, type DrawableAsset } from './asset-draw';
 import { loadMotionAsset, type LoadedMotionAsset } from './asset-load';
 import { fitAsset, type AssetLayoutOptions } from './asset-layout';
@@ -11,6 +12,7 @@ import { useMachine, type MachineHandle, type MachineInputs, type MachineValues 
 import type { Machine, Pose, StateEntry } from '../templates/motion/machine';
 
 export { parseAsset, parseAssetFile, selectArtboard, type MotionAsset, type MotionAssetFile, type AssetMarkerEvent } from './asset';
+export type { MotionAssetData } from './asset-binary';
 
 export { loadMotionAsset, preloadMotionAsset, type LoadedMotionAsset, type MotionPrepareOptions } from './asset-load';
 export { useMotionAsset, type MotionAssetOptions, type MotionAssetSource, type MotionAssetResult } from './useMotionAsset';
@@ -31,7 +33,7 @@ export type MotionPlayerProps<B extends MotionBindings = MotionBindings> = Pick<
   'accessibilityHint' | 'accessibilityValue' | 'accessibilityState' |
   'accessibilityActions' | 'onAccessibilityAction'
 > & AssetLayoutOptions & {
-  source: string | LoadedMotionAsset;
+  source: MotionAssetData | LoadedMotionAsset;
   artboard?: string;
   width?: number;
   height?: number;
@@ -232,7 +234,8 @@ function SemanticRegion({ entry, label, artboard, viewport, layout, fire }: {
 
 export const MotionPlayer = forwardRef<MotionPlayerHandle, MotionPlayerProps>(function MotionPlayer({ source, artboard, ...props }, ref) {
   // The inner hook owns one machine snapshot per loaded file. An updated file starts at t=0.
-  const loaded = useMemo(() => typeof source === 'string' ? loadMotionAsset(source, { artboard }) : source, [source, artboard]);
+  const loaded = useMemo(() => typeof source === 'string' || source instanceof Uint8Array
+    ? loadMotionAsset(source, { artboard }) : source, [source, artboard]);
   return <LoadedPlayer key={loaded.key} loaded={loaded} playerRef={ref} {...props} />;
 }) as <B extends MotionBindings = MotionBindings>(props: MotionPlayerProps<B> & RefAttributes<MotionPlayerHandle<B>>) => ReactElement;
 

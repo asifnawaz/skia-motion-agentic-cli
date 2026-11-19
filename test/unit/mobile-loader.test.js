@@ -1,13 +1,50 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { buildSync } from 'esbuild';
+import { execute } from '../../src/cli.js';
+import { tmp, write } from './helpers.js';
 
 const bundle = buildSync({
   entryPoints: [fileURLToPath(new URL('../../runtime/useMotionAsset.ts', import.meta.url))],
   bundle: true, write: false, platform: 'node', format: 'cjs', external: ['react', './asset-load'],
 }).outputFiles[0].text;
+
+test('loading binary audio encodes each shared resource once and preserves cue names', () => {
+  const { outputFiles: [{ text }] } = buildSync({
+    entryPoints: [fileURLToPath(new URL('../../runtime/asset-load.ts', import.meta.url))],
+    bundle: true, write: false, platform: 'node', format: 'cjs', external: ['./asset-draw', './base64'],
+  });
+  const encoded = [];
+  const modules = {
+    './asset-draw': { decodeAssetImages: () => ({}), prepareAssetDrawing: () => ({}) },
+    './base64': {
+      encodeBase64(bytes) {
+        const base64 = Buffer.from(bytes).toString('base64');
+        encoded.push(base64);
+        return base64;
+      },
+    },
+  };
+  const module = { exports: {} };
+  new Function('module', 'require', text)(module, (name) => modules[name]);
+
+  const cwd = tmp('binary-audio-');
+  const scene = JSON.parse(readFileSync(new URL('../../templates/assets/game-hud.json', import.meta.url), 'utf8'));
+  const cue = 'data:audio/wav;base64,UklGRgAAAABXQVZF';
+  const other = 'data:audio/aac;base64,UklGRgAAAABXQVZF';
+  scene.audio = { first: cue, second: cue, third: other };
+  write(join(cwd, 'scene.motion.json'), JSON.stringify(scene));
+  const { file } = execute(['asset', 'pack', 'scene.motion.json', '--format=binary'], cwd);
+  const { loadMotionAsset } = module.exports;
+  assert.deepEqual(loadMotionAsset(readFileSync(file)).audio, scene.audio);
+  assert.deepEqual(encoded, ['UklGRgAAAABXQVZF', 'UklGRgAAAABXQVZF']);
+  assert.deepEqual(loadMotionAsset(JSON.stringify(scene)).audio, scene.audio);
+  assert.equal(encoded.length, 2);
+});
 
 test('asset loading shares pending resources, aborts released sources, and ignores late results', async () => {
   let current;
@@ -97,4 +134,19 @@ test('asset loading shares pending resources, aborts released sources, and ignor
   await setImmediate();
   assert.notEqual(use(appC, 'photo', colorVariant).asset, photoA);
   for (const consumer of [appA, appB, appC]) consumer.cleanup();
+
+  const bytes = Uint8Array.of(83, 75, 77, 79);
+  const binaryA = {};
+  const binaryB = {};
+  const binaryC = {};
+  use(binaryA, bytes);
+  use(binaryB, bytes);
+  const separate = bytes.slice();
+  use(binaryC, separate);
+  await setImmediate();
+  const packed = use(binaryA, bytes).asset;
+  assert.equal(packed.text, bytes);
+  assert.equal(use(binaryB, bytes).asset, packed);
+  assert.notEqual(use(binaryC, separate).asset, packed);
+  for (const consumer of [binaryA, binaryB, binaryC]) consumer.cleanup();
 });

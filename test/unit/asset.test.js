@@ -20,6 +20,21 @@ test('agent guide covers the format and the drawing workflows', () => {
   assert.equal(run('guide', 'format').schema, 'skac.asset/1');
 });
 
+test('the reward counter draws a host-formatted count as text and pulses on landing', () => {
+  const { file, run } = fixture('reward-counter');
+  const packed = run('pack', file).file;
+  const commands = '--commands=xpLabel="+18 XP"@0.15 xpLabel="+42 XP"@0.4 land@0.4';
+  const args = ['--trace=0,180,485', commands];
+  const { trace } = run('trace', packed, ...args);
+  assert.deepEqual(trace.map(({ values }) => values.xpLabel), ['+0 XP', '+18 XP', '+42 XP']);
+  assert.equal(trace[2].channels.landScale, 1.075);
+  assert.equal(trace[2].markers[0].name, 'rewardLanded');
+  const reduced = run('trace', packed, ...args, '--reduced').trace;
+  assert.equal(reduced[2].channels.landScale, 1);
+  const frame = run('frame', packed, '--trace=485', commands);
+  assert.match(readFileSync(frame.file, 'utf8'), /<text[^>]*>\+42 XP<\/text>/);
+});
+
 test('painted meshes pack their textures, deform in preview and move named pin children', () => {
   const { cwd, file, run } = fixture('sprout');
   const asset = JSON.parse(readFileSync(file, 'utf8'));
@@ -84,6 +99,99 @@ test('the samples load as one repeatable packaged file', () => {
     assert.throws(() => run('pack', file, '--out=a.skmotion'), /cannot write/);
     assert.throws(() => run('pack', file, `--out=${file}`, '--force'), /same file/);
   }
+});
+
+test('binary bundles deduplicate media and round trip through the CLI without changing playback', () => {
+  const { file, cwd, run } = fixture('sprout');
+  const visual = JSON.parse(readFileSync(file, 'utf8'));
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAFklEQVR4nGP8z8CwkYGBgYGJAQrgDAAqOQG2ps3ojQAAAABJRU5ErkJggg==';
+  visual.images = { painting: png, otherName: png };
+  visual.imageSlots = { portrait: 'painting' };
+  visual.artboard.nodes.push(
+    { kind: 'image', image: 'portrait', x: 1, y: 2, width: 2, height: 3 },
+    { kind: 'image', image: 'otherName', x: 8, y: 4, width: 2, height: 3 },
+    { kind: 'text', text: '100% مرحبا 🌱', x: 1, y: 12, width: 120, fontSize: 14, fill: '#333333' },
+  );
+  const cue = 'data:audio/wav;base64,UklGRgAAAABXQVZF';
+  const thumbnail = structuredClone(visual);
+  thumbnail.name = 'Thumbnail';
+  thumbnail.audio = { whoosh: cue };
+  write(file, JSON.stringify({
+    schema: 'skac.bundle/1', name: 'CompactBundle', defaultArtboard: 'full',
+    audio: { reveal: cue }, artboards: { full: visual, thumb: thumbnail },
+  }));
+  const json = run('pack', file, '--out=plain.skmotion');
+  const binary = run('pack', file, '--out=compact.skmotion', '--format=binary');
+  const repeat = run('pack', file, '--out=repeat.skmotion', '--format=binary');
+  const bytes = readFileSync(binary.file);
+  assert.equal(bytes.toString('ascii', 0, 4), 'SKMO');
+  assert.equal(bytes[4], 1);
+  assert.deepEqual(bytes, readFileSync(repeat.file));
+  const manifestEnd = 12 + bytes.readUInt32LE(8);
+  const manifest = JSON.parse(bytes.toString('utf8', 12, manifestEnd));
+  assert.deepEqual(manifest.resources.map(([mime]) => mime).sort(), ['audio/wav', 'font/otf', 'image/png']);
+  assert.equal(manifest.asset.artboards.full.images.painting, manifest.asset.artboards.thumb.images.otherName);
+  assert.equal(manifest.asset.audio.reveal, manifest.asset.artboards.thumb.audio.whoosh);
+  assert.ok(binary.bytes < json.bytes);
+  assert.equal(run('check', binary.file, '--artboard=thumb').name, 'Thumbnail');
+  const args = ['--artboard=thumb', '--trace=0,350,900', '--commands=correct@0.1'];
+  assert.deepEqual(run('trace', binary.file, ...args), run('trace', json.file, ...args));
+  const svg = (packed) => readFileSync(run('frame', packed.file, '--artboard=thumb', '--trace=350').file, 'utf8');
+  assert.equal(svg(binary), svg(json));
+  const types = (packed) => readFileSync(run('types', packed.file, '--artboard=thumb').file, 'utf8');
+  assert.equal(types(binary), types(json));
+  const preview = readFileSync(run('preview', binary.file).file, 'utf8');
+  const embedded = JSON.parse(preview.match(/<script id="scene" type="application\/json">(.*?)<\/script>/s)[1]);
+  assert.equal(embedded.binary, true);
+  assert.deepEqual(Buffer.from(embedded.source, 'base64'), bytes);
+  const unpacked = run('unpack', binary.file);
+  assert.deepEqual(JSON.parse(readFileSync(unpacked.file, 'utf8')), JSON.parse(readFileSync(json.file, 'utf8')));
+  assert.throws(() => run('pack', file, '--format=other'), /unknown asset format/);
+
+  const checked = join(cwd, 'invalid.skmotion');
+  const reject = (value, expected) => {
+    writeFileSync(checked, value);
+    assert.throws(() => run('check', checked), expected);
+  };
+  reject(bytes.subarray(0, 11), /truncated header/);
+  const future = Buffer.from(bytes);
+  future[4] = 2;
+  reject(future, /unsupported container version 2/);
+  reject(Buffer.concat([bytes, Buffer.of(0)]), /trailing bytes/);
+  reject(bytes.subarray(0, -1), /resource type or length is invalid/);
+  manifest.asset.artboards.full.images.painting = 100;
+  const badManifest = Buffer.from(JSON.stringify(manifest));
+  const header = Buffer.from(bytes.subarray(0, 12));
+  header.writeUInt32LE(badManifest.length, 8);
+  reject(Buffer.concat([header, badManifest, bytes.subarray(manifestEnd)]), /unknown resource index/);
+});
+
+test('binary packing shares decoded audio bytes across noncanonical Base64 aliases', () => {
+  const { file, run } = fixture('game-hud');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const payload = Buffer.alloc(540_001, 0);
+  const canonical = payload.toString('base64');
+  const alias = canonical.slice(0, -3) + 'P==';
+  assert.notEqual(alias, canonical);
+  assert.deepEqual(Buffer.from(alias, 'base64'), payload);
+  scene.audio = {
+    first: `data:audio/wav;base64,${canonical}`,
+    second: `data:audio/wav;base64,${alias}`,
+    wav: 'data:audio/wav;base64,AA==',
+    aac: 'data:audio/aac;base64,AA==',
+    different: 'data:audio/wav;base64,AQ==',
+  };
+  write(file, JSON.stringify(scene));
+
+  const packed = run('pack', file, '--format=binary');
+  const bytes = readFileSync(packed.file);
+  const manifest = JSON.parse(bytes.toString('utf8', 12, 12 + bytes.readUInt32LE(8)));
+  const { first, second, wav, aac, different } = manifest.asset.audio;
+  assert.equal(first, second);
+  assert.equal(new Set([first, wav, aac, different]).size, 4);
+  assert.equal(manifest.resources.length, 4);
+  const unpacked = JSON.parse(readFileSync(run('unpack', packed.file).file, 'utf8'));
+  assert.deepEqual(unpacked.audio, { ...scene.audio, second: scene.audio.first });
 });
 
 test('artboard bundles pack every board and expose bound text, semantics, audio and declarations', () => {

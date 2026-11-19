@@ -133,11 +133,14 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const validator = await import('../../runtime/machine-schema.js');
   const motion = load('templates/motion/motion.ts', {}, 'production');
   const core = load('templates/motion/machine.ts', { './motion': motion }, 'production');
+  const base64 = load('runtime/base64.ts', {}, 'production');
+  const binary = load('runtime/asset-binary.ts', { './base64': base64 }, 'production');
   const runtime = load('runtime/asset.ts', {
     './machine-schema.js': validator,
     '../templates/motion/motion': motion,
-    './asset-image': load('runtime/asset-image.ts', { './base64': load('runtime/base64.ts', {}, 'production') }, 'production'),
-    './base64': load('runtime/base64.ts', {}, 'production'),
+    './asset-image': load('runtime/asset-image.ts', { './base64': base64, './asset-binary': binary }, 'production'),
+    './base64': base64,
+    './asset-binary': binary,
   }, 'production');
   const asset = runtime.parseAsset(readFileSync(new URL('../../templates/assets/sprout.json', import.meta.url), 'utf8'));
   asset.artboard.nodes[0].feather = 5;
@@ -207,8 +210,17 @@ test('production Worklets transform preserves asset tracks, marker crossings and
       quadTo() {}, cubicTo() {}, close() {}, detach: () => points,
     };
   };
+  const byteReads = [];
   const skia = {
-    Data: { fromBase64: (data) => data },
+    Data: {
+      fromBase64: (data) => data,
+      fromBytes(data) {
+        assert.equal(data.byteOffset, 0);
+        assert.equal(data.byteLength, data.buffer.byteLength);
+        byteReads.push(Array.from(data));
+        return 'native-bytes';
+      },
+    },
     Typeface: { MakeFreeTypeFaceFromData: (data) => data },
     TypefaceFontProvider: { Make: () => ({ registerFont: (...args) => fonts.push(args) }) },
     ParagraphBuilder: { Make(style, provider) {
@@ -315,6 +327,17 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   clipRects.length = 0;
   drawAsset(canvas, drawing, pose.channels, 240, 100, images, {}, { fit: 'cover' });
   assert.deepEqual(clipRects[0], [0, 0, 240, 100]);
+
+  const storage = Uint8Array.of(10, 20, 30, 40, 50);
+  const raster = { mime: 'image/webp', bytes: storage.subarray(1, 3) };
+  const typeface = { mime: 'font/otf', bytes: storage.subarray(3) };
+  const raw = { ...asset, images: { painted: raster, duplicate: raster }, fonts: { ui: typeface, other: typeface } };
+  const rawImages = decodeAssetImages(raw);
+  prepareAssetDrawing(raw, rawImages);
+  assert.deepEqual(byteReads, [[20, 30], [40, 50]], 'the Skia factories read only the exact bytes, once per resource');
+  assert.equal(rawImages.painted, rawImages.portrait);
+  assert.equal(rawImages.painted, rawImages.duplicate);
+  assert.deepEqual(fonts.slice(-2), [['native-bytes', 'ui'], ['native-bytes', 'other']]);
 });
 
 test('drawing a clip in the host canvas supports absolute time and direct shared values', () => {
