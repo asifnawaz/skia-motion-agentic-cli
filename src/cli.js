@@ -22,7 +22,7 @@ import { update } from './update.js';
 import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
-  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced'],
+  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced', 'text-layout'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
     'search', 'as', 'trace', 'artboard', 'format', 'export', 'entry', 'root', 'out-dir', 'gl'],
   list: ['docs-dir'],
@@ -120,10 +120,10 @@ const composition = (cfg, name, flags) => {
 };
 
 /** The entry point: one JSON document on stdout, exit 1 when it says ok:false or an error was thrown. */
-export const main = (argv) => {
+export const main = async (argv) => {
   let doc;
   try {
-    doc = execute(argv);
+    doc = await execute(argv);
   } catch (e) {
     if (!(e instanceof CliError)) {
       process.stderr.write(`${e && e.stack ? e.stack : e}\n`);

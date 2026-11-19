@@ -180,11 +180,13 @@ export function assetSVG(
       const shift = alignment === 'center' ? 0.5 : (alignment === 'end') === (direction === 'ltr') ? 1 : 0;
       const anchor = alignment === 'center' ? 'middle' : alignment;
       const family = node.fonts?.length ? node.fonts.join(',') : 'sans-serif';
+      const features = node.fontFeatures?.map(({ name, value }) => `'${name}' ${value}`).join(', ');
+      const featureStyle = features ? ` style="font-feature-settings: ${features}"` : '';
       const x = read(node.x);
       const y = read(node.y);
       const clip = `text-width-${defs.length}`;
       defs.push(`<clipPath id="${clip}"><rect x="${x}" y="${y - node.fontSize}" width="${node.width}" height="${3 * node.fontSize}"/></clipPath>`);
-      return `<text x="${x + node.width * shift}" y="${y}" dominant-baseline="hanging" text-anchor="${anchor}" direction="${direction}" font-family="${family}" font-size="${node.fontSize}" fill="${node.fill}" clip-path="url(#${clip})">${content}</text>`;
+      return `<text x="${x + node.width * shift}" y="${y}" dominant-baseline="hanging" text-anchor="${anchor}" direction="${direction}" font-family="${family}" font-size="${node.fontSize}" fill="${node.fill}" clip-path="url(#${clip})"${featureStyle}>${content}</text>`;
     }
     const alpha = opacity(read(node.opacity, 1));
     if (node.kind === 'mesh') {

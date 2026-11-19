@@ -153,6 +153,7 @@ function makeParagraph(node: AssetTextNode, text: string, provider?: SkTypefaceF
   builder.pushStyle({
     color: Skia.Color(node.fill), fontSize: node.fontSize,
     ...(node.fonts?.length ? { fontFamilies: [...node.fonts] } : {}),
+    ...(node.fontFeatures?.length ? { fontFeatures: [...node.fontFeatures] } : {}),
   });
   builder.addText(text);
   const paragraph = builder.build();

@@ -6,6 +6,7 @@ import { buildSync } from 'esbuild';
 import { parseCommands } from './args.js';
 import { assetGuide } from './asset-guide.js';
 import { previewHTML } from './asset-preview.js';
+import { measureTextLayout } from './asset-text-layout.js';
 import { applyDefaultFont } from './default-font.js';
 import { PACKAGE_ROOT } from './docs.js';
 import { fail } from './util.js';
@@ -22,7 +23,7 @@ const USAGE = [
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
-  'skac asset check <file> [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',
+  'skac asset check <file> [--text-layout] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
   'skac asset frame <file> --trace=250 [--size=1200x240] [--out=<frame.svg>]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--size=1200x240] [--out=<preview.html>] [--force]',
@@ -195,11 +196,15 @@ function traceTimes(spec) {
   fail('invalid asset trace times', 'use up to 500 times in ms from 0 to 60000, comma-separated or as start:end:step');
 }
 
-function trace(asset, flags) {
+function traceViewport(size) {
+  if (size === undefined) return;
+  const sides = dimensions(size);
+  if (!sides) fail('invalid viewport size', 'use two dimensions from 1 to 4096, like --size=360x640');
+  return { width: sides[0], height: sides[1] };
+}
+
+function trace(asset, flags, viewport = traceViewport(flags.size)) {
   const times = traceTimes(flags.trace ?? '0');
-  const sides = flags.size === undefined ? undefined : dimensions(flags.size);
-  if (flags.size !== undefined && !sides) fail('invalid viewport size', 'use two dimensions from 1 to 4096, like --size=360x640');
-  const viewport = sides ? { width: sides[0], height: sides[1] } : undefined;
   const cmd = flags.commands ? parseCommands(flags.commands) : { events: [], captures: [] };
   if (cmd.captures.length) fail('asset trace does not take screenshots', 'remove screenshot commands and pass times with --trace');
   if (cmd.events.length > 1000 || cmd.events.some(({ at }) => !Number.isFinite(at) || at > 60)) {
@@ -251,6 +256,7 @@ function packArtboard(asset) {
 export function assetCommand(args, flags, cwd) {
   const [action, input, output] = args;
   if (!action) return { ok: true, commands: USAGE, schema: 'skac.asset/1', next: 'skac asset guide' };
+  if (flags['text-layout'] && action !== 'check') fail('--text-layout is for asset check', 'run skac asset check <file> --text-layout');
   if (action === 'sample') return sample(input, output, cwd, flags.force);
   if (action === 'guide' && !output) {
     const guide = assetGuide(input);
@@ -282,16 +288,25 @@ export function assetCommand(args, flags, cwd) {
     const runtime = assetRuntime();
     const { warnings } = runtime.validateMachine(asset.machine, { clips: asset.clips });
     const summary = { ok: true, file: path, ...describe(asset), ...bundleInfo, warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)] };
-    if (!asset.attachments?.length) return summary;
-    const rows = trace(asset, flags);
-    const attachments = assetRuntime().measureAttachments(asset.attachments, rows);
-    const violation = attachments.find((item) => item.distance > item.maxDistance);
-    if (violation) {
-      const { from, to, distance, maxDistance, t_ms: at } = violation;
-      fail(`attachment ${from} → ${to} is ${distance} artboard points apart at ${at} ms (limit ${maxDistance})`,
-        'render the reported time with asset frame to inspect the points and their transforms', { file: path, attachments });
+    if (!asset.attachments?.length && !flags['text-layout']) return summary;
+    const viewport = traceViewport(flags.size) ?? summary.artboard;
+    const rows = trace(asset, flags, viewport);
+    if (asset.attachments?.length) {
+      const attachments = runtime.measureAttachments(asset.attachments, rows);
+      const violation = attachments.find((item) => item.distance > item.maxDistance);
+      if (violation) {
+        const { from, to, distance, maxDistance, t_ms: at } = violation;
+        fail(`attachment ${from} → ${to} is ${distance} artboard points apart at ${at} ms (limit ${maxDistance})`,
+          'render the reported time with asset frame to inspect the points and their transforms', { file: path, attachments });
+      }
+      summary.attachments = attachments;
+      summary.samples = rows.length;
     }
-    return { ...summary, attachments, samples: rows.length };
+    if (!flags['text-layout']) return summary;
+    const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
+    const samples = new Set(rows.map(({ t_ms }) => t_ms)).size;
+    return measureTextLayout(visual, runtime.assetTextSamples(visual, rows), viewport, samples)
+      .then(({ stats, warnings: textWarnings }) => ({ ...summary, textLayout: stats, warnings: [...summary.warnings, ...textWarnings] }));
   }
   if (action === 'trace') return { ok: true, name: asset.name, trace: trace(asset, flags) };
   if (action === 'preview') {

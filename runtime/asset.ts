@@ -50,9 +50,11 @@ type ImageNode = {
 };
 
 export type BoundText = string | { value: string };
+type FontFeature = { name: string; value: number };
 export type AssetTextNode = {
   kind: 'text'; text: BoundText; x: Scalar; y: Scalar; width: number; fontSize: number; fill: string;
   fonts?: readonly string[]; direction?: 'ltr' | 'rtl'; align?: 'start' | 'center' | 'end'; maxLines?: number;
+  fontFeatures?: readonly FontFeature[];
 };
 export type AssetSemantic = {
   name: string; label: BoundText; role: 'button' | 'image' | 'text' | 'header';
@@ -297,7 +299,7 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
   const { channels, images, imageSlots, points } = context;
   const node = record(value, at);
   if (node.kind === 'text') {
-    record(node, at, ['kind', 'text', 'x', 'y', 'width', 'fontSize', 'fill', 'fonts', 'direction', 'align', 'maxLines']);
+    record(node, at, ['kind', 'text', 'x', 'y', 'width', 'fontSize', 'fill', 'fonts', 'direction', 'align', 'maxLines', 'fontFeatures']);
     checkText(node.text, `${at}.text`, context.values);
     scalar(node.x, `${at}.x`, channels);
     scalar(node.y, `${at}.y`, channels);
@@ -307,6 +309,21 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     if (node.fonts !== undefined) list(node.fonts, `${at}.fonts`, 8).forEach((name, i) => {
       if (typeof name !== 'string' || !Object.hasOwn(context.fonts, name)) invalid(`${at}.fonts[${i}]`, 'unknown embedded font');
     });
+    if (node.fontFeatures !== undefined) {
+      const names = new Set<string>();
+      list(node.fontFeatures, `${at}.fontFeatures`, 16).forEach((value, i) => {
+        const key = `${at}.fontFeatures[${i}]`;
+        const feature = record(value, key, ['name', 'value']);
+        if (typeof feature.name !== 'string' || !/^[a-zA-Z0-9]{4}$/.test(feature.name)) {
+          invalid(`${key}.name`, 'expected a four-character OpenType feature tag');
+        }
+        if (names.has(feature.name)) invalid(`${key}.name`, 'duplicate font feature');
+        names.add(feature.name);
+        if (!Number.isInteger(number(feature.value, `${key}.value`, 0, 65535))) {
+          invalid(`${key}.value`, 'expected an integer');
+        }
+      });
+    }
     if (node.direction !== undefined && node.direction !== 'ltr' && node.direction !== 'rtl') invalid(`${at}.direction`, 'expected ltr or rtl');
     if (node.align !== undefined && !['start', 'center', 'end'].includes(node.align as string)) invalid(`${at}.align`, 'expected start, center or end');
     if (node.maxLines !== undefined && !Number.isInteger(number(node.maxLines, `${at}.maxLines`, 1, 16))) {

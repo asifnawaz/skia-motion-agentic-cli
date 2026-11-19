@@ -1,5 +1,5 @@
 import { advance, compile, pose, settled, simulatedClock, start, writeProblem, type Literal, type MachineEvent, type StateEntry, type Write } from '../templates/motion/machine';
-import { assetClips, assetMarkerEvents, parseAsset, type AssetMarkerEvent, type MotionAsset } from './asset';
+import { assetClips, assetMarkerEvents, parseAsset, type AssetMarkerEvent, type AssetNode, type AssetTextNode, type MotionAsset } from './asset';
 
 import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } from './asset-attachments';
 
@@ -21,6 +21,37 @@ type TraceRow = {
   markers: AssetMarkerEvent[];
   points?: Record<string, ArtboardPoint>;
 };
+
+function* textNodes(nodes: readonly AssetNode[], parent: string): Generator<{ node: AssetTextNode; where: string }> {
+  for (const [index, node] of nodes.entries()) {
+    const where = `${parent}[${index}]`;
+    if (node.kind === 'text') yield { node, where };
+    if (node.kind === 'group') yield* textNodes(node.children, `${where}.children`);
+    if (node.kind === 'mesh') {
+      for (const [name, pin] of Object.entries(node.pins ?? {})) {
+        if (pin.children) yield* textNodes(pin.children, `${where}.pins.${name}.children`);
+      }
+    }
+  }
+}
+
+/** Paragraph width and font size are artboard units. One measurement covers repeated poses of the same label. */
+export function* assetTextSamples(asset: MotionAsset, rows: readonly TraceRow[]) {
+  const chronological = [...rows].sort((a, b) => a.t_ms - b.t_ms);
+  for (const { node, where } of textNodes(asset.artboard.nodes, 'artboard.nodes')) {
+    if (typeof node.text === 'string') {
+      if (node.text) yield { node, where, text: node.text, t_ms: chronological[0]!.t_ms };
+      continue;
+    }
+    const seen = new Set<string>();
+    for (const row of chronological) {
+      const text = row.values[node.text.value];
+      if (typeof text !== 'string' || !text || seen.has(text)) continue;
+      seen.add(text);
+      yield { node, where, text, t_ms: row.t_ms };
+    }
+  }
+}
 
 /** Identify authored mixes affected by the fallback to the underlying pose. */
 export function sparseBlendWarnings(asset: MotionAsset) {
