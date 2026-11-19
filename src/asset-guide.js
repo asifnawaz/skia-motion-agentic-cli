@@ -30,19 +30,23 @@ const topics = {
   text: {
     binding: { kind: 'text', text: { value: 'xpLabel' }, x: 12, y: 12, width: 140, fontSize: 30, maxLines: 1, fill: '#FFFFFF' },
     machineValues: { xpLabel: { type: 'string', default: '+0 XP' } },
+    tabularFigures: { fontFeatures: [{ name: 'tnum', value: 1 }] },
     steps: [
       'A real text node can show digits, localized labels, and punctuation. Bind text to a string machine value. Format numeric amounts in app code.',
       'From a Reanimated worklet, call the mounted MotionPlayer handle’s setOnUI("xpLabel", label). Update when the visible count changes. From normal app code use set or setValues.',
       'For MotionPicture in an existing Skia Canvas, supply text={{ xpLabel: label }} along with the named clip, width, height and shared timeMs. See docs app for the choice of player.',
-      'maxLines accepts 1 through 16 and defaults to 1. Native paragraphs that exceed the line budget can end in an ellipsis. Asset check does not warn about text truncation. Inspect the longest strings on device.',
+      'maxLines accepts 1 through 16 and defaults to 1. Native paragraphs can ellipsize when they exceed this budget. Run asset check --text-layout with representative strings and trace times.',
+      'Read textLayout and warnings. text-overflow identifies the node, first sampled time, label, authored width, and line budget. text-layout-unavailable identifies a platform font or missing glyphs.',
+      'Use fontFeatures for up to 16 distinct four-character OpenType tags. Use tnum with value 1 for equal digit advances in a supporting font such as Allo Regular. The native app needs a runtime that supports the field.',
       'fontSize accepts 1 through 512 artboard points. The 1 MiB packed budget includes artwork, fonts, audio and scene data. The asset resource command accepts up to 786400 raw bytes per font or audio file.',
-      'Legacy JSON adds Base64 overhead. The default Allo Regular is 96216 raw bytes. Use an explicit embedded family for Urdu or other scripts. Font features such as tnum are not exposed by the current text schema.',
+      'Legacy JSON adds Base64 overhead. The default Allo Regular is 96216 raw bytes. Use an embedded family with coverage for each script. Check the exact packed file and verify platform font fallback on device.',
     ],
     commands: [
       'skac asset sample reward-counter',
       `skac asset trace reward-counter.motion.json --trace=0,180,420,600 --commands 'xpLabel="+18 XP"@0.15 xpLabel="+42 XP"@0.4 land@0.4'`,
       'skac asset pack reward-counter.motion.json',
       'skac asset preview reward-counter.skmotion',
+      `skac asset check reward-counter.skmotion --text-layout --size=360x640 --trace=0,420 --commands 'xpLabel="+1,250 XP gained today"@0.42'`,
     ],
   },
   migrate: {

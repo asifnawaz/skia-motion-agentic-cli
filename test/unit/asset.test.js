@@ -35,6 +35,110 @@ test('the reward counter draws a host-formatted count as text and pulses on land
   assert.match(readFileSync(frame.file, 'utf8'), /<text[^>]*>\+42 XP<\/text>/);
 });
 
+test('font features survive binary packing and affect embedded digit layout', async () => {
+  const { file, run } = fixture('reward-counter');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const node = { kind: 'text', text: '1111', x: 0, y: 0, width: 44, fontSize: 18, fill: '#FFFFFF' };
+  scene.artboard.nodes = [node];
+  for (const [features, error] of [
+    [[{ name: 'tnum', value: 0.5 }], /fontFeatures\[0\]\.value: expected an integer/],
+    [[{ name: 'bad"', value: 1 }], /four-character OpenType feature tag/],
+    [[{ name: 'tnum', value: 1 }, { name: 'tnum', value: 0 }], /duplicate font feature/],
+  ]) {
+    node.fontFeatures = features;
+    write(file, JSON.stringify(scene));
+    assert.throws(() => run('check', file), error);
+  }
+
+  node.fontFeatures = [{ name: 'pnum', value: 1 }];
+  write(file, JSON.stringify(scene));
+  const proportional = await run('check', file, '--text-layout');
+  assert.equal(proportional.textLayout.overflow, 0);
+
+  node.fontFeatures = [{ name: 'tnum', value: 1 }];
+  write(file, JSON.stringify(scene));
+  const packed = run('pack', file, '--format=binary').file;
+  const frame = readFileSync(run('frame', packed).file, 'utf8');
+  assert.match(frame, /font-feature-settings: 'tnum' 1/);
+  const tabular = await run('check', packed, '--text-layout');
+  assert.equal(tabular.textLayout.overflow, 1);
+  assert.equal(tabular.warnings[0].code, 'text-overflow');
+});
+
+test('text layout checks sampled bound, multiline, RTL, and unavailable text', async () => {
+  const { file, run } = fixture('reward-counter');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const urdu = 'یہ ایک آزمائش ہے';
+  scene.fonts = {
+    Urdu: 'data:font/ttf;base64,' + readFileSync(new URL('../fixtures/fonts/NotoSansArabic-Subset.ttf', import.meta.url), 'base64'),
+  };
+  const base = { kind: 'text', x: 0, y: 0, width: 52, fontSize: 18, fill: '#FFFFFF' };
+  scene.artboard.nodes = [
+    { kind: 'group', children: [{ ...base, text: { value: 'xpLabel' } }] },
+    { ...base, text: 'A\nB' },
+    { ...base, text: 'A\nB', maxLines: 2 },
+    { ...base, text: urdu, direction: 'rtl', width: 220, fonts: ['Urdu'] },
+    { ...base, text: urdu, direction: 'rtl', width: 24, fonts: ['Urdu'] },
+    { ...base, text: urdu + ' 😀', direction: 'rtl', width: 220, fonts: ['Urdu'] },
+    { ...base, text: 'Platform', fonts: [] },
+  ];
+  write(file, JSON.stringify(scene));
+  const args = ['--text-layout', '--size=360x640', '--trace=450,0,220,330',
+    '--commands=xpLabel="+1,250 XP gained today"@0.22'];
+  const checked = await run('check', file, ...args);
+  assert.deepEqual(checked.textLayout, {
+    engine: 'skia-paragraph', viewport: { width: 360, height: 640 },
+    samples: 4, measured: 6, unmeasured: 2, overflow: 3,
+  });
+  const [bound, newline, narrowRtl, missing, system] = checked.warnings;
+  assert.equal(bound.where, 'artboard.nodes[0].children[0]');
+  assert.equal(bound.text, '+1,250 XP gained today');
+  assert.equal(bound.t_ms, 220);
+  assert.equal(bound.width, 52);
+  assert.equal(bound.fontSize, 18);
+  assert.equal(bound.wrapped, true);
+  assert.ok(bound.requiredLines > bound.maxLines);
+  assert.equal(newline.explicitBreaks, 1);
+  assert.equal(newline.wrapped, false);
+  assert.equal(newline.requiredLines, 2);
+  assert.equal(narrowRtl.code, 'text-overflow');
+  assert.equal(narrowRtl.text, urdu);
+  assert.equal(missing.code, 'text-layout-unavailable');
+  assert.deepEqual(missing.codepoints, ['U+1F600']);
+  assert.equal(system.reason, 'system-font');
+  assert.equal(run('check', file).textLayout, undefined);
+
+  scene.artboard.nodes[0].children[0].width = 280;
+  write(file, JSON.stringify(scene));
+  const wide = await run('check', file, ...args);
+  assert.equal(wide.textLayout.overflow, 2);
+  assert.ok(!wide.warnings.some(({ where }) => where === bound.where));
+});
+
+test('packed CRLF labels use one hard break and report the original sampled text', async () => {
+  const { file, run } = fixture('reward-counter');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const base = { kind: 'text', x: 0, y: 0, width: 52, fontSize: 18, fill: '#FFFFFF' };
+  scene.artboard.nodes = [
+    { ...base, text: 'A\r\nB' },
+    { ...base, text: 'A\nB' },
+    { ...base, text: 'A\r\nB', maxLines: 2 },
+  ];
+  write(file, JSON.stringify(scene));
+  for (const format of ['json', 'binary']) {
+    const { file: packed } = run('pack', file, `--format=${format}`, `--out=${format}.skmotion`);
+    const { textLayout, warnings } = await run('check', packed, '--text-layout');
+    assert.equal(textLayout.unmeasured, 0);
+    assert.equal(textLayout.measured, 3);
+    assert.equal(textLayout.overflow, 2);
+    assert.deepEqual(warnings.map(({ code, text, requiredLines, explicitBreaks, wrapped }) =>
+      ({ code, text, requiredLines, explicitBreaks, wrapped })), [
+      { code: 'text-overflow', text: 'A\r\nB', requiredLines: 2, explicitBreaks: 1, wrapped: false },
+      { code: 'text-overflow', text: 'A\nB', requiredLines: 2, explicitBreaks: 1, wrapped: false },
+    ]);
+  }
+});
+
 test('painted meshes pack their textures, deform in preview and move named pin children', () => {
   const { cwd, file, run } = fixture('sprout');
   const asset = JSON.parse(readFileSync(file, 'utf8'));

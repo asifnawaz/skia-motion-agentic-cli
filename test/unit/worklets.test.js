@@ -160,7 +160,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   asset.fonts = { ui: 'data:font/ttf;base64,font' };
   asset.artboard.nodes.push({
     kind: 'text', text: { value: 'title' }, x: 8, y: 10, width: 120, fontSize: 16,
-    fonts: ['ui'], direction: 'rtl', align: 'end', fill: '#FFFFFF',
+    fonts: ['ui'], fontFeatures: [{ name: 'tnum', value: 1 }], direction: 'rtl', align: 'end', fill: '#FFFFFF',
   });
   asset.artboard.nodes.push({ kind: 'image', image: 'painted', x: 1, y: 2, width: 18, height: 20, opacity: 0.5 });
   asset.artboard.nodes.push({ kind: 'image', image: 'duplicate', x: 0, y: 0, width: 18, height: 20, opacity: 0 });
@@ -228,7 +228,10 @@ test('production Worklets transform preserves asset tracks, marker crossings and
       let text;
       let width;
       return {
-        pushStyle(attributes) { assert.deepEqual(Array.from(attributes.fontFamilies), ['ui']); },
+        pushStyle(attributes) {
+          assert.deepEqual(Array.from(attributes.fontFamilies), ['ui']);
+          assert.deepEqual(Array.from(attributes.fontFeatures, ({ name, value }) => [name, value]), [['tnum', 1]]);
+        },
         addText(value) { text = value; },
         build() {
           return {
