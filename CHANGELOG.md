@@ -1,3 +1,11 @@
+# [3.2.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.1.1...v3.2.0) (2026-11-19)
+
+
+### Features
+
+* add binary .skmotion packs for Skia Canvas ([2bf68ed](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/2bf68edfa273e8434e97daedd64de45380a6b8b9))
+* add OpenType features and sampled text layout checks ([d97dbb0](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/d97dbb0adb32525f268cfff3d38067dd0ab7999b))
+
 ## [3.1.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.1.0...v3.1.1) (2026-11-18)
 
 
