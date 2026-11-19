@@ -40,6 +40,7 @@ const topics = {
       'Use fontFeatures for up to 16 distinct four-character OpenType tags. Use tnum with value 1 for equal digit advances in a supporting font such as Allo Regular. The native app needs a runtime that supports the field.',
       'fontSize accepts 1 through 512 artboard points. The 1 MiB packed budget includes artwork, fonts, audio and scene data. The asset resource command accepts up to 786400 raw bytes per font or audio file.',
       'Legacy JSON adds Base64 overhead. The default Allo Regular is 96216 raw bytes. Use an embedded family with coverage for each script. Check the exact packed file and verify platform font fallback on device.',
+      'Read asset guide font-slots to reuse typefaces already loaded by a React Native or Expo app.',
     ],
     commands: [
       'skac asset sample reward-counter',
@@ -47,6 +48,28 @@ const topics = {
       'skac asset pack reward-counter.motion.json',
       'skac asset preview reward-counter.skmotion',
       `skac asset check reward-counter.skmotion --text-layout --size=360x640 --trace=0,420 --commands 'xpLabel="+1,250 XP gained today"@0.42'`,
+    ],
+  },
+  'font-slots': {
+    authoring: {
+      fontSlots: { Counter: {}, Label: { fallback: 'PortableLabel' } },
+      text: { kind: 'text', text: { value: 'score' }, x: 12, y: 12, width: 120, fontSize: 24,
+        fonts: ['Counter'], fontFeatures: [{ name: 'tnum', value: 1 }], fill: '#FFFFFF' },
+    },
+    steps: [
+      'Declare each slot on the artboard or bundle. A slot alias can reference an optional fallback from fonts. Use the alias in a text node’s fonts list.',
+      'Prepare the .skmotion with loadMotionAsset, preloadMotionAsset, useMotionAsset or useExpoMotionAsset. Pass { fontSlots: { Counter: counterTypeface } } once the Skia typefaces are ready, then pass the prepared asset to MotionPlayer or MotionPicture.',
+      'An app-provided typeface replaces its slot fallback for the selected artboard. The runtime borrows that typeface and reports a missing slot if neither source is available.',
+      'Pack with --fonts=host for a font-free motion file. Each text node must explicitly use declared slots or fonts: [] for the platform font. Normal packing retains embedded fallbacks.',
+      'The pack result reports sizeBreakdown for fonts, images, audio and scene data. JSON reports its encoded data URI sizes. Binary reports deduplicated payload sizes.',
+      'Repeat --font=slot=path/to/font.ttf for preview, frame and check --text-layout. Local files feed those checks and the offline preview. Pack the source separately to ship it.',
+      'Use asset unpack to recover editable .motion.json. Host font files and resources removed by a prior pack remain outside the recovered source.',
+    ],
+    commands: [
+      'skac asset pack scoreboard.motion.json --format=binary --fonts=host',
+      'skac asset check scoreboard.skmotion --text-layout --font=Counter=./fonts/Counter.ttf --font=Label=./fonts/Label.ttf',
+      'skac asset preview scoreboard.skmotion --font=Counter=./fonts/Counter.ttf --font=Label=./fonts/Label.ttf',
+      'skac asset unpack scoreboard.skmotion --out=scoreboard.edit.motion.json',
     ],
   },
   migrate: {
@@ -84,6 +107,7 @@ const topics = {
       imageSlots: 'optional map of slot names to fallback names from images',
       palette: 'optional map of color names to hexadecimal colors',
       fonts: 'optional map of font names to embedded TTF or OTF data URIs',
+      fontSlots: 'optional named host typefaces with an optional embedded fallback. See asset guide font-slots',
       attachments: 'optional [{from,to,maxDistance}] checks for named group points and mesh pins',
     },
     drawOrder: 'Nodes and group children draw from first to last.',

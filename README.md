@@ -39,6 +39,7 @@ For a source checkout, run `npm ci` and replace `skac` with `node bin/skac.js`.
 | --- | --- |
 | `versus-hud` | Bind two fighters' health and super meters, tick the round clock, and replay a feathered hit |
 | `game-hud` | Bind health and ammo, trigger a reload, and listen for `reloadReady` |
+| `reward-counter` | Count with bound text, update the label from a worklet, and pulse on landing |
 | `sprout` | Fire correct, incorrect, and skip reactions, move a highlight, and listen for `rewardLanded` |
 
 ### Mobile game HUD and mascot examples
@@ -63,16 +64,15 @@ with React, React Native, Skia, Reanimated and Worklets supplied by the app.
 [Runtime package on npm](https://www.npmjs.com/package/skia-motion-runtime)
 
 ```sh
-npm install --save-exact skia-motion-runtime@3.0.0
+npm install --save-exact skia-motion-runtime
 ```
 
 You can also install the runtime archive from the matching GitHub release.
 [Skia Motion releases](https://github.com/asifnawaz/skia-motion-agentic-cli/releases)
 
-The package exposes one shared player for all your `.skmotion` files. Read the file as UTF-8
-text and pass it to `MotionPlayer`. The player measures its React Native view. By default it fills
-the available width and derives height from the file's artboard aspect ratio. You can supply a
-React Native `style` or optional `width` and `height` props.
+Pass a JSON pack's UTF-8 text to `MotionPlayer`. When `skac asset` lists `--format=binary`, the
+matching runtime can also read binary packs as `Uint8Array`. The player measures its view and
+derives the default height from the artboard. Use `style`, `width` or `height` for a specific layout.
 
 ```tsx
 import { useRef } from 'react';
@@ -104,10 +104,9 @@ The player package also exposes `skia-motion-runtime/machine` for generated mach
 and shared motion helpers. Use a runtime version at least as new as the release that generated
 the component.
 
-Use `onMarker` for app-side sound or haptics. The UI can pause when hidden, and the player
-handles system reduced motion and backgrounding. In Expo, use a development build for
-Skia v3. To bundle the file, add `skmotion` to Metro's asset extensions, load it through
-`expo-asset`, and read its text with the app's file API. [Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/) · [Expo Metro assets](https://docs.expo.dev/guides/customizing-metro/#assets)
+Use `onMarker` for app-side sound or haptics. The player handles system reduced motion and backgrounding.
+In Expo, use a development build for Skia v3 and add `skmotion` to Metro's asset extensions.
+[Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/) · [Expo Metro assets](https://docs.expo.dev/guides/customizing-metro/#assets)
 
 When several players use the same file, call `loadMotionAsset(text)` once and pass its result to
 each player's `source`. The players share prepared paths and image handles, with a separate
@@ -116,27 +115,31 @@ call `await preloadMotionAsset(text)`. On Skia builds with asynchronous image de
 the decode off the JS thread. Pass `{ uploadImages: true }` to prepare GPU textures where the
 backend supports it. Keep the loaded file while it is in use, then release the reference.
 
-For an asset bundled by Metro, load its UTF-8 text and prepare it once for playback.
+For an Expo asset bundled by Metro, use the prepared loader.
 
-```ts
-import { Asset } from 'expo-asset';
-import { File } from 'expo-file-system';
-import { loadMotionAsset } from 'skia-motion-runtime';
+```tsx
+import { MotionPlayer } from 'skia-motion-runtime';
+import { useExpoMotionAsset } from 'skia-motion-runtime/expo';
 
-export async function loadVersusHUD() {
-  const asset = await Asset.fromModule(require('./versus-hud.skmotion')).downloadAsync();
-  if (!asset.localUri) throw new Error('The motion file is unavailable');
-  return loadMotionAsset(await new File(asset.localUri).text());
+export function BundledHUD() {
+  const result = useExpoMotionAsset(require('./versus-hud.skmotion'));
+  return result.status === 'ready' ? <MotionPlayer source={result.asset} /> : null;
 }
 ```
 
-Pass the returned file to `<MotionPlayer source={file} />`. App code supplies inputs and handles
-markers. The file carries the visuals, timing, and state transitions.
+Use `MotionPicture` to play a named clip inside an existing Skia Canvas at explicit dimensions
+and a shared time. It can draw without the measured `MotionPlayer` view. For live text counters,
+write a bound string from a worklet with `setOnUI`. [Playback choices and count-up recipe](docs/app.md#packed-motion-and-skia-canvas)
 
 ## Instructions for coding agents
 
-Run `skac asset guide` first. The `format`, `hud`, `character`, `lighting`, `feathering`, `images`, `masking`,
-`attachments`, and `layout` topics return JSON with valid fields and runnable commands.
+Apps can reuse existing Skia typefaces for packed motion text. Declare font slots, supply the
+faces from the host, and pack with `--fonts=host` to leave font bytes in the app. Use the same
+faces in offline preview and text QA. [App font slots](docs/app.md#reuse-the-apps-fonts)
+
+Run `skac --version`, `skac asset` and `skac asset guide` first. For an app, check its installed
+`skia-motion-runtime` version as well. The command and guide lists come from the CLI you are
+actually using. Read `format`, `playback` and the relevant drawing or verification topic from that list.
 
 1. Define the view, the main visual cue, and the inputs the app provides.
 2. Draw the resting silhouette from ovals, rounded rectangles, and paths. Put connected parts in a group.

@@ -58,7 +58,7 @@ function trackTextLayout(kit, provider, node, text) {
   };
 }
 
-export async function measureTextLayout(asset, cases, viewport, samples) {
+export async function measureTextLayout({ fonts, missing }, cases, viewport, samples) {
   const stats = { engine: 'skia-paragraph', viewport, samples, measured: 0, unmeasured: 0, overflow: 0 };
   const warnings = [];
   const cache = new Map();
@@ -72,17 +72,20 @@ export async function measureTextLayout(asset, cases, viewport, samples) {
       const key = JSON.stringify([text, node.fonts, node.width, node.fontSize, node.maxLines, node.direction, node.align, node.fontFeatures]);
       let layout = cache.get(key);
       if (!layout) {
-        if (node.fonts?.length && !provider) {
+        const missingSlots = node.fonts?.filter((name) => missing.includes(name));
+        if (missingSlots?.length) {
+          layout = { reason: 'missing-font-slots', slots: missingSlots };
+        } else if (node.fonts?.length && !provider) {
           kit = await loadCanvasKit();
           provider = kit.TypefaceFontProvider.Make();
-          for (const [name, uri] of Object.entries(asset.fonts ?? {})) {
+          for (const [name, uri] of Object.entries(fonts)) {
             const data = Buffer.from(uri.slice(uri.indexOf(',') + 1), 'base64');
             if (provider.registerFont(data, name) === null) {
               fail(`fonts.${name}: Skia could not decode the font`, 'replace it with a valid TTF or OTF');
             }
           }
         }
-        layout = trackTextLayout(kit, provider, node, text);
+        layout ??= trackTextLayout(kit, provider, node, text);
         cache.set(key, layout);
       }
       const maxLines = node.maxLines ?? 1;
@@ -91,8 +94,10 @@ export async function measureTextLayout(asset, cases, viewport, samples) {
         stats.unmeasured++;
         warnings.push({
           code: 'text-layout-unavailable', ...sample, ...layout,
-          error: layout.reason === 'system-font' ? 'This node uses a platform font.' : 'Embedded fonts do not cover all glyphs in this sample.',
-          hint: 'Embed fonts that cover the full label and rerun the check.',
+          error: layout.reason === 'missing-font-slots' ? `Provide font slots ${layout.slots.join(', ')} to measure this text.`
+            : layout.reason === 'system-font' ? 'This node uses a platform font.' : 'The selected fonts do not cover all glyphs in this sample.',
+          hint: layout.reason === 'missing-font-slots' ? 'Supply --font=slot=path/to/font.ttf for each required slot.'
+            : 'Use fonts that cover the full label and rerun the check.',
         });
       } else {
         stats.measured++;

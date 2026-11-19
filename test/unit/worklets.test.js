@@ -341,6 +341,32 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   assert.equal(rawImages.painted, rawImages.portrait);
   assert.equal(rawImages.painted, rawImages.duplicate);
   assert.deepEqual(fonts.slice(-2), [['native-bytes', 'ui'], ['native-bytes', 'other']]);
+
+  const host = { face: 'borrowed', dispose: () => assert.fail('host face was disposed') };
+  const optional = { ...asset, fonts: { fallback: typeface }, fontSlots: { ui: { fallback: 'fallback' } } };
+  prepareAssetDrawing(optional, images);
+  assert.deepEqual(fonts.slice(-2), [['native-bytes', 'fallback'], ['native-bytes', 'ui']]);
+  const beforeOverride = byteReads.length;
+  prepareAssetDrawing(optional, images, { ui: host });
+  assert.equal(byteReads.length, beforeOverride, 'the replaced embedded fallback is not decoded');
+  assert.deepEqual(fonts.at(-1), [host, 'ui']);
+  const bound = asset.artboard.nodes.find((node) => node.kind === 'text');
+  const shared = {
+    ...optional,
+    fontSlots: { ...optional.fontSlots, label: { fallback: 'fallback' } },
+    artboard: { ...asset.artboard, nodes: [...asset.artboard.nodes, { ...bound, fonts: ['label'] }] },
+  };
+  prepareAssetDrawing(shared, images, { ui: host });
+  assert.deepEqual(fonts.slice(-3), [['native-bytes', 'fallback'], [host, 'ui'], ['native-bytes', 'label']]);
+  const external = { ...asset, fonts: undefined, fontSlots: { ui: {} } };
+  assert.throws(() => prepareAssetDrawing(external, images), /Missing motion font slots: ui/);
+  assert.throws(() => prepareAssetDrawing(external, images, { wrong: host }), /fontSlots.wrong: unknown font slot/);
+  const beforeHost = byteReads.length;
+  const hostDrawing = prepareAssetDrawing(external, images, { ui: host });
+  drawAsset(canvas, hostDrawing, pose.channels, 320, 260, images, { title: 'Host font' });
+  assert.equal(paragraphs.at(-1)[0], 'Host font');
+  assert.equal(byteReads.length, beforeHost);
+  assert.deepEqual(fonts.at(-1), [host, 'ui']);
 });
 
 test('drawing a clip in the host canvas supports absolute time and direct shared values', () => {

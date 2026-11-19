@@ -2,7 +2,7 @@ import {
   BlendMode, BlurStyle, ClipOp, FilterMode, MipmapMode, PaintStyle, Skia, StrokeCap, StrokeJoin, TextAlign, TextDirection, TileMode, VertexMode,
   type SkCanvas, type SkData, type SkImage, type SkPaint, type SkParagraph, type SkPath, type SkShader, type SkTypeface, type SkTypefaceFontProvider,
 } from 'react-native-skia';
-import { MAX_FEATHER, resolveAssetColor, usedAssetImages, type AssetNode, type AssetStroke, type AssetTextNode, type DrawableMotionAsset, type MotionAsset, type PathCommand } from './asset';
+import { MAX_FEATHER, resolveAssetColor, resolveAssetFonts, usedAssetImages, type AssetNode, type AssetStroke, type AssetTextNode, type DrawableMotionAsset, type MotionAsset, type PathCommand } from './asset';
 import type { AssetResource } from './asset-binary';
 import { fitAsset, fittedAnchorOffset, type AssetLayoutOptions } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshNode, type MeshPin } from './asset-mesh';
@@ -36,6 +36,7 @@ export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
   palette?: Palette;
 };
 export type AssetImages = Readonly<Record<string, SkImage>>;
+export type AssetFontSlots = Readonly<Record<string, SkTypeface>>;
 export type AssetMeshShaders = Readonly<Record<string, SkShader>>;
 
 function skiaData(resource: AssetResource): SkData {
@@ -201,13 +202,19 @@ function prepareNode(
 }
 
 /** Build fixed geometry and paints once. Channel-driven paths and clips are still evaluated for each pose. */
-export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetImages = {}): DrawableAsset {
+export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetImages = {}, fontSlots?: AssetFontSlots): DrawableAsset {
+  const { fonts, missing } = resolveAssetFonts(asset, fontSlots);
+  if (missing.length) throw new Error(`Missing motion font slots: ${missing.join(', ')}`);
   const shaders: Record<string, SkShader> = {};
   const shadersByImage = new Map<SkImage, SkShader>();
   let fontProvider: SkTypefaceFontProvider | undefined;
   const typefaces = new Map<AssetResource, SkTypeface>();
-  for (const [name, resource] of Object.entries(asset.fonts ?? {})) {
+  for (const [name, resource] of Object.entries(fonts)) {
     fontProvider ??= Skia.TypefaceFontProvider.Make();
+    if (typeof resource !== 'string' && !('bytes' in resource)) {
+      fontProvider.registerFont(resource, name);
+      continue;
+    }
     let typeface = typefaces.get(resource);
     if (!typeface) {
       const data = skiaData(resource);

@@ -4,6 +4,23 @@ Every command prints exactly one JSON document on stdout. Success has `ok:true`;
 
 Run it as `skac <cmd>` once installed. Without installing: `npx skia-motion-agentic-cli <cmd>`.
 
+## Packed asset commands
+
+Run `skac --version`, `skac asset`, and `skac asset guide` to see the installed command and guide lists.
+
+| Command | Use |
+| --- | --- |
+| `asset sample [name]` | List starter assets or write editable source, including the real-text `reward-counter` sample where listed. |
+| `asset check <file>` | Validate a scene and report warnings. Use `--artboard` for a bundle and `--size`, `--commands` and `--trace` to sample attachment motion. Add `--text-layout` to detect overflow and repeat `--font=slot=font.ttf` to supply host faces. |
+| `asset trace <file>` | Sample states, values, channels and markers at millisecond times. Event times in `--commands` use seconds. |
+| `asset frame <file>` | Write an SVG still for one sampled time. |
+| `asset pack <file>` | Write a `.skmotion` and report `sizeBreakdown`. Use `--format=binary` for compact resource storage and `--fonts=host` for a scene that uses font slots or platform text. |
+| `asset preview <file.skmotion>` | Open the actual packed asset in an offline interactive HTML preview. Supply required local fonts with repeatable `--font=slot=font.ttf`. The same mappings work in `asset frame`. |
+| `asset unpack <file.skmotion>` | Recover editable JSON on builds that list this command. |
+| `asset image`, `asset resource`, `asset types` | Embed artwork and media or generate typed app bindings. |
+
+See [app playback and the count-up recipe](app.md#packed-motion-and-skia-canvas) for `setOnUI`, `MotionPicture`, and font limits.
+
 ## Config and global flags
 
 The nearest `skia-motion.json` walking up from the working directory:
@@ -65,6 +82,9 @@ Not covered, with the reason: `login`, `logout`, `whoami`, `push`, `pull`, `libr
 ## Each command with real output
 
 Output below comes from real runs. Absolute paths are shown as `./...`, `text` fields are cut at 200 characters with an ellipsis, and long lists are cut to the first entries.
+
+The `doctor` example is from a Remotion project. Its renderer dependency is separate from
+the `react-native-skia` v3 dependency used by the app runtime.
 
 ### doctor
 

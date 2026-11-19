@@ -1,18 +1,20 @@
-import { assetClips, parseDrawableAsset } from '../runtime/asset';
+import { assetClips, parseDrawableAsset, resolveAssetFonts } from '../runtime/asset';
 import type { AssetResource } from '../runtime/asset-binary';
 import { decodeBase64 } from '../runtime/base64';
 import { assetSVG } from '../runtime/asset-svg';
 import { advance, compile, pose, simulatedClock, start, writeProblem, type Literal, type Write } from '../templates/motion/machine';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const { source, size, reduced: initialReduced, artboard, binary } = JSON.parse(element('scene').textContent!) as {
+const { source, size, reduced: initialReduced, artboard, binary, hostFonts } = JSON.parse(element('scene').textContent!) as {
   source: string;
   size: [number, number];
   reduced: boolean;
   artboard?: string;
   binary?: boolean;
+  hostFonts?: Record<string, string>;
 };
 const asset = parseDrawableAsset(binary ? decodeBase64(source) : source, artboard);
+const { fonts } = resolveAssetFonts(asset, hostFonts);
 const resourceURLs = new Map<AssetResource, string>();
 function resourceURL(resource: AssetResource): string {
   let url = resourceURLs.get(resource);
@@ -30,7 +32,7 @@ function resourceURL(resource: AssetResource): string {
 }
 const images = Object.fromEntries(Object.entries(asset.images ?? {}).map(([name, uri]) => [name, resourceURL(uri)]));
 const fontStyles = document.createElement('style');
-fontStyles.textContent = Object.entries(asset.fonts ?? {}).map(([name, uri]) =>
+fontStyles.textContent = Object.entries(fonts).map(([name, uri]) =>
   `@font-face{font-family:${name};src:url(${resourceURL(uri)})}`,
 ).join('');
 document.head.append(fontStyles);

@@ -1,11 +1,11 @@
 import { advance, compile, pose, settled, simulatedClock, start, writeProblem, type Literal, type MachineEvent, type StateEntry, type Write } from '../templates/motion/machine';
-import { assetClips, assetMarkerEvents, parseAsset, type AssetMarkerEvent, type AssetNode, type AssetTextNode, type MotionAsset } from './asset';
+import { assetClips, assetMarkerEvents, assetTextNodes, parseAsset, type AssetMarkerEvent, type MotionAsset } from './asset';
 
 import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } from './asset-attachments';
 
 export { measureAttachments } from './asset-attachments';
 export { parseAsset };
-export { parseAssetFile, parseAssetSource, selectArtboard } from './asset';
+export { assetTextNodes, parseAssetFile, parseAssetSource, resolveAssetFonts, selectArtboard } from './asset';
 export { hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages } from './asset';
 export { encodeBinaryAsset, isBinaryAsset, mapFileResources } from './asset-binary';
 export { imageFileSize } from './asset-image';
@@ -22,23 +22,10 @@ type TraceRow = {
   points?: Record<string, ArtboardPoint>;
 };
 
-function* textNodes(nodes: readonly AssetNode[], parent: string): Generator<{ node: AssetTextNode; where: string }> {
-  for (const [index, node] of nodes.entries()) {
-    const where = `${parent}[${index}]`;
-    if (node.kind === 'text') yield { node, where };
-    if (node.kind === 'group') yield* textNodes(node.children, `${where}.children`);
-    if (node.kind === 'mesh') {
-      for (const [name, pin] of Object.entries(node.pins ?? {})) {
-        if (pin.children) yield* textNodes(pin.children, `${where}.pins.${name}.children`);
-      }
-    }
-  }
-}
-
 /** Paragraph width and font size are artboard units. One measurement covers repeated poses of the same label. */
 export function* assetTextSamples(asset: MotionAsset, rows: readonly TraceRow[]) {
   const chronological = [...rows].sort((a, b) => a.t_ms - b.t_ms);
-  for (const { node, where } of textNodes(asset.artboard.nodes, 'artboard.nodes')) {
+  for (const { node, where } of assetTextNodes(asset.artboard.nodes)) {
     if (typeof node.text === 'string') {
       if (node.text) yield { node, where, text: node.text, t_ms: chronological[0]!.t_ms };
       continue;

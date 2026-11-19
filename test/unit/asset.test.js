@@ -139,6 +139,99 @@ test('packed CRLF labels use one hard break and report the original sampled text
   }
 });
 
+test('host-only exports omit fonts and support offline preview, text QA, and unpacking', async () => {
+  const { cwd, file, run } = fixture('reward-counter');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const font = readFileSync(new URL('../../templates/fonts/allo-1.0.3/Allo-Regular.otf', import.meta.url));
+  const urdu = readFileSync(new URL('../fixtures/fonts/NotoSansArabic-Subset.ttf', import.meta.url));
+  const fontPath = join(cwd, 'Counter=Regular.otf');
+  writeFileSync(fontPath, font);
+  writeFileSync(join(cwd, 'Label.ttf'), urdu);
+  const base = { kind: 'text', x: 0, y: 0, width: 180, fontSize: 18, fill: '#FFFFFF' };
+  scene.artboard.nodes = [
+    { ...base, text: '1111', width: 44, fonts: ['Counter'], fontFeatures: [{ name: 'tnum', value: 1 }] },
+    { ...base, text: 'یہ ایک آزمائش ہے', direction: 'rtl', fonts: ['Label'] },
+  ];
+  const bundle = {
+    schema: 'skac.bundle/1', name: 'Scoreboard', defaultArtboard: 'score',
+    fonts: { Allo: 'data:font/otf;base64,' + font.toString('base64'), Urdu: 'data:font/ttf;base64,' + urdu.toString('base64') },
+    fontSlots: { Counter: { fallback: 'Allo' } },
+    artboards: { score: { ...scene, fontSlots: { Label: { fallback: 'Urdu' } } } },
+  };
+  write(file, JSON.stringify(bundle));
+  const standalone = run('pack', file, '--format=binary', '--out=standalone.skmotion');
+  assert.equal(standalone.sizeBreakdown.fonts, font.length + urdu.length);
+  assert.equal(standalone.bytes, Object.values(standalone.sizeBreakdown).reduce((a, b) => a + b));
+  assert.equal((await run('check', standalone.file, '--text-layout')).textLayout.overflow, 1);
+  assert.equal(run('preview', standalone.file).ok, true);
+
+  const mappings = ['--font=Counter=Counter=Regular.otf', '--font=Label=Label.ttf'];
+  for (const format of ['json', 'binary']) {
+    const host = run('pack', file, `--format=${format}`, '--fonts=host', `--out=host-${format}.skmotion`);
+    assert.equal(host.sizeBreakdown.fonts, 0);
+    assert.equal(host.sizeBreakdown.scene, host.bytes);
+    assert.deepEqual(host.fontSlots, { Counter: {}, Label: {} });
+    const unavailable = await run('check', host.file, '--text-layout');
+    assert.deepEqual(unavailable.warnings.map(({ reason, slots }) => [reason, slots]),
+      [['missing-font-slots', ['Counter']], ['missing-font-slots', ['Label']]]);
+    assert.throws(() => run('preview', host.file), /missing font slots: Counter, Label/);
+    assert.throws(() => run('preview', host.file, '--font=Unknown=Label.ttf'), /unknown font slot/);
+    assert.throws(() => run('preview', host.file, mappings[0], mappings[0]), /duplicate --font/);
+    const checked = await run('check', host.file, '--text-layout', ...mappings);
+    assert.equal(checked.textLayout.measured, 2);
+    assert.equal(checked.textLayout.overflow, 1);
+    assert.equal(checked.warnings[0].text, '1111');
+    const preview = readFileSync(run('preview', host.file, ...mappings).file, 'utf8');
+    const viewer = JSON.parse(/<script id="scene" type="application\/json">([\s\S]*?)<\/script>/.exec(preview)[1]);
+    assert.deepEqual(Object.keys(viewer.hostFonts), ['Counter', 'Label']);
+    assert.equal(viewer.source, readFileSync(host.file, format === 'binary' ? 'base64' : 'utf8'));
+    const frame = readFileSync(run('frame', host.file, ...mappings).file, 'utf8');
+    assert.match(frame, /@font-face\{font-family:Counter;/);
+    const recovered = run('unpack', host.file).file;
+    const editable = JSON.parse(readFileSync(recovered, 'utf8'));
+    assert.deepEqual(editable.fontSlots, { Counter: {} });
+    assert.equal(editable.fonts, undefined);
+    assert.equal(editable.artboards.score.fonts, undefined);
+    editable.artboards.score.artboard.nodes[0].text = '8888';
+    write(recovered, JSON.stringify(editable));
+    const edited = run('pack', recovered, `--format=${format}`, '--fonts=host', `--out=edited-${format}.skmotion`);
+    const proof = await run('check', edited.file, '--text-layout', ...mappings);
+    assert.equal(proof.warnings[0].text, '8888');
+  }
+
+  scene.artboard.nodes[0].fonts = ['Allo'];
+  write(file, JSON.stringify(bundle));
+  assert.throws(() => run('pack', file, '--fonts=host'), /artboards.score.artboard.nodes\[0\].fonts: host export would remove the Allo font/);
+  delete scene.artboard.nodes[0].fonts;
+  write(file, JSON.stringify(bundle));
+  assert.throws(() => run('pack', file, '--fonts=host'), /host export would remove the default font/);
+  bundle.fontSlots.Counter.fallback = 'Missing';
+  write(file, JSON.stringify(bundle));
+  assert.throws(() => run('check', file), /bundle.fontSlots.Counter.fallback: expected an embedded font name/);
+});
+
+test('pack reports separate font and scene costs when an asset exceeds its budget', () => {
+  const { file, run } = fixture('reward-counter');
+  const scene = JSON.parse(readFileSync(file, 'utf8'));
+  const bytes = Buffer.alloc(600_000);
+  readFileSync(new URL('../../templates/fonts/allo-1.0.3/Allo-Regular.otf', import.meta.url)).copy(bytes);
+  const first = 'data:font/otf;base64,' + bytes.toString('base64');
+  bytes[bytes.length - 1] = 1;
+  const second = 'data:font/otf;base64,' + bytes.toString('base64');
+  scene.fonts = { first, second };
+  scene.artboard.nodes = [{ kind: 'text', x: 0, y: 0, width: 80, fontSize: 16, fill: '#FFFFFF', text: 'Score', fonts: ['first', 'second'] }];
+  write(file, JSON.stringify(scene));
+  for (const format of ['binary', 'json']) {
+    assert.throws(() => run('pack', file, `--format=${format}`), (error) => {
+      assert.match(error.message, /packed asset exceeds 1 MiB/);
+      const { bytes: size, sizeBreakdown } = error.extra;
+      assert.equal(sizeBreakdown.fonts, format === 'binary' ? bytes.length * 2 : first.length + second.length);
+      assert.equal(size, sizeBreakdown.fonts + sizeBreakdown.scene);
+      return true;
+    });
+  }
+});
+
 test('painted meshes pack their textures, deform in preview and move named pin children', () => {
   const { cwd, file, run } = fixture('sprout');
   const asset = JSON.parse(readFileSync(file, 'utf8'));

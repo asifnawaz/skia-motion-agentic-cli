@@ -1,7 +1,7 @@
 import type { SkImage } from 'react-native-skia';
 import { assetClips, bindAssetPalette, parseDrawableAsset, type MotionAsset } from './asset';
 import { resourceDataUri, type MotionAssetData, type ResourceBytes } from './asset-binary';
-import { decodeAssetImages, prepareAssetDrawing, rebindAssetMeshShaders, type AssetImages, type DrawableAsset } from './asset-draw';
+import { decodeAssetImages, prepareAssetDrawing, rebindAssetMeshShaders, type AssetFontSlots, type AssetImages, type DrawableAsset } from './asset-draw';
 
 let nextAssetKey = 0;
 
@@ -17,9 +17,15 @@ export type LoadedMotionAsset = Readonly<{
 }>;
 
 /** Prepare one file for reuse by independent player instances. Keep the result while those players are mounted. */
-export type MotionPrepareOptions = { artboard?: string; imageSlots?: AssetImages; palette?: Readonly<Record<string, string>> };
+export type MotionPrepareOptions = {
+  artboard?: string;
+  imageSlots?: AssetImages;
+  /** Already-loaded Skia typefaces, borrowed for the life of the prepared drawing. */
+  fontSlots?: AssetFontSlots;
+  palette?: Readonly<Record<string, string>>;
+};
 
-export function loadMotionAsset(source: MotionAssetData, { artboard, imageSlots, palette }: MotionPrepareOptions = {}): LoadedMotionAsset {
+export function loadMotionAsset(source: MotionAssetData, { artboard, imageSlots, fontSlots, palette }: MotionPrepareOptions = {}): LoadedMotionAsset {
   const asset = bindAssetPalette(parseDrawableAsset(source, artboard), palette);
   const images = decodeAssetImages(asset, imageSlots);
   let audio: LoadedMotionAsset['audio'];
@@ -31,7 +37,7 @@ export function loadMotionAsset(source: MotionAssetData, { artboard, imageSlots,
     key: nextAssetKey++,
     machine: asset.machine,
     markers: asset.markers,
-    drawing: prepareAssetDrawing(asset, images),
+    drawing: prepareAssetDrawing(asset, images, fontSlots),
     images,
     clips: assetClips(asset),
     semantics: asset.semantics,
