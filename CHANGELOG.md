@@ -1,3 +1,10 @@
+## [3.3.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.3.0...v3.3.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **docs:** earned moments get a wild register and drawn motion ships as an asset ([40f02ea](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/40f02ea7ba87ea2cdc05000da4517ecfc6e7088d))
+
 # [3.3.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.2.0...v3.3.0) (2026-11-19)
 
 
