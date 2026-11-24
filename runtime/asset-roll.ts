@@ -61,7 +61,7 @@ const valueOf = (digits: readonly number[]) => {
 /**
  * The odometer between two values at progress 0 to 1. The shown value runs linearly from `from` to `to`; place i turns during the last
  * unit of the places to its right, so the rightmost place turns fastest and a place moves only when the one below it wraps. The number of
- * places is the longer of the two, and a leading place is blank until the value reaches it, so the width never changes. Prefix, suffix and
+ * places is the longer of the two; a leading place is blank until the value reaches it, and opens as its first digit rolls in. Prefix, suffix and
  * digit system come from `to`. Undefined when either value is not one run of digits, or they differ in prefix, suffix or digit system:
  * the caller shows `from` before 0.5 and `to` after.
  */
@@ -93,3 +93,25 @@ export function digitText(digit: number, zero: number): string {
   'worklet';
   return digit < 0 ? '' : String.fromCodePoint(zero + digit);
 }
+
+// Worklets capture a helper when the function using it is defined, so helpers come first.
+type Feature = { name: string; value: number };
+
+/**
+ * A rolling text's style: its own, with tabular figures on, so every digit takes one advance. The app draws it this way and asset check
+ * measures it this way; any other node comes back unchanged.
+ */
+export function rollTextStyle<N extends { roll?: unknown; fontFeatures?: readonly Feature[] }>(node: N): N {
+  'worklet';
+  if (!node.roll || node.fontFeatures?.some(({ name }) => name === 'tnum')) return node;
+  return { ...node, fontFeatures: [...(node.fontFeatures ?? []), { name: 'tnum', value: 1 }] };
+}
+
+/** The text a frame shows at rest: prefix, the digits of the places that are not blank, suffix. */
+export function restText(frame: RollFrame): string {
+  'worklet';
+  let digits = '';
+  for (const { current } of frame.places) digits += digitText(current, frame.zero);
+  return frame.prefix + digits + frame.suffix;
+}
+

@@ -233,6 +233,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
           assert.deepEqual(Array.from(attributes.fontFeatures, ({ name, value }) => [name, value]), [['tnum', 1]]);
         },
         addText(value) { text = value; },
+        pop() {},
         build() {
           return {
             layout(value) { width = value; },
@@ -438,15 +439,27 @@ test('a rolling number draws an odometer through the production worklet transfor
     Data: { fromBase64: (data) => data },
     Typeface: { MakeFreeTypeFaceFromData: (data) => data },
     TypefaceFontProvider: { Make: () => ({ registerFont() {} }) },
-    ParagraphBuilder: { Make() {
-      let text;
+    // Every character is 10 wide; a centred line starts at (width - length) / 2. Unseen runs are laid out but not painted.
+    ParagraphBuilder: { Make(style) {
+      let text = '';
+      let shown = '';
+      let color;
       return {
-        pushStyle(attributes) { features.push(Array.from(attributes.fontFeatures ?? [], ({ name }) => name).join()); },
-        addText(value) { text = value; },
-        build: () => ({
-          layout() {}, getLongestLine: () => [...text].length * 10, getHeight: () => 24,
-          paint(_canvas, x, y) { paints.push([text, x, y]); },
-        }),
+        pushStyle(attributes) {
+          features.push(Array.from(attributes.fontFeatures ?? [], ({ name }) => name).join());
+          color = attributes.color;
+        },
+        addText(value) { text += value; if (color !== 'rgba(0,0,0,0)') shown += value; },
+        pop() {},
+        build: () => {
+          let left = 0;
+          return {
+            layout(width) { left = style.textAlign === 2 ? (width - text.length * 10) / 2 : 0; },
+            getLongestLine: () => text.length * 10, getHeight: () => 24, getLineMetrics: () => [{ baseline: 18 }],
+            getRectsForRange: (start, end) => [{ x: left + start * 10, y: 0, width: (end - start) * 10, height: 24 }],
+            paint(_canvas, x, y) { paints.push([shown, x, y]); },
+          };
+        },
       };
     } },
     Color: (hex) => hex,
@@ -466,18 +479,19 @@ test('a rolling number draws an odometer through the production worklet transfor
     },
   }, 'production');
   const drawing = prepareAssetDrawing(asset, {});
-  // Half way from 9 to 10 is 9.5: the units turn 9 -> 0 and the tens enter from blank, both half way. "+" is 10 wide and a place 10;
-  // the blank tens place has opened to 5, so the 25-wide number is centred in 100 at x 10 + 37.5.
+  // Half way from 9 to 10 is 9.5: the units turn 9 -> 0 and the tens enter from blank, both half way. Skia lays out "+0" (centred at
+  // 40 in the 100-wide box) and "+00" (at 35); half way the "+" is at 37.5, drawn in the "+0" layout moved 2.5 left, and the digit run
+  // starts after it at 10 + 47.5.
   drawAsset(canvas, drawing, { turn: 0.5 }, 200, 60, {}, { from: '+9', to: '+10' });
   assert.deepEqual(paints, [
-    ['+', 47.5, 5], ['1', 52.5, 5 + 12], ['9', 62.5, 5 - 12], ['0', 62.5, 5 + 12],
+    ['+', 7.5, 5], ['1', 52.5, 5 + 12], ['9', 62.5, 5 - 12], ['0', 62.5, 5 + 12],
   ]);
   assert.deepEqual(clips, [[0, 0, 200, 60], [57.5, 5, 5, 24], [62.5, 5, 10, 24]]); // the board, then one column per place
   paints.length = 0;
   clips.length = 0;
-  // At rest before the roll, the blank place takes no room: "+9" sits whole and centred, with no gap after the "+".
+  // At rest the roll is the plain paragraph of the number it shows, so it lays out exactly as asset check measures it.
   drawAsset(canvas, drawing, { turn: 0 }, 200, 60, {}, { from: '+9', to: '+10' });
-  assert.deepEqual(paints, [['+', 50, 5], ['9', 60, 5]]);
+  assert.deepEqual(paints, [['+9', 10, 5]]);
   assert.ok(features.every((list) => list.includes('tnum')), 'digits draw with tabular figures');
   paints.length = 0;
   // A value with two runs of digits cannot roll: it cuts at half way.

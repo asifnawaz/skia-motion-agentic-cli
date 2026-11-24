@@ -12,7 +12,8 @@ export { hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages
 export { encodeBinaryAsset, isBinaryAsset, mapFileResources } from './asset-binary';
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
-export { rollFrame } from './asset-roll';
+export { rollFrame, rollTextStyle } from './asset-roll';
+import { rollTextStyle } from './asset-roll';
 export { validateMachine } from './machine-schema.js';
 
 type TraceRow = {
@@ -38,7 +39,8 @@ export function* assetTextSamples(asset: MotionAsset, rows: readonly TraceRow[])
       const text = shownText(node, row.values, asset, row.channels);
       if (typeof text !== 'string' || !text || seen.has(text)) continue;
       seen.add(text);
-      yield { node, where, text, t_ms: row.t_ms };
+      // A rolling number is drawn with tabular figures, so it is measured with them.
+      yield { node: rollTextStyle(node), where, text, t_ms: row.t_ms };
     }
   }
 }

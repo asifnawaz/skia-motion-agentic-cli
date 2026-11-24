@@ -1,7 +1,7 @@
 import { MAX_FEATHER, resolveAssetColor, type AssetNode, type AssetStroke, type MotionAsset, type PathCommand } from './asset';
 import { anchorOffset, layoutAsset } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshVertex, type MeshNode } from './asset-mesh';
-import { digitText, rollFrame } from './asset-roll';
+import { digitText, restText, rollFrame } from './asset-roll';
 
 const opacity = (value: number) => Math.max(0, Math.min(1, value));
 type Point = ReturnType<typeof meshPosition>;
@@ -184,8 +184,11 @@ export function assetSVG(
         const progress = read(node.roll.progress);
         const from = bound(node.roll.from);
         const frame = rollFrame(from, value, progress);
-        if (frame) {
-          // The preview has no text measurement: a digit place is 0.6 of the font size wide and a line 1.2. The app measures both.
+        // At rest the roll is its plain text, laid out by the viewer like any other; only a turning frame is drawn in columns.
+        if (frame && frame.places.every(({ turn }) => turn === 0)) value = restText(frame);
+        else if (frame) {
+          // The preview has no text measurement: a digit place is 0.6 of the font size wide and a line 1.2, and right to left the prefix
+          // is put on the right. The app lays the number out with Skia; `asset frame --out=*.png` shows that.
           const advance = node.fontSize * 0.6;
           const line = node.fontSize * 1.2;
           const rtl = node.direction === 'rtl';
@@ -211,8 +214,7 @@ export function assetSVG(
             return `<g clip-path="url(#${id})">${glyph(digitText(current, frame.zero), column, y0 - turn * line)}${turn > 0 ? glyph(digitText(next, frame.zero), column, y0 + (1 - turn) * line) : ''}</g>`;
           }).join('');
           return `${glyph(left, x0, y0)}${columns}${glyph(right, digits + digitsWidth, y0)}`;
-        }
-        value = progress < 0.5 ? from : value;
+        } else value = progress < 0.5 ? from : value;
       }
       if (!value) return '';
       const content = escape(value);

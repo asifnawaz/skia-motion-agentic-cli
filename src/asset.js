@@ -9,6 +9,7 @@ import { previewHTML } from './asset-preview.js';
 import { extentKey, measureImageInk, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
 import { textInPlate } from './asset-plate.js';
 import { causalChain } from './asset-chain.js';
+import { renderAssetPNG } from './asset-canvaskit.js';
 import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js';
 import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
@@ -29,7 +30,7 @@ const USAGE = [
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
   'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear, skac/text-in-plate and skac/causal-chain)',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
-  'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg>]',
+  'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg|frame.png>] [--background=#FFFFFF]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
   'skac asset types <file> [--artboard=<name>] [--out=<bindings.d.ts>] [--force|--check]',
   'skac asset pack <file> [--format=json|binary] [--fonts=host] [--out=<name.skmotion>] [--force]',
@@ -371,7 +372,7 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   const sources = { layout: 0, declared: 0 };
   const seen = new Set();
   const extent = (node, where, text) => {
-    const found = extents.get(extentKey(node, text)) ?? runtime.declaredText(node);
+    const found = extents.get(extentKey(runtime.rollTextStyle(node), text)) ?? runtime.declaredText(node);
     if (!seen.has(`${where}|${text}`)) {
       seen.add(`${where}|${text}`);
       sources[found.source]++;
@@ -550,10 +551,19 @@ export function assetCommand(args, flags, cwd) {
       size = { width: sides[0], height: sides[1] };
     }
     const [row] = trace(asset, flags);
-    const destination = resolve(cwd, flags.out ?? `${stem}-${row.t_ms}.svg`);
+    const png = Boolean(flags.out) && extname(flags.out).toLowerCase() === '.png';
+    const destination = resolve(cwd, flags.out ?? `${stem}-${row.t_ms}.${png ? 'png' : 'svg'}`);
     if (destination === path) fail('source and destination are the same file', 'choose another path with --out');
     const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
     const fonts = requirePreviewFonts(assetRuntime().resolveAssetFonts(visual, hostFonts));
+    if (png) {
+      // The PNG comes from the app's own draw code over CanvasKit: blur, gradients and text as on the phone.
+      const pixels = size ?? { width: asset.artboard.width, height: asset.artboard.height };
+      return renderAssetPNG({ ...visual, fonts }, row.channels, row.values, pixels, flags.background).then((bytes) => {
+        writeOutput(destination, bytes, flags.force);
+        return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states, renderer: 'canvaskit' };
+      });
+    }
     writeOutput(destination, assetRuntime().assetSVG({ ...visual, fonts }, row.channels, size, row.values), flags.force);
     return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states };
   }

@@ -304,7 +304,7 @@ const topics = {
     drawing: [
       'A number that changes rolls. Bind the text to the new value and give it roll: { progress: <channel>, from: <string value> }. The host sets both strings, and a clip runs the channel from 0 to 1.',
       'Each digit place is a column clipped to one line: the old digit leaves upward as the next comes in from below. The rightmost place turns fastest; a place turns only while the one to its right wraps, like an odometer.',
-      'Prefix and suffix (the non-digit ends of the value, such as + or a unit) hold still. A place the old value lacks enters from blank. Every place takes the zero\'s width with tabular figures, so the number never shifts and its plate never resizes.',
+      'At rest the number is its plain text with tabular figures, so asset check measures exactly what the app draws. While it rolls, Skia lays the number out with the node\'s alignment and direction; prefix and suffix (the non-digit ends, such as + or %) keep their shaping and only move while a new leading place opens, as its digit rolls in. Size a plate for the longest value, so it never resizes.',
       'Any decimal digits roll in their own glyphs (Latin, Arabic-Indic, Extended Arabic-Indic, Devanagari and others), through the node\'s fonts or font slot. Right to left, the prefix sits on the right of the digits.',
       'A value that is not one run of digits (1,250) or that changes prefix cuts at half way, and asset check warns (roll-cut). Set the clip\'s reducedAt to its end so Reduce Motion shows the new value.',
       'A rolling number needs a runtime release that knows roll; asset check warns (roll-runtime). Follow it with a punch (a scale pop with a damped settle) on the same text when the roll lands.',
