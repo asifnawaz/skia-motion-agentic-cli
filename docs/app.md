@@ -124,7 +124,9 @@ layout or text scaling in the app.
 Declare a named slot such as `"fontSlots": { "Counter": {} }` on the asset. A text node
 selects it with `"fonts": ["Counter"]`. If you declare a slot on a bundle, individual artboards
 can use it or provide their own slot declarations. An optional `{"fallback":"EmbeddedName"}`
-uses that entry from the asset’s `fonts` map when the host supplies no binding.
+uses that entry from the asset’s `fonts` map when the host supplies no binding. A slot with
+neither draws in the platform’s default face, and the runtime warns once in development naming it;
+a motion asset never takes a screen down over a font.
 
 ```sh
 skac asset pack scoreboard.motion.json --format=binary --fonts=host

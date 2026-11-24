@@ -26,6 +26,7 @@ const load = (path, imports = {}, envName = 'development') => {
   const exports = {};
   runInNewContext(outputText, {
     __DEV__: envName === 'development',
+    console,
     exports,
     global: { Error },
     require(specifier) {
@@ -362,14 +363,78 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   prepareAssetDrawing(shared, images, { ui: host });
   assert.deepEqual(fonts.slice(-3), [['native-bytes', 'fallback'], [host, 'ui'], ['native-bytes', 'label']]);
   const external = { ...asset, fonts: undefined, fontSlots: { ui: {} } };
-  assert.throws(() => prepareAssetDrawing(external, images), /Missing motion font slots: ui/);
-  assert.throws(() => prepareAssetDrawing(external, images, { wrong: host }), /fontSlots.wrong: unknown font slot/);
   const beforeHost = byteReads.length;
   const hostDrawing = prepareAssetDrawing(external, images, { ui: host });
   drawAsset(canvas, hostDrawing, pose.channels, 320, 260, images, { title: 'Host font' });
   assert.equal(paragraphs.at(-1)[0], 'Host font');
   assert.equal(byteReads.length, beforeHost);
   assert.deepEqual(fonts.at(-1), [host, 'ui']);
+});
+
+test('a font slot the host does not pass draws in the default face with one dev warning; it never throws', async () => {
+  const validator = await import('../../runtime/machine-schema.js');
+  const motion = load('templates/motion/motion.ts', {}, 'production');
+  const base64 = load('runtime/base64.ts', {}, 'production');
+  const binary = load('runtime/asset-binary.ts', { './base64': base64 }, 'production');
+  const runtime = load('runtime/asset.ts', {
+    './machine-schema.js': validator, '../templates/motion/motion': motion,
+    './asset-image': load('runtime/asset-image.ts', { './base64': base64, './asset-binary': binary }, 'production'),
+    './base64': base64, './asset-binary': binary,
+  }, 'production');
+  const asset = runtime.parseAsset(JSON.stringify({
+    schema: 'skac.asset/1', name: 'Slotted', fontSlots: { Display: {}, Body: {}, Urdu: {} },
+    artboard: { width: 200, height: 120, nodes: [{ kind: 'group', x: 0, y: 0, children: [
+      { kind: 'text', text: 'Level up', x: 10, y: 5, width: 180, fontSize: 20, fill: '#000000', fonts: ['Display'] },
+      { kind: 'text', text: '5 of 5 correct', x: 10, y: 40, width: 180, fontSize: 16, fill: '#000000', fonts: ['Body'] },
+      { kind: 'text', text: 'شاباش', x: 10, y: 80, width: 180, fontSize: 18, fill: '#000000', fonts: ['Urdu'], direction: 'rtl' },
+    ] }] },
+    channels: {}, clips: { show: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', layers: [{ name: 'l', entry: 'show', states: { show: { clip: 'show' } } }] },
+  }));
+  const built = [];
+  const skia = {
+    TypefaceFontProvider: { Make: () => ({ registerFont() {} }) },
+    ParagraphBuilder: { Make(_style, provider) {
+      const families = [];
+      return {
+        pushStyle(attributes) { families.push(...(attributes.fontFamilies ?? [])); },
+        addText(text) { built.push({ text, provider, families }); },
+        pop() {},
+        build: () => ({ layout() {}, paint() {}, getLineMetrics: () => [{ baseline: 18 }] }),
+      };
+    } },
+    Color: (hex) => hex,
+  };
+  const draw = (envName) => load('runtime/asset-draw.ts', {
+    './asset': runtime,
+    './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
+    './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
+    './asset-ink': load('runtime/asset-ink.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
+    'react-native-skia': { Skia: skia, ClipOp: { Intersect: 1 }, TextDirection: { RTL: 0, LTR: 1 }, TextAlign: { Start: 4, End: 5, Center: 2 }, TileMode: { Decal: 3 } },
+  }, envName);
+  const { prepareAssetDrawing } = draw('development');
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (message) => warned.push(message);
+  try {
+    // A production build draws the same and says nothing.
+    draw('production').prepareAssetDrawing(asset, {});
+    assert.deepEqual(warned, []);
+    built.length = 0;
+    prepareAssetDrawing(asset, {});
+    // Each text is laid out with no slot font and no provider: the platform's default face.
+    assert.deepEqual(built.map(({ text, provider, families }) => [text, provider, families]),
+      [['Level up', undefined, []], ['5 of 5 correct', undefined, []], ['شاباش', undefined, []]]);
+    prepareAssetDrawing(asset, {}, { Other: {} });
+    prepareAssetDrawing(asset, {}, { Other: {} });
+  } finally {
+    console.warn = warn;
+  }
+  // Once per case: the missing slot, then the missing slot with an undeclared one, which is ignored.
+  assert.equal(warned.length, 2, warned.join('\n'));
+  assert.match(warned[0], /Slotted: font slots Display, Body, Urdu were not passed, so their text draws in the platform's default face/);
+  assert.match(warned[1], /font slots Other are not declared by the asset and were ignored/);
 });
 
 test('drawing a clip in the host canvas supports absolute time and direct shared values', () => {
