@@ -13,7 +13,7 @@ An app change feels continuous, never a sudden change of screen. The character r
 
 **The example: Welcome** (word-quran `WelcomeScreen.tsx`). On a first launch the boot seal does not give way to Welcome: it starts on the boot seal's measured centre and size, travels up and grows into the medallion over 600 ms on inOut cubic (`CUBIC_IN_OUT` in motion.ts, re-exported by moves.ts), and the title rises once the seal has passed its place (330 ms in). One motion, no cut. The Interface sample's first beat is this hand-over written as a skac scene; it checks clean.
 
-**Calm is not a fade.** Calm means small amplitudes, at most 5% overshoot and no noise (principles §1). When a product rule or a study shows a cross-fade, carry instead and say why in the plan.
+**Calm is not a fade.** Everyday interface motion is calm: small amplitudes, at most 5% overshoot and no noise (principles §1). An earned moment is the other register and is not held to that budget (`skac docs motion/surge`). When a product rule or a study shows a cross-fade, carry instead and say why in the plan.
 
 **Moves take linear progress.** `carry`, `morphBox`, `flyInto`, `roll`, `enter` and `exit` ease inside. Pass them the linear progress of their window, `Math.min(1, Math.max(0, (ms - a) / (b - a)))`, never `seg(ms, a, b)` (which already eases: the move would ease twice).
 
@@ -56,7 +56,9 @@ Every OM move that names onetake's `ease` (`morphRect`, `iris`, `zoomThrough`, `
 
 ## Earned moments: the four phases
 
-A reward, a completion or a first arrival (rare moments, principles §5.1) may take four phases in order: anticipate (`anticipate(p, amount)`, a small dip against the move), move (a carry or a morph), land (`settle(p, overshoot)` with one overshoot of at most `overshootMax` 5%), then rest (the idle layer). Routine changes keep overshoot 0 and skip anticipation.
+A reward, a completion or a first arrival (rare moments, principles §5.1) may take four phases in order: anticipate (`anticipate(p, amount)`, a small dip against the move), move (a carry or a morph), land (`settle(p, overshoot)`), then rest (the idle layer). Routine changes keep overshoot 0 and skip anticipation. The calm register lands with one overshoot of at most `overshootMax` 5%; an earned moment lands with the damped multi-rebound settle and the larger amplitudes in `skac docs motion/surge`, which also lists the wild register's beats and checks.
+
+Hold the finished pose 0.5 to 1 s before the next change, so the person sees what was earned. A return to rest needs a cause as much as the move did: a counted element that slides back by itself reads as a rewind. A part that has landed is not drawn again, and a moving part is never painted with what lies under it on screen (that is a fade in disguise); what it landed on carries the settle.
 
 ## Carry rule
 

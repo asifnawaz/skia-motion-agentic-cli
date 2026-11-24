@@ -63,7 +63,7 @@ How a whole character acts: arrives, lands, gestures, shifts its weight, reacts.
 - **Peaks never stack.** Do not let a squash release, a wing flap and a launch peak on the same frame. Offset them by more than 33 ms (2 frames at 60 fps). The video's peak frame change must stay at or under the reference (checks: peak YDIF ≤ 5.25 at 390 wide).
 - **Ease every travel.** Never linear for a spatial move; linear only for endless rotation and progress. (rossark §2; LottieFiles motion-design, slow in and slow out)
 - **Enter longer than exit.** An exit is 65–75% of its entrance. (LottieFiles motion-design, timing tables)
-- **Calm overshoot budget.** Overshoot 0% on errors and plain moves, 2–5% on feedback, 5% on a landing. Never the 15–30% "playful" or "energetic" values. (LottieFiles motion-design, overshoot budget, capped by this skill's calm default)
+- **Calm overshoot budget** (everyday motion). Overshoot 0% on errors and plain moves, 2–5% on feedback, 5% on a landing. Never the 15–30% "playful" or "energetic" values. An earned moment is exempt and may use them (`skac docs motion/surge`). (LottieFiles motion-design, overshoot budget, capped by this skill's calm default)
 - **Distance stretches time.** A move twice as far takes about 1.3× as long; four times, 1.6×. (LottieFiles motion-design, distance-duration scaling)
 
 ## The code shape (rossark §5, Skia)

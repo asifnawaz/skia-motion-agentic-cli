@@ -21,7 +21,7 @@ A short move opposite the main action, at 10–20% of its size, tells the eye so
 ## The launch, capped
 
 - **Launch on the gravity arc**, not on an ease-out: `hop(t, a, b, top)` from motion.ts. Its speed is highest at take-off: `4 × top / (b − a)`.
-- **Cap:** no burst is faster than rossark's fastest move, 0.54 pt/ms (4 × 78 pt / 580 ms; about 18 pt a frame at 30 fps). So `air time ≥ 4 × top / 0.54` ms: a 70 pt hop needs at least 520 ms in the air; 78 pt needs 580 ms.
+- **Cap** (everyday character motion; an earned moment is exempt, `skac docs motion/surge`): no burst is faster than rossark's fastest move, 0.54 pt/ms (4 × 78 pt / 580 ms; about 18 pt a frame at 30 fps). So `air time ≥ 4 × top / 0.54` ms: a 70 pt hop needs at least 520 ms in the air; 78 pt needs 580 ms.
 - **Release the squash into the stretch over 80–120 ms**, from 0.86 to at most 1.08. That is under the landing's 0.25 in 140 ms.
 - **Stagger the peaks.** The squash release, the wing flap starting and the take-off speed peak must not share one frame; start the flap 2–4 frames after take-off.
 - **Measured cap:** the render's peak YDIF (checks) stays at or under 5.25 at 390 wide, rossark's own peak.

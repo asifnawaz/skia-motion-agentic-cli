@@ -43,4 +43,16 @@ Skia notes for Remotion:
 4. **Pause** when off screen or in the background; with reduced motion the loop sits at frame 0 and one-shots at their final frame.
 5. **One Canvas per scene.** Many items in one Canvas; never a Canvas per part.
 
+### Drawn motion is an asset; the app only hosts it
+
+Author every drawn or animated piece (a character, an effect, ambience, an animated icon, an earned moment) as a `.skmotion` asset with skac: art, channels, a trigger machine and markers. The app's code only hosts it with the runtime's player:
+
+- fire the trigger (`fire`);
+- pass layout numbers the asset cannot know, such as where a counter sits or how many pieces to pour (`set`, `setValues`, `setOnUI`);
+- play sound and haptics from `onMarker`, so they land on the asset's own beat;
+- pass `reduced`, which shows the clip's `reducedAt` pose and drops travel;
+- draw text, such as a rolling number, in the host's font slots, never an embedded font.
+
+Reanimated in the app is for motion that moves views by layout: sheets, navigation, scroll, list enter and leave, a press scale, text containers. Each player is a Skia canvas, so share decoded assets, prefer one canvas per screen region over many small ones, and measure memory and frame time on the smallest target device when a screen gains canvases. If the runtime cannot do something a moment needs, name the missing feature and report it; do not work round it in the host. (Owner of the Word Quran app, O-8537, O-8538.)
+
 To ship a scene to an app, use `skac <Name> --export <app-dir>`: it writes the component, `skac docs app`. What is proven: the Remotion path by a rendered composition, and the exported folder by the unit tests (header, file list, import rewrite) and a typecheck against the app's own Skia and Reanimated types. Running it on a device is not proven.
