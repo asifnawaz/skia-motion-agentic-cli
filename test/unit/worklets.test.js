@@ -280,6 +280,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     './asset': runtime,
     './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
     './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', {}, 'production'),
     'react-native-skia': {
       Skia: skia, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0, Decal: 3 }, FilterMode: { Linear: 1 },
       MipmapMode: { None: 0 }, ClipOp: { Intersect: 1 }, VertexMode: { Triangles: 0 }, BlendMode: { SrcOver: 3 },
@@ -408,4 +409,78 @@ test('drawing a clip in the host canvas supports absolute time and direct shared
     return [channels.time, channels.glow, values.title];
   }), [[60, 0.25, 'Ready'], [120, 0.5, 'Ready'], [0, 0.5, 'Back'], [50, 0.5, 'Ready']]);
   assert.throws(() => drawMotionClip(canvas, asset, 'missing', 0, options), /Unknown motion clip/);
+});
+
+test('a rolling number draws an odometer through the production worklet transform', async () => {
+  const validator = await import('../../runtime/machine-schema.js');
+  const motion = load('templates/motion/motion.ts', {}, 'production');
+  const base64 = load('runtime/base64.ts', {}, 'production');
+  const binary = load('runtime/asset-binary.ts', { './base64': base64 }, 'production');
+  const runtime = load('runtime/asset.ts', {
+    './machine-schema.js': validator, '../templates/motion/motion': motion,
+    './asset-image': load('runtime/asset-image.ts', { './base64': base64, './asset-binary': binary }, 'production'),
+    './base64': base64, './asset-binary': binary,
+  }, 'production');
+  const asset = runtime.parseAsset(JSON.stringify({
+    schema: 'skac.asset/1', name: 'Roll',
+    artboard: { width: 200, height: 60, nodes: [{
+      kind: 'text', text: { value: 'to' }, roll: { progress: 'turn', from: 'from' }, x: 10, y: 5, width: 100, fontSize: 20,
+      fill: '#000000', fonts: [], align: 'center',
+    }] },
+    channels: { turn: 0 }, clips: { run: { ms: 100, tracks: { turn: [[0, 0], [100, 1]] } } },
+    machine: { schema: 'skac.machine/1', values: { from: { type: 'string', default: '+9' }, to: { type: 'string', default: '+10' } },
+      layers: [{ name: 'roll', entry: 'run', states: { run: { clip: 'run' } } }] },
+  }));
+  const paints = [];
+  const clips = [];
+  const features = [];
+  const skia = {
+    Data: { fromBase64: (data) => data },
+    Typeface: { MakeFreeTypeFaceFromData: (data) => data },
+    TypefaceFontProvider: { Make: () => ({ registerFont() {} }) },
+    ParagraphBuilder: { Make() {
+      let text;
+      return {
+        pushStyle(attributes) { features.push(Array.from(attributes.fontFeatures ?? [], ({ name }) => name).join()); },
+        addText(value) { text = value; },
+        build: () => ({
+          layout() {}, getLongestLine: () => [...text].length * 10, getHeight: () => 24,
+          paint(_canvas, x, y) { paints.push([text, x, y]); },
+        }),
+      };
+    } },
+    Color: (hex) => hex,
+    XYWHRect: (...xywh) => xywh,
+  };
+  const canvas = {
+    save() {}, restore() {}, translate() {}, scale() {}, rotate() {},
+    clipRect(rect) { clips.push(rect); },
+  };
+  const { drawAsset, prepareAssetDrawing } = load('runtime/asset-draw.ts', {
+    './asset': runtime,
+    './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
+    './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', {}, 'production'),
+    'react-native-skia': {
+      Skia: skia, ClipOp: { Intersect: 1 }, TextDirection: { RTL: 0, LTR: 1 }, TextAlign: { Start: 4, End: 5, Center: 2 },
+    },
+  }, 'production');
+  const drawing = prepareAssetDrawing(asset, {});
+  // Half way from 9 to 10 is 9.5: the units turn 9 -> 0 and the tens enter from blank, both half way. "+" is 10 wide and a place 10;
+  // the blank tens place has opened to 5, so the 25-wide number is centred in 100 at x 10 + 37.5.
+  drawAsset(canvas, drawing, { turn: 0.5 }, 200, 60, {}, { from: '+9', to: '+10' });
+  assert.deepEqual(paints, [
+    ['+', 47.5, 5], ['1', 52.5, 5 + 12], ['9', 62.5, 5 - 12], ['0', 62.5, 5 + 12],
+  ]);
+  assert.deepEqual(clips, [[0, 0, 200, 60], [57.5, 5, 5, 24], [62.5, 5, 10, 24]]); // the board, then one column per place
+  paints.length = 0;
+  clips.length = 0;
+  // At rest before the roll, the blank place takes no room: "+9" sits whole and centred, with no gap after the "+".
+  drawAsset(canvas, drawing, { turn: 0 }, 200, 60, {}, { from: '+9', to: '+10' });
+  assert.deepEqual(paints, [['+', 50, 5], ['9', 60, 5]]);
+  assert.ok(features.every((list) => list.includes('tnum')), 'digits draw with tabular figures');
+  paints.length = 0;
+  // A value with two runs of digits cannot roll: it cuts at half way.
+  drawAsset(canvas, drawing, { turn: 0.4 }, 200, 60, {}, { from: '1,200', to: '1,300' });
+  assert.deepEqual(paints.map(([text]) => text), ['1,200']);
 });

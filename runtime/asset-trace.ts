@@ -5,12 +5,14 @@ import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } f
 
 export { measureAttachments } from './asset-attachments';
 export { assetInkBoxes, declaredText, INK_ALPHA, shownText } from './asset-bounds';
+import { shownText } from './asset-bounds';
 export { parseAsset };
 export { assetTextNodes, parseAssetFile, parseAssetSource, resolveAssetFonts, selectArtboard } from './asset';
 export { hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages } from './asset';
 export { encodeBinaryAsset, isBinaryAsset, mapFileResources } from './asset-binary';
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
+export { rollFrame } from './asset-roll';
 export { validateMachine } from './machine-schema.js';
 
 type TraceRow = {
@@ -33,7 +35,7 @@ export function* assetTextSamples(asset: MotionAsset, rows: readonly TraceRow[])
     }
     const seen = new Set<string>();
     for (const row of chronological) {
-      const text = row.values[node.text.value];
+      const text = shownText(node, row.values, asset, row.channels);
       if (typeof text !== 'string' || !text || seen.has(text)) continue;
       seen.add(text);
       yield { node, where, text, t_ms: row.t_ms };

@@ -30,6 +30,7 @@
     "runtime/asset-layout.ts",
     "runtime/asset-load.ts",
     "runtime/asset-mesh.ts",
+    "runtime/asset-roll.ts",
     "runtime/asset.ts",
     "runtime/base64.ts",
     "runtime/expo.ts",

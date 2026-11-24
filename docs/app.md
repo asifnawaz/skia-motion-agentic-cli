@@ -85,6 +85,12 @@ fire `land`. Generate typed bindings with `skac asset types reward-counter.skmot
   advances in a supporting font such as Allo Regular. The list accepts up to 16 distinct
   four-letter or digit tags with integer values from 0 to 65,535. Install a runtime that supports
   the field before shipping assets that use it.
+- A text node with `"roll": { "progress": "<channel>", "from": "<string value>" }` rolls its
+  number from the `from` value to its own value as the channel runs from 0 to 1: each digit
+  place turns in its own clipped column, rightmost fastest, in the value's own digits (Latin,
+  Arabic-Indic, Extended Arabic-Indic and others). Set both strings, then fire the trigger whose
+  clip runs the channel. `skac asset guide roll` has the details. Install a runtime that knows
+  `roll` before shipping assets that use it.
 - The 1 MiB packed budget covers the entire file, including images, audio, fonts and data.
   `asset resource` accepts up to 786,400 raw bytes per font or audio input. Base64 expands
   raw bytes by roughly one third in JSON packs. The default Allo Regular is 96,216 raw bytes.
