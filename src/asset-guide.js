@@ -10,7 +10,7 @@ const topics = {
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
-    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'layout', 'playback', 'migrate'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'roll', 'layout', 'playback', 'migrate'],
   },
   binary: {
     steps: [
@@ -298,6 +298,22 @@ const topics = {
     text: { kind: 'text', id: 'count', plate: 'pill', text: { value: 'count' }, x: 8.8, y: -11.1, width: 14, fontSize: 20, fill: '#1D2B2A', align: 'center', fontFeatures: [{ name: 'tnum', value: 1 }] },
     commands: [
       'skac asset check counter.motion.json --font=Counter=./fonts/Counter.ttf --commands=\'count="12"@0.5\'',
+    ],
+  },
+  roll: {
+    drawing: [
+      'A number that changes rolls. Bind the text to the new value and give it roll: { progress: <channel>, from: <string value> }. The host sets both strings, and a clip runs the channel from 0 to 1.',
+      'Each digit place is a column clipped to one line: the old digit leaves upward as the next comes in from below. The rightmost place turns fastest; a place turns only while the one to its right wraps, like an odometer.',
+      'Prefix and suffix (the non-digit ends of the value, such as + or a unit) hold still. A place the old value lacks enters from blank. Every place takes the zero\'s width with tabular figures, so the number never shifts and its plate never resizes.',
+      'Any decimal digits roll in their own glyphs (Latin, Arabic-Indic, Extended Arabic-Indic, Devanagari and others), through the node\'s fonts or font slot. Right to left, the prefix sits on the right of the digits.',
+      'A value that is not one run of digits (1,250) or that changes prefix cuts at half way, and asset check warns (roll-cut). Set the clip\'s reducedAt to its end so Reduce Motion shows the new value.',
+      'A rolling number needs a runtime release that knows roll; asset check warns (roll-runtime). Follow it with a punch (a scale pop with a damped settle) on the same text when the roll lands.',
+    ],
+    text: { kind: 'text', id: 'count', text: { value: 'count' }, roll: { progress: 'countTurn', from: 'previousCount' }, x: 20, y: 18, width: 120, fontSize: 20, fill: '#1D2B2A', align: 'center' },
+    clip: { ms: 600, reducedAt: 600, tracks: { countTurn: [[0, 0], [600, 1, 'inOut']] } },
+    commands: [
+      'skac asset frame counter.motion.json --trace=300 --commands=\'previousCount="+9"@0 count="+12"@0 roll@0\'',
+      'skac asset check counter.motion.json --commands=\'previousCount="+9"@0 count="+12"@0 roll@0\'',
     ],
   },
   layout: {

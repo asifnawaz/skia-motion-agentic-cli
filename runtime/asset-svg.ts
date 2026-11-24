@@ -1,6 +1,7 @@
 import { MAX_FEATHER, resolveAssetColor, type AssetNode, type AssetStroke, type MotionAsset, type PathCommand } from './asset';
 import { anchorOffset, layoutAsset } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshVertex, type MeshNode } from './asset-mesh';
+import { digitText, rollFrame } from './asset-roll';
 
 const opacity = (value: number) => Math.max(0, Math.min(1, value));
 type Point = ReturnType<typeof meshPosition>;
@@ -172,14 +173,53 @@ export function assetSVG(
     }
     if (node.kind === 'text') {
       hasText = true;
-      const value = typeof node.text === 'string' ? node.text : values[node.text.value] ?? asset.machine.values?.[node.text.value]?.default;
-      if (typeof value !== 'string' || !value) return '';
-      const content = value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      const bound = (name: string) => {
+        const found = values[name] ?? asset.machine.values?.[name]?.default;
+        return typeof found === 'string' ? found : '';
+      };
+      let value = typeof node.text === 'string' ? node.text : bound(node.text.value);
+      const escape = (raw: string) => raw.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      const family = node.fonts?.length ? node.fonts.join(',') : 'sans-serif';
+      if (node.roll) {
+        const progress = read(node.roll.progress);
+        const from = bound(node.roll.from);
+        const frame = rollFrame(from, value, progress);
+        if (frame) {
+          // The preview has no text measurement: a digit place is 0.6 of the font size wide and a line 1.2. The app measures both.
+          const advance = node.fontSize * 0.6;
+          const line = node.fontSize * 1.2;
+          const rtl = node.direction === 'rtl';
+          const [left, right] = rtl ? [frame.suffix, frame.prefix] : [frame.prefix, frame.suffix];
+          // A blank leading place opens as its first digit rolls in, as in the app.
+          const widths = frame.places.map(({ current, turn }) => (current < 0 ? turn * advance : advance));
+          const digitsWidth = widths.reduce((sum, width) => sum + width, 0);
+          const total = ([...left].length + [...right].length) * advance + digitsWidth;
+          const align = node.align ?? 'start';
+          const x0 = read(node.x) + (align === 'center' ? (node.width - total) / 2 : (align === 'end') === !rtl ? node.width - total : 0);
+          const y0 = read(node.y);
+          const glyph = (text: string, x: number, y: number) => (text
+            ? `<text x="${x}" y="${y}" dominant-baseline="hanging" font-family="${family}" font-size="${node.fontSize}" fill="${node.fill}" style="font-feature-settings: 'tnum' 1">${escape(text)}</text>` : '');
+          const digits = x0 + [...left].length * advance;
+          let edge = digits;
+          const columns = frame.places.map(({ current, next, turn }, i) => {
+            const width = widths[i]!;
+            edge += width;
+            if (width <= 0) return '';
+            const id = `roll-${defs.length}`;
+            const column = edge - advance;
+            defs.push(`<clipPath id="${id}"><rect x="${edge - width}" y="${y0}" width="${width}" height="${line}"/></clipPath>`);
+            return `<g clip-path="url(#${id})">${glyph(digitText(current, frame.zero), column, y0 - turn * line)}${turn > 0 ? glyph(digitText(next, frame.zero), column, y0 + (1 - turn) * line) : ''}</g>`;
+          }).join('');
+          return `${glyph(left, x0, y0)}${columns}${glyph(right, digits + digitsWidth, y0)}`;
+        }
+        value = progress < 0.5 ? from : value;
+      }
+      if (!value) return '';
+      const content = escape(value);
       const direction = node.direction ?? 'ltr';
       const alignment = node.align ?? 'start';
       const shift = alignment === 'center' ? 0.5 : (alignment === 'end') === (direction === 'ltr') ? 1 : 0;
       const anchor = alignment === 'center' ? 'middle' : alignment;
-      const family = node.fonts?.length ? node.fonts.join(',') : 'sans-serif';
       const features = node.fontFeatures?.map(({ name, value }) => `'${name}' ${value}`).join(', ');
       const featureStyle = features ? ` style="font-feature-settings: ${features}"` : '';
       const x = read(node.x);

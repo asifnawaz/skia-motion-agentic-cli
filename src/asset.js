@@ -341,6 +341,26 @@ function placementTimes(asset, flags, landings = []) {
   return [...times].sort((a, b) => a - b).join(',');
 }
 
+/** A rolling number warns once that it needs a runtime that knows `roll`, and once per pair of values it cannot roll (it cuts at 0.5). */
+function rollWarnings(runtime, visual, rows) {
+  const warnings = [];
+  for (const { node, where } of runtime.assetTextNodes(visual.artboard.nodes)) {
+    if (!node.roll) continue;
+    warnings.push({ code: 'roll-runtime', where: `${where}.roll`, error: 'a rolling number needs a skia-motion-runtime release that knows roll (after 3.3.1)', hint: 'upgrade the app\'s runtime with this asset; older runtimes reject the file' });
+    const seen = new Set();
+    for (const { values } of rows) {
+      const from = values[node.roll.from];
+      const to = values[node.text.value];
+      if (typeof from !== 'string' || typeof to !== 'string' || seen.has(`${from}|${to}`)) continue;
+      seen.add(`${from}|${to}`);
+      if (!runtime.rollFrame(from, to, 0.5)) {
+        warnings.push({ code: 'roll-cut', where: `${where}.roll`, error: `"${from}" to "${to}" cannot roll: each must be one run of digits with the same prefix, suffix and digit system; it cuts at half way`, hint: 'drop inner separators ("1250", not "1,250") or roll only the digits and draw the rest as its own text' });
+      }
+    }
+  }
+  return warnings;
+}
+
 /**
  * Landings and skac/text-clear over one trace. Every node's drawn box comes from the same pose the player draws. Text takes its laid-out
  * ink from `extents` (laid out with the asset's fonts, host slots via --font) and otherwise the box it declares; `textBoxes` counts which.
@@ -362,7 +382,7 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   }));
   const ids = authored?.ids ?? new Map();
   const names = new Map([...ids].map(([id, where]) => [where, id]));
-  const found = { samples: rows.length, warnings: [] };
+  const found = { samples: rows.length, warnings: rollWarnings(runtime, visual, rows) };
   const problems = [];
   if (authored?.landings.length) {
     found.landings = measureLandings(placed, authored.landings, ids, names, visual);

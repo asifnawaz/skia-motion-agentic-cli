@@ -3,6 +3,7 @@ import type { AssetNode, AssetTextNode, MotionAsset, PathCommand, Scalar } from 
 import type { Literal } from '../templates/motion/machine';
 import { meshPinPosition, meshPosition } from './asset-mesh';
 import type { AssetViewport } from './asset-attachments';
+import { digitText, rollFrame } from './asset-roll';
 
 /** An axis-aligned box in artboard points: left, top, right, bottom. */
 export type Box = readonly [x0: number, y0: number, x1: number, y1: number];
@@ -31,11 +32,26 @@ type Transform = (x: number, y: number) => { x: number; y: number };
 /** Below this opacity a shape is treated as not drawn. */
 export const INK_ALPHA = 0.05;
 
-/** The text a node shows at this time, or undefined when it is empty. */
-export function shownText(node: AssetTextNode, values: Readonly<Record<string, Literal>>, asset: MotionAsset): string | undefined {
-  const value = typeof node.text === 'string' ? node.text
-    : values[node.text.value] ?? (asset.machine.values?.[node.text.value] as { default?: Literal } | undefined)?.default;
-  return typeof value === 'string' && value ? value : undefined;
+/**
+ * The text a node shows at this time, or undefined when it is empty. A rolling number shows, in each place, the digit that holds most of
+ * the column (the current one until half way, then the next), with its prefix and suffix; a blank leading place shows nothing.
+ */
+export function shownText(
+  node: AssetTextNode, values: Readonly<Record<string, Literal>>, asset: MotionAsset, channels: Readonly<Record<string, number>> = {},
+): string | undefined {
+  const bound = (name: string) => {
+    const value = values[name] ?? (asset.machine.values?.[name] as { default?: Literal } | undefined)?.default;
+    return typeof value === 'string' ? value : '';
+  };
+  let value = typeof node.text === 'string' ? node.text : bound(node.text.value);
+  if (node.roll) {
+    const progress = channels[node.roll.progress] ?? asset.channels[node.roll.progress] ?? 0;
+    const frame = rollFrame(bound(node.roll.from), value, progress);
+    value = frame
+      ? frame.prefix + frame.places.map(({ current, next, turn }) => digitText(turn >= 0.5 ? next : current, frame.zero)).join('') + frame.suffix
+      : progress < 0.5 ? bound(node.roll.from) : value;
+  }
+  return value || undefined;
 }
 
 /** The box a text node declares: its width and one line of 1.2 times the font size per allowed line. */
@@ -118,7 +134,7 @@ export function assetInkBoxes(
         }
         box = visit(node.children, `${where}.children`, local, inner);
       } else if (node.kind === 'text') {
-        const value = shownText(node, values, asset);
+        const value = shownText(node, values, asset, channels);
         if (value) {
           const extent = textExtent(node, where, value);
           const x = read(node.x) + extent.left;

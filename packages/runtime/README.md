@@ -61,6 +61,7 @@ export function LessonReward() {
 
 - Attach a `MotionPlayerHandle` ref to call `set(name, value)`, `setValues(values)`, or `fire(name)` using the asset's named inputs. Handle asset cues with `onMarker` and `onAudio`.
 - Call the mounted handle's `setOnUI(name, value)` from a Reanimated worklet. A host-formatted string can update the digits in a bound text node during a count-up.
+- For a rolling count, give the text node `roll: { progress, from }`: set the old and new strings with `setValues`, then `fire` the trigger whose clip runs `progress` from 0 to 1. Each digit place turns in its own column.
 - Use `live={false}` to pause a mounted player. The player uses system reduced motion by default and accepts a `reduced` override.
 - Select a board by name with the `artboard` option when loading a multi-artboard file.
 - Prepare a shared file with `loadMotionAsset(text)` or `await preloadMotionAsset(text)`. Each player keeps its own state while sharing prepared artwork and image handles.

@@ -55,6 +55,8 @@ export type AssetTextNode = {
   kind: 'text'; text: BoundText; x: Scalar; y: Scalar; width: number; fontSize: number; fill: string;
   fonts?: readonly string[]; direction?: 'ltr' | 'rtl'; align?: 'start' | 'center' | 'end'; maxLines?: number;
   fontFeatures?: readonly FontFeature[];
+  /** Roll the number from another string value to this one as `progress` (a channel) runs 0 to 1; see asset-roll.ts. */
+  roll?: { progress: string; from: string };
 };
 export type AssetSemantic = {
   name: string; label: BoundText; role: 'button' | 'image' | 'text' | 'header';
@@ -320,8 +322,16 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
   const { channels, images, imageSlots, points } = context;
   const node = record(value, at);
   if (node.kind === 'text') {
-    record(node, at, ['kind', 'text', 'x', 'y', 'width', 'fontSize', 'fill', 'fonts', 'direction', 'align', 'maxLines', 'fontFeatures']);
+    record(node, at, ['kind', 'text', 'x', 'y', 'width', 'fontSize', 'fill', 'fonts', 'direction', 'align', 'maxLines', 'fontFeatures', 'roll']);
     checkText(node.text, `${at}.text`, context.values);
+    if (node.roll !== undefined) {
+      const roll = record(node.roll, `${at}.roll`, ['progress', 'from']);
+      if (typeof node.text === 'string') invalid(`${at}.text`, 'a rolling text binds its to-value: { value: "<string value>" }');
+      if (typeof roll.progress !== 'string' || !Object.hasOwn(channels, roll.progress)) invalid(`${at}.roll.progress`, 'expected a declared channel');
+      if (typeof roll.from !== 'string' || (context.values[roll.from] as { type?: string } | undefined)?.type !== 'string') {
+        invalid(`${at}.roll.from`, 'expected a string value from machine.values');
+      }
+    }
     scalar(node.x, `${at}.x`, channels);
     scalar(node.y, `${at}.y`, channels);
     number(node.width, `${at}.width`, 1, 4096);

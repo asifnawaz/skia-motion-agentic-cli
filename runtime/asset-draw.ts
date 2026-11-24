@@ -6,6 +6,7 @@ import { MAX_FEATHER, resolveAssetColor, resolveAssetFonts, usedAssetImages, typ
 import type { AssetResource } from './asset-binary';
 import { fitAsset, fittedAnchorOffset, type AssetLayoutOptions } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshNode, type MeshPin } from './asset-mesh';
+import { digitText, rollFrame } from './asset-roll';
 
 type Channels = Readonly<Record<string, number>>;
 type Palette = Readonly<Record<string, string>>;
@@ -162,6 +163,71 @@ function makeParagraph(node: AssetTextNode, text: string, provider?: SkTypefaceF
   return paragraph;
 }
 
+const TABULAR = { name: 'tnum', value: 1 } as const;
+
+/**
+ * A rolling number (`roll` on a text node): each digit place is a column clipped to one line, the current digit leaving upward as the next
+ * comes in from below by the place's turn. Every place takes the zero's advance with tabular figures, so the number never shifts. Values
+ * the odometer cannot roll (two runs of digits, different prefixes) cut from one to the other at half way.
+ */
+function drawRoll(
+  canvas: SkCanvas, node: AssetTextNode & { roll: { progress: string; from: string } }, channels: Channels, values: TextValues,
+  fonts: SkTypefaceFontProvider | undefined, text: string,
+): void {
+  'worklet';
+  const progress = read(node.roll.progress, channels);
+  const from = values[node.roll.from] ?? '';
+  const x = read(node.x, channels);
+  const y = read(node.y, channels);
+  const frame = rollFrame(from, text, progress);
+  if (!frame) {
+    const content = progress < 0.5 ? from : text;
+    if (content) makeParagraph(node, content, fonts).paint(canvas, x, y);
+    return;
+  }
+  const features = node.fontFeatures?.some(({ name }) => name === 'tnum') ? node.fontFeatures : [...(node.fontFeatures ?? []), TABULAR];
+  const plain: AssetTextNode = { ...node, align: 'start', maxLines: 1, fontFeatures: features };
+  const zero = makeParagraph(plain, digitText(0, frame.zero), fonts);
+  const advance = zero.getLongestLine();
+  const line = zero.getHeight();
+  const prefix = frame.prefix ? makeParagraph(plain, frame.prefix, fonts) : undefined;
+  const suffix = frame.suffix ? makeParagraph(plain, frame.suffix, fonts) : undefined;
+  const before = prefix?.getLongestLine() ?? 0;
+  const after = suffix?.getLongestLine() ?? 0;
+  // A blank leading place opens as its first digit rolls in, so "+98" never shows a gap before its hundreds arrive.
+  const widths = frame.places.map(({ current, turn }) => (current < 0 ? turn * advance : advance));
+  let digitsWidth = 0;
+  for (const width of widths) digitsWidth += width;
+  const total = before + digitsWidth + after;
+  const rtl = node.direction === 'rtl';
+  const align = node.align ?? 'start';
+  const start = align === 'center' ? (node.width - total) / 2 : (align === 'end') === !rtl ? node.width - total : 0;
+  // Right to left, the prefix reads first, so it sits on the right of the digits; the digits themselves run left to right.
+  const left = rtl ? suffix : prefix;
+  const right = rtl ? prefix : suffix;
+  const leftWidth = rtl ? after : before;
+  left?.paint(canvas, x + start, y);
+  const digits = x + start + leftWidth;
+  right?.paint(canvas, digits + digitsWidth, y);
+  let edge = digits;
+  frame.places.forEach(({ current, next, turn }, i) => {
+    const width = widths[i]!;
+    edge += width;
+    if (width <= 0) return;
+    // Each digit sits against its column's right edge, so a growing place slides in beside the digit after it.
+    const column = edge - advance;
+    canvas.save();
+    canvas.clipRect(Skia.XYWHRect(edge - width, y, width, line), ClipOp.Intersect, true);
+    const now = digitText(current, frame.zero);
+    if (now) makeParagraph(plain, now, fonts).paint(canvas, column, y - turn * line);
+    if (turn > 0) {
+      const then = digitText(next, frame.zero);
+      if (then) makeParagraph(plain, then, fonts).paint(canvas, column, y + (1 - turn) * line);
+    }
+    canvas.restore();
+  });
+}
+
 function prepareNode(
   node: AssetNode, images: AssetImages, shaders: Record<string, SkShader>, shadersByImage: Map<SkImage, SkShader>,
   provider: SkTypefaceFontProvider | undefined, textBindings: Set<string>, palette: Palette,
@@ -169,6 +235,7 @@ function prepareNode(
   if (node.kind === 'text') {
     if (typeof node.text === 'string') return { ...node, paragraph: makeParagraph(node, node.text, provider) };
     textBindings.add(node.text.value);
+    if (node.roll) textBindings.add(node.roll.from);
     return node;
   }
   const commands = node.kind === 'group' ? node.clip : node.kind === 'path' ? node.commands : undefined;
@@ -310,6 +377,10 @@ function drawNodes(
     }
     if (node.kind === 'text') {
       const content = typeof node.text === 'string' ? node.text : values[node.text.value] ?? '';
+      if (node.roll) {
+        drawRoll(canvas, node as AssetTextNode & { roll: { progress: string; from: string } }, channels, values, fonts, content);
+        continue;
+      }
       if (content) {
         const paragraph = node.paragraph ?? makeParagraph(node, content, fonts);
         paragraph.paint(canvas, read(node.x, channels), read(node.y, channels));
