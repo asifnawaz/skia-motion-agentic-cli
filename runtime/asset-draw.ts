@@ -327,10 +327,38 @@ function prepareNode(
   return { ...node, preparedPath: prepared, preparedPaint: preparePaint(node, palette) };
 }
 
-/** Build fixed geometry and paints once. Channel-driven paths and clips are still evaluated for each pose. */
+declare const __DEV__: boolean | undefined;
+const warnedFontSlots = new Set<string>();
+
+/** The nodes with the named font slots taken out of every text's fonts: a text left with none draws in the platform's default face. */
+function withoutFonts(nodes: readonly AssetNode[], gone: ReadonlySet<string>): AssetNode[] {
+  return nodes.map((node) => {
+    if (node.kind === 'text') return node.fonts?.some((name) => gone.has(name)) ? { ...node, fonts: node.fonts.filter((name) => !gone.has(name)) } : node;
+    if (node.kind === 'group') return { ...node, children: withoutFonts(node.children, gone) };
+    if (node.kind === 'mesh' && node.pins) {
+      return { ...node, pins: Object.fromEntries(Object.entries(node.pins).map(([name, pin]) => [name, pin.children ? { ...pin, children: withoutFonts(pin.children, gone) } : pin])) };
+    }
+    return node;
+  });
+}
+
+/**
+ * Build fixed geometry and paints once. Channel-driven paths and clips are still evaluated for each pose.
+ * A motion asset never takes the screen down over a font: a declared slot the host does not pass (with no embedded fallback) draws in the
+ * platform's default face, and a slot the asset does not declare is ignored. Each case warns once in development, naming the slots;
+ * `asset frame` and `asset preview` report the same as font-slot-fallback.
+ */
 export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetImages = {}, fontSlots?: AssetFontSlots): DrawableAsset {
-  const { fonts, missing } = resolveAssetFonts(asset, fontSlots);
-  if (missing.length) throw new Error(`Missing motion font slots: ${missing.join(', ')}`);
+  const declared = asset.fontSlots ?? {};
+  const unknown = fontSlots ? Object.keys(fontSlots).filter((name) => !Object.hasOwn(declared, name)) : [];
+  const known = unknown.length ? Object.fromEntries(Object.entries(fontSlots!).filter(([name]) => Object.hasOwn(declared, name))) : fontSlots;
+  const { fonts, missing } = resolveAssetFonts(asset, known);
+  const key = `${asset.name}|${missing.join(',')}|${unknown.join(',')}`;
+  if ((missing.length || unknown.length) && !warnedFontSlots.has(key) && (typeof __DEV__ === 'undefined' || __DEV__)) {
+    warnedFontSlots.add(key);
+    console.warn(`skia-motion: ${asset.name}${missing.length ? `: font slots ${missing.join(', ')} were not passed, so their text draws in the platform's default face` : ''}${unknown.length ? `${missing.length ? ';' : ':'} font slots ${unknown.join(', ')} are not declared by the asset and were ignored` : ''}`);
+  }
+  if (missing.length) asset = { ...asset, artboard: { ...asset.artboard, nodes: withoutFonts(asset.artboard.nodes, new Set(missing)) } };
   const shaders: Record<string, SkShader> = {};
   const shadersByImage = new Map<SkImage, SkShader>();
   let fontProvider: SkTypefaceFontProvider | undefined;

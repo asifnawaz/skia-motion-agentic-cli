@@ -59,7 +59,7 @@ const topics = {
     steps: [
       'Declare each slot on the artboard or bundle. A slot alias can reference an optional fallback from fonts. Use the alias in a text node’s fonts list.',
       'Prepare the .skmotion with loadMotionAsset, preloadMotionAsset, useMotionAsset or useExpoMotionAsset. Pass { fontSlots: { Counter: counterTypeface } } once the Skia typefaces are ready, then pass the prepared asset to MotionPlayer or MotionPicture.',
-      'An app-provided typeface replaces its slot fallback for the selected artboard. The runtime borrows that typeface and reports a missing slot if neither source is available.',
+      'An app-provided typeface replaces its slot fallback for the selected artboard. The runtime borrows that typeface. A slot with neither source never throws: its text draws in the platform default face, with one development warning naming the slot, and asset frame and asset preview warn font-slot-fallback.',
       'Pack with --fonts=host for a font-free motion file. Each text node must explicitly use declared slots or fonts: [] for the platform font. Normal packing retains embedded fallbacks.',
       'The pack result reports sizeBreakdown for fonts, images, audio and scene data. JSON reports its encoded data URI sizes. Binary reports deduplicated payload sizes.',
       'Repeat --font=slot=path/to/font.ttf for preview, frame and check. Local files feed those checks and the offline preview. Pack the source separately to ship it.',

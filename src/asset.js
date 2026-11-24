@@ -222,11 +222,17 @@ function readFontOverrides(asset, entries = [], cwd) {
   return Object.fromEntries(overrides);
 }
 
-function requirePreviewFonts({ fonts, missing }) {
-  if (missing.length) {
-    fail(`missing font slots: ${missing.join(', ')}`, 'supply --font=slot=path/to/font.ttf for each required slot', { missingFontSlots: missing });
-  }
-  return fonts;
+/**
+ * The fonts a frame or preview draws with. A slot with no --font draws in the default face, as the app draws a slot the host does not
+ * pass, and the result warns font-slot-fallback naming it.
+ */
+function previewFonts({ fonts, missing }) {
+  const warnings = missing.length ? [{
+    code: 'font-slot-fallback', slots: missing,
+    error: `font slots ${missing.join(', ')} have no face here, so their text is drawn in the default face, as the app draws a slot the host does not pass`,
+    hint: 'supply --font=slot=path/to/font.ttf for each slot to see its own face',
+  }] : [];
+  return { fonts, warnings };
 }
 
 function traceTimes(spec) {
@@ -580,9 +586,9 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
     const suffix = flags.artboard && isBundle ? `.${flags.artboard}` : '';
     const destination = resolve(cwd, flags.out ?? `${stem}${suffix}.preview.html`);
     if (destination === path) fail('preview output is the same file', 'use a different --out path');
-    requirePreviewFonts(assetRuntime().resolveAssetFonts(asset, hostFonts));
+    const { warnings } = previewFonts(assetRuntime().resolveAssetFonts(asset, hostFonts));
     writeOutput(destination, previewHTML(source, size, Boolean(flags.reduced), flags.artboard, hostFonts), flags.force);
-    return { ok: true, file: destination, source: path, name: asset.name, renderer: 'svg', ...bundleInfo };
+    return { ok: true, file: destination, source: path, name: asset.name, renderer: 'svg', ...bundleInfo, ...(warnings.length && { warnings }) };
   }
   if (action === 'types') {
     const suffix = flags.artboard && isBundle ? `.${flags.artboard}` : '';
@@ -609,18 +615,18 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
     const destination = resolve(cwd, flags.out ?? `${stem}-${row.t_ms}.${png ? 'png' : 'svg'}`);
     if (destination === path) fail('source and destination are the same file', 'choose another path with --out');
     const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
-    const fonts = requirePreviewFonts(assetRuntime().resolveAssetFonts(visual, hostFonts));
+    const { fonts, warnings } = previewFonts(assetRuntime().resolveAssetFonts(visual, hostFonts));
     if (png) {
       // The PNG comes from the app's own draw code over CanvasKit: blur, gradients and text as on the phone.
       const pixels = size ?? { width: asset.artboard.width, height: asset.artboard.height };
       const drawn = { ...visual, fonts };
       return (visual.imageInk ? Promise.resolve(drawn) : addRowImageInk(drawn)).then((board) => renderAssetPNG(board, row.channels, row.values, pixels, flags.background)).then((bytes) => {
         writeOutput(destination, bytes, flags.force);
-        return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states, renderer: 'canvaskit' };
+        return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states, renderer: 'canvaskit', ...(warnings.length && { warnings }) };
       });
     }
     writeOutput(destination, assetRuntime().assetSVG({ ...visual, fonts }, row.channels, size, row.values), flags.force);
-    return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states };
+    return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states, ...(warnings.length && { warnings }) };
   }
   const destination = resolve(cwd, flags.out ?? `${stem}.skmotion`);
   if (destination === path) fail('source and destination are the same file', 'choose another path with --out');

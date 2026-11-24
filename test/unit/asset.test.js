@@ -174,7 +174,9 @@ test('host-only exports omit fonts and support offline preview, text QA, and unp
     const unavailable = await run('check', host.file, '--text-layout');
     assert.deepEqual(unavailable.warnings.map(({ reason, slots }) => [reason, slots]),
       [['missing-font-slots', ['Counter']], ['missing-font-slots', ['Label']]]);
-    assert.throws(() => run('preview', host.file), /missing font slots: Counter, Label/);
+    // With no --font the preview draws the slots in the default face, as the app does, and says so.
+    const plain = run('preview', host.file, `--out=plain-${format}.preview.html`);
+    assert.deepEqual(plain.warnings.map(({ code, slots }) => [code, slots]), [['font-slot-fallback', ['Counter', 'Label']]]);
     assert.throws(() => run('preview', host.file, '--font=Unknown=Label.ttf'), /unknown font slot/);
     assert.throws(() => run('preview', host.file, mappings[0], mappings[0]), /duplicate --font/);
     const checked = await run('check', host.file, '--text-layout', ...mappings);
