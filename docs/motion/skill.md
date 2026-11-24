@@ -4,7 +4,7 @@ A standard for any character or interface motion drawn with `@shopify/react-nati
 
 It is rossark-motion-skill's method (body, weight, timing, smoothness), huashu-art-motion's face set made into smooth channels, and LottieFiles motion-design's anticipation capped to rossark's speed. Typed templates run in both places.
 
-Calm, believable motion for drawings: nothing teleports, nothing bounces, nothing shouts. The character is never frozen, never stops dead at a pose, and never moves faster than the reference's hop (rossark §1). An interface is the other way round at rest: it carries every change and then holds still (`interface`).
+Calm, believable motion for everyday drawings (an earned moment is the exception, `motion/surge`): nothing teleports, nothing bounces, nothing shouts. The character is never frozen, never stops dead at a pose, and never moves faster than the reference's hop (rossark §1). An interface is the other way round at rest: it carries every change and then holds still (`interface`).
 
 ## Read in this order
 
@@ -15,6 +15,7 @@ Calm, believable motion for drawings: nothing teleports, nothing bounces, nothin
 5. `skac docs motion/idle`: idle that is alive, not a breathing icon.
 6. `skac docs motion/remotion-and-app`: the sRGB fix, the render command, Skia notes, the app's clocks.
 7. `skac docs motion/checks`: `skac compare`, the frame list, watching at speed.
+8. `skac docs motion/surge`: the second register, an earned moment made wild (a claim, a reward, an unlock, a level cleared): the recipe, its beats with numbers, how top apps do it and what is left out.
 
 ## Templates (copy them next to the drawing)
 
@@ -43,7 +44,7 @@ Calm, believable motion for drawings: nothing teleports, nothing bounces, nothin
 
 These set a tone: calm and mature. They are a style, not a law. Override them when your product wants something else, and write the change down in your project.
 
-- Calm motion: no noisy celebration, overshoot 5% at most, one rebound on a landing.
+- Calm motion for everyday interface and character motion: overshoot 5% at most, one rebound on a landing. An earned moment is the second register and goes wild (`skac docs motion/surge`); it keeps Reduce Motion, input never blocked, about 2.5 s at most and no flashing over 3 Hz.
 - No text inside character motion; draw characters in vector shapes only.
 
 Licences and which file adapts which source: `NOTICE.md` at the package root.
