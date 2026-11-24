@@ -10,11 +10,13 @@ JSON, add animated masks and state machines, then ship the art and motion in one
 Play it in React Native and Expo development builds with Skia v3. The CLI returns structured JSON
 for coding agents and CI.
 
-![Night Circuit fighting-game HUD with health bars, a round timer, and feathered super meters](docs/media/versus-hud.webp)
+![Night Circuit fighting-game HUD: a hit drains the left health bar behind a feathered flash, then the right, and the round clock ticks down](docs/media/versus-hud-hit.webp)
 
 The [Versus HUD sample](templates/assets/versus-hud.json) draws this original fighting-game HUD.
 Its health bars, super meters, round timer, and win indicators are driven by app values. A hit
-trigger flashes a feathered highlight and emits a marker.
+trigger flashes a feathered highlight and emits a marker. Every animation on this page is drawn
+frame by frame by `skac asset frame`, which runs the app's own Skia draw code, from the sample
+files and the inputs shown beside them.
 
 ## Author a motion asset
 
@@ -44,9 +46,28 @@ For a source checkout, run `npm ci` and replace `skac` with `node bin/skac.js`.
 
 ### Mobile game HUD and mascot examples
 
-![Game HUD showing health, ammo and a reload in progress, followed by Sprout with two lighting positions, a hop, and a reward badge](docs/media/mobile-asset-gallery.webp)
+| Game HUD | Reward counter | Sprout |
+| --- | --- | --- |
+| <img src="docs/media/game-hud-reload.webp" width="300" alt="Game HUD: ammo drops to one, health falls into the warning state, a reload refills the clip and health recovers"> | <img src="docs/media/reward-counter-land.webp" width="250" alt="Reward counter: the label changes to +10 XP and then +25 XP, and the plate pulses each time"> | <img src="docs/media/sprout-reactions.webp" width="200" alt="Sprout: hops for a correct answer, winces for an incorrect one, then the light moves to its other side"> |
+| `ammo=1@0.2 health=0.2@0.4 reload@0.9 ammo=6@1.7 health=0.8@2` | `xpLabel="+10 XP"@0.2 land@0.2 xpLabel="+25 XP"@1.1 land@1.1` | `correct@0.2 incorrect@1.3 light=0.5@2.2 skip@2.3` |
+| [Source](templates/assets/game-hud.json) | [Source](templates/assets/reward-counter.json) | [Source](templates/assets/sprout.json) |
 
-[Health and ammo HUD source](templates/assets/game-hud.json) · [Sprout mascot source](templates/assets/sprout.json)
+Replay any of them with `skac asset frame <sample>.motion.json --trace=<ms> --commands "<inputs>" --out=<ms>.png`.
+
+### An earned moment
+
+<img src="docs/media/lamp-surge.webp" width="390" alt="A golden lamp squashes, hops, flares its flame and pours pearls and stars out of its lid, then settles">
+
+A lamp squashes, hops, flares and pours out six pearls in 2.26 s. Its [source](docs/examples/lamp-surge.motion.json)
+marks the moment `register: "earned"` and writes it as a chain of five beats: the wind-up loads the body,
+which springs the hop and lights the bowl; the bright bowl sets off the stars, and their burst sends the
+pearls out. `skac asset check` holds each beat to within 80 ms of its cause:
+
+```sh
+skac asset check docs/examples/lamp-surge.motion.json --trace=0:2400:16 --commands=reveal@0
+```
+
+The [surge recipe](docs/motion/surge.md) gives the worked numbers behind it.
 
 ## Upgrade from Skia Motion 1.x
 
@@ -241,9 +262,12 @@ skac Character --render
 | Inspect and render frames | `--probe`, `--verify`, `--screenshot`, `--render`, `compare` |
 | Export a generated app component | `<Name> --export <app-dir>` |
 
-Try the [character idle](docs/media/character-idle.webp), [tap reaction](docs/media/tap-hop.webp),
-or [button-to-sheet transition](docs/media/button-sheet.webp). See the [command reference](docs/commands.md)
-and [app export guide](docs/app.md) for flags and configuration, including `skia-motion.json`.
+| Character idle | Tap reaction | Button to sheet |
+| --- | --- | --- |
+| <img src="docs/media/character-idle.webp" width="240" alt="A character breathing and blinking at rest"> | <img src="docs/media/tap-hop.webp" width="240" alt="A character hopping when tapped"> | <img src="docs/media/button-sheet.webp" width="240" alt="A button expanding into a bottom sheet"> |
+
+See the [command reference](docs/commands.md) and [app export guide](docs/app.md) for flags and
+configuration, including `skia-motion.json`.
 
 ## Requirements and development
 
@@ -253,6 +277,7 @@ and [app export guide](docs/app.md) for flags and configuration, including `skia
 
 Run `npm test` for unit tests or `npm run test:e2e` for CLI and render flows.
 Run `npm run pack:runtime -- <directory>` to build the standalone player tarball.
+Run `npm run readme:media` to redraw this page's animations from the samples (needs FFmpeg).
 See [Contributing](CONTRIBUTING.md) and [Changelog](CHANGELOG.md).
 
 MIT licence.
