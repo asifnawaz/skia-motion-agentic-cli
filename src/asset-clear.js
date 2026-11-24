@@ -1,7 +1,7 @@
 import { fail } from './util.js';
 
 /**
- * Authoring-only fields: a node `id`, and per artboard `landings` and `allowOverlap`. `skac asset check` reads them; every other command,
+ * Authoring-only fields: a node `id`, a text's `plate` (the id of the plate it sits on), and per artboard `landings` and `allowOverlap`. `skac asset check` reads them; every other command,
  * and the packed `.skmotion`, never sees them, so assets built with them still load in runtimes that predate them.
  */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
@@ -20,21 +20,22 @@ function bad(where, message, hint) {
   fail(`${where}: ${message}`, hint);
 }
 
-function collectIds(nodes, parent, ids, at) {
+function collectIds(nodes, parent, ids, at, plates) {
   if (!Array.isArray(nodes)) return nodes;
   return nodes.map((node, index) => {
     if (!record(node)) return node;
     const where = `${parent}[${index}]`;
-    const { id, ...rest } = node;
+    const { id, plate, ...rest } = node;
+    if (plate !== undefined) plates.set(where, { id: plate, at: `${at}${where}.plate` });
     if (id !== undefined) {
       if (typeof id !== 'string' || !IDENTIFIER.test(id)) bad(`${at}${where}.id`, 'expected an identifier', 'use letters, digits, _ or -, starting with a letter');
       if (ids.has(id)) bad(`${at}${where}.id`, `duplicate node id "${id}"`, 'give each node its own id within an artboard');
       ids.set(id, where);
     }
-    if (Array.isArray(rest.children)) rest.children = collectIds(rest.children, `${where}.children`, ids, at);
+    if (Array.isArray(rest.children)) rest.children = collectIds(rest.children, `${where}.children`, ids, at, plates);
     if (record(rest.pins)) {
       rest.pins = Object.fromEntries(Object.entries(rest.pins).map(([name, pin]) => [name,
-        record(pin) && Array.isArray(pin.children) ? { ...pin, children: collectIds(pin.children, `${where}.pins.${name}.children`, ids, at) } : pin]));
+        record(pin) && Array.isArray(pin.children) ? { ...pin, children: collectIds(pin.children, `${where}.pins.${name}.children`, ids, at, plates) } : pin]));
     }
     return rest;
   });
@@ -44,12 +45,14 @@ function readBoard(board, at) {
   if (!record(board)) return { board, meta: undefined };
   const { landings, allowOverlap, ...rest } = board;
   const ids = new Map();
-  if (record(rest.artboard)) rest.artboard = { ...rest.artboard, nodes: collectIds(rest.artboard.nodes, 'artboard.nodes', ids, at) };
+  const plates = new Map();
+  if (record(rest.artboard)) rest.artboard = { ...rest.artboard, nodes: collectIds(rest.artboard.nodes, 'artboard.nodes', ids, at, plates) };
   const node = (value, where) => {
     if (typeof value !== 'string' || !ids.has(value)) bad(where, `unknown node id ${JSON.stringify(value)}`, 'add "id" to the node and name it here');
     return value;
   };
-  const meta = { ids, landings: [], allowOverlap: [] };
+  const meta = { ids, landings: [], allowOverlap: [], plates: new Map() };
+  for (const [where, { id, at: field }] of plates) meta.plates.set(where, node(id, field));
   if (landings !== undefined) {
     if (!Array.isArray(landings) || landings.length > 256) bad(`${at}landings`, 'expected a list of up to 256 landings', 'write [{ "node": "coin", "target": "counterValue" }]');
     landings.forEach((item, i) => {
@@ -99,7 +102,7 @@ export function splitAuthoring(text) {
   const take = (board, name, at) => {
     const { board: clean, meta } = readBoard(board, at);
     if (!meta) return board;
-    if (meta.ids.size || meta.landings.length || meta.allowOverlap.length) {
+    if (meta.ids.size || meta.landings.length || meta.allowOverlap.length || meta.plates.size) {
       boards.set(name, meta);
       changed = true;
     }

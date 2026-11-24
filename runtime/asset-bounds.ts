@@ -7,7 +7,11 @@ import type { AssetViewport } from './asset-attachments';
 /** An axis-aligned box in artboard points: left, top, right, bottom. */
 export type Box = readonly [x0: number, y0: number, x1: number, y1: number];
 /** Where a text's lines sit inside its node, in the node's own units, and whether it was laid out or is the declared box. */
-export type TextExtent = { left: number; top: number; width: number; height: number; source: 'layout' | 'declared' };
+export type TextExtent = {
+  left: number; top: number; width: number; height: number; source: 'layout' | 'declared';
+  /** The optical band (cap or x-height above the baseline) from top to bottom, when the text was laid out. */
+  band?: readonly [number, number];
+};
 export type InkEntry = {
   /** The node's place in the artboard, in the form `artboard.nodes[2].children[0]`. */
   where: string;
@@ -20,7 +24,7 @@ export type InkEntry = {
   circle?: { x: number; y: number; r: number };
   /** The shape's own opacity; groups and text are 1. */
   alpha: number;
-  text?: { value: string; source: TextExtent['source'] };
+  text?: { value: string; source: TextExtent['source']; band?: readonly [number, number] };
 };
 type Transform = (x: number, y: number) => { x: number; y: number };
 
@@ -76,11 +80,18 @@ export function assetInkBoxes(
   asset: MotionAsset, channels: Readonly<Record<string, number>>, values: Readonly<Record<string, Literal>>,
   textExtent: (node: AssetTextNode, where: string, text: string) => TextExtent,
   viewport: AssetViewport = asset.artboard,
+  /** The drawn part of an image as fractions of its box (left, top, right, bottom), from its alpha; the whole box when unknown. */
+  imageInk: (image: string) => Box | undefined = () => undefined,
 ): Map<string, InkEntry> {
   const { insetX, insetY } = layoutAsset(asset.artboard, viewport.width, viewport.height);
   const read = (value: Scalar | undefined, fallback = 0) => typeof value === 'string' ? channels[value]! : value ?? fallback;
   const entries = new Map<string, InkEntry>();
-  const visit = (nodes: readonly AssetNode[], parent: string, transform: Transform): Box | undefined => {
+  const clipped = (box: Box | undefined, clip: Box | undefined): Box | undefined => {
+    if (!box || !clip) return box;
+    const out: Box = [Math.max(box[0], clip[0]), Math.max(box[1], clip[1]), Math.min(box[2], clip[2]), Math.min(box[3], clip[3])];
+    return out[2] - out[0] > 0.01 && out[3] - out[1] > 0.01 ? out : undefined;
+  };
+  const visit = (nodes: readonly AssetNode[], parent: string, transform: Transform, clip?: Box): Box | undefined => {
     let all: Box | undefined;
     nodes.forEach((node, index) => {
       const where = `${parent}[${index}]`;
@@ -99,27 +110,34 @@ export function assetInkBoxes(
         const sx = read(node.scaleX, 1);
         const sy = read(node.scaleY, 1);
         const local: Transform = (px, py) => transform(x + cos * px * sx - sin * py * sy, y + sin * px * sx + cos * py * sy);
-        box = visit(node.children, `${where}.children`, local);
+        let inner = clip;
+        if (node.clip) {
+          const bounds = pathPoints(node.clip, read);
+          const area = bounds && transformed(bounds, local);
+          inner = area ? clipped(area, clip) ?? [0, 0, 0, 0] : [0, 0, 0, 0];
+        }
+        box = visit(node.children, `${where}.children`, local, inner);
       } else if (node.kind === 'text') {
         const value = shownText(node, values, asset);
         if (value) {
           const extent = textExtent(node, where, value);
           const x = read(node.x) + extent.left;
           const y = read(node.y) + extent.top;
-          box = transformed([x, y, x + extent.width, y + extent.height], transform);
+          box = clipped(transformed([x, y, x + extent.width, y + extent.height], transform), clip);
           centre = transform(x + extent.width / 2, y + extent.height / 2);
-          text = { value, source: extent.source };
+          const band = extent.band && [transform(x, read(node.y) + extent.band[0]).y, transform(x, read(node.y) + extent.band[1]).y] as const;
+          text = { value, source: extent.source, ...(band && { band }) };
         }
       } else if (node.kind === 'mesh') {
         alpha = read(node.opacity, 1);
         const points = node.vertices.map((vertex) => meshPosition(vertex, channels));
         const xs = points.map((p) => p.x);
         const ys = points.map((p) => p.y);
-        if (alpha >= INK_ALPHA && points.length) box = transformed([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], transform);
+        if (alpha >= INK_ALPHA && points.length) box = clipped(transformed([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], transform), clip);
         for (const [name, pin] of Object.entries(node.pins ?? {})) {
           if (!pin.children) continue;
           const at = meshPinPosition(node, pin, channels);
-          box = union(box, visit(pin.children, `${where}.pins.${name}.children`, (px, py) => transform(at.x + px, at.y + py)));
+          box = union(box, visit(pin.children, `${where}.pins.${name}.children`, (px, py) => transform(at.x + px, at.y + py), clip));
         }
       } else {
         alpha = read(node.opacity, 1);
@@ -132,11 +150,14 @@ export function assetInkBoxes(
         } else {
           const x = read(node.x);
           const y = read(node.y);
-          local = [x, y, x + read(node.width), y + read(node.height)];
+          const w = read(node.width);
+          const h = read(node.height);
+          const part = node.kind === 'image' ? imageInk(node.image) : undefined;
+          local = part ? [x + part[0] * w, y + part[1] * h, x + part[2] * w, y + part[3] * h] : [x, y, x + w, y + h];
         }
         if (local && feather) local = [local[0] - feather, local[1] - feather, local[2] + feather, local[3] + feather];
         if (local) centre = transform((local[0] + local[2]) / 2, (local[1] + local[3]) / 2);
-        if (local && alpha >= INK_ALPHA) box = transformed(local, transform);
+        if (local && alpha >= INK_ALPHA) box = clipped(transformed(local, transform), clip);
         if (node.kind === 'ellipse' && local && centre && box) {
           const across = transform(local[2], (local[1] + local[3]) / 2);
           const down = transform((local[0] + local[2]) / 2, local[3]);
@@ -145,7 +166,8 @@ export function assetInkBoxes(
           if (Math.abs(rx - ry) <= 0.5) {
             const r = (rx + ry) / 2;
             circle = { x: centre.x, y: centre.y, r };
-            box = [centre.x - r, centre.y - r, centre.x + r, centre.y + r];
+            box = clipped([centre.x - r, centre.y - r, centre.x + r, centre.y + r], clip);
+            if (!box) circle = undefined;
           }
         }
       }

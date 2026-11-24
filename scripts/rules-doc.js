@@ -26,6 +26,8 @@ export const FIXED = [
     note: 'the colour at a named point differs from the spec by more than 24 per channel' },
   { id: 'skac/text-clear', layer: 'asset', category: 'framing', default: 'error', needs: 'text nodes', docs: 'motion/surge', file: 'src/asset-clear.js',
     note: 'a drawn piece rests within 4 pt of a text box (neither moved in 150 ms, or the last frame); a pass in flight warns. `asset check`' },
+  { id: 'skac/text-in-plate', layer: 'asset', category: 'framing', default: 'error', needs: 'text nodes on plates or beside images', docs: 'motion/surge', file: 'src/asset-plate.js',
+    note: "a plate's content is off centre (by the text's optical band) or within 4 pt of its edge, the plate resizes between values, or an icon beside a text is off its optical centre or its ink gap changes. `asset check`" },
   { id: 'skac/landing', layer: 'asset', category: 'request', default: 'error', needs: '`landings`', docs: 'motion/surge', file: 'src/asset-clear.js',
     note: "a flown node's centre is outside its target's box (plus tolerance) at its end key or `at`. `asset check`" },
   { id: 'skac/rest-spec', layer: 'spec (pixels)', category: 'request', default: 'error', needs: 'spec.parts', docs: 'motion/checks', file: 'src/rest.js',
