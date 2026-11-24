@@ -17,15 +17,35 @@ const round = (value) => Math.round(value * 10) / 10;
 function walk(nodes) {
   const order = new Map();
   const plates = [];
-  const visit = (list, parent) => list.forEach((node, index) => {
+  const shapes = new Set();
+  const aligns = new Map();
+  const visit = (list, parent, row = false) => list.forEach((node, index) => {
     const where = `${parent}[${index}]`;
     order.set(where, order.size);
-    if (node.kind === 'roundRect' && node.fill !== undefined) plates.push(where);
-    if (node.kind === 'group') visit(node.children, `${where}.children`);
+    if (node.kind === 'text') aligns.set(where, node.align);
+    // A shape a row places is content beside its text, like an icon, not a plate.
+    if (row && (node.kind === 'ellipse' || node.kind === 'roundRect')) shapes.add(where);
+    else if (node.kind === 'roundRect' && node.fill !== undefined && !node.feather) plates.push(where);
+    // A row's plate draws before its children, as their first sibling.
+    if (node.kind === 'group' && node.row?.plate) {
+      order.set(`${where}.children[plate]`, order.size);
+      plates.push(`${where}.children[plate]`);
+    }
+    if (node.kind === 'group') visit(node.children, `${where}.children`, Boolean(node.row));
     if (node.kind === 'mesh') for (const [name, pin] of Object.entries(node.pins ?? {})) if (pin.children) visit(pin.children, `${where}.pins.${name}.children`);
   });
   visit(nodes, 'artboard.nodes');
-  return { order, plates };
+  return { order, plates, shapes, aligns };
+}
+
+/**
+ * For skac/text-clear: whether a piece is a text's own plate (a filled, unfeathered round rect drawn before it in a group that holds it,
+ * a row's plate, or the node its `plate` names), and the shapes rows place, which sit beside their text like icons.
+ */
+export function platesOf(asset, { ids = new Map(), declared = new Map() } = {}) {
+  const { order, plates, shapes } = walk(asset.artboard.nodes);
+  const isPlate = (pieceAt, textAt) => (declared.has(textAt) ? ids.get(declared.get(textAt)) === pieceAt : candidates(textAt, plates, order).includes(pieceAt));
+  return { isPlate, icons: shapes };
 }
 
 /** The plates a text can sit on: a filled round rect drawn before it whose parent holds the text, nearest first. */
@@ -56,13 +76,15 @@ function still(rows, i, places) {
 /**
  * skac/text-in-plate. A text on a plate (a filled round rect drawn behind it in the same group, or the node its `plate` names; a round
  * rect that also holds another round rect beside the text is a card, not a plate) is judged at
- * rest with what shares the plate (other texts and images): the content is centred across and down within 1 pt (down by the texts' optical
+ * rest with what shares the plate (other texts and images, and the shapes a row places): the content is centred across and down within 1 pt
+ * (across unless a text on it says align "start" or "end", which lays it out on a row background; a text with no align, a row's plate
+ * and a declared plate are always judged across) (down by the texts' optical
  * band, not their boxes), keeps 4 pt inside every edge, and the plate changes size by at most 1 pt between the values its texts show.
  * An image beside a text on one row (their heights overlap by more than half) is centred on the text's optical band within 1 pt, and the
  * ink gap between them holds within 1 pt across values. Texts with no laid-out font are listed under `unmeasured` and not judged.
  */
 export function textInPlate(rows, { asset, ids = new Map(), names = new Map(), declared = new Map(), severity = 'error' }) {
-  const { order, plates } = walk(asset.artboard.nodes);
+  const { order, plates, shapes, aligns } = walk(asset.artboard.nodes);
   const errors = [];
   const unmeasured = new Set();
   const texts = new Set();
@@ -70,7 +92,7 @@ export function textInPlate(rows, { asset, ids = new Map(), names = new Map(), d
   for (const { entries } of rows) {
     for (const entry of entries.values()) {
       if (entry.text) texts.add(entry.where);
-      if (entry.kind === 'image' && entry.box) images.add(entry.where);
+      if ((entry.kind === 'image' || shapes.has(entry.where)) && entry.box) images.add(entry.where);
     }
   }
   const name = (where) => nodeName(where, names);
@@ -133,7 +155,12 @@ export function textInPlate(rows, { asset, ids = new Map(), names = new Map(), d
         state.reported.add(key);
         report({ plate: name(plateAt), texts: members.map(name), icons: icons.map(name), at_ms: t_ms, ...problem });
       };
-      if (Math.abs(left - right) > CENTRE_TOLERANCE) {
+      // A text with align "start" or "end" on a shape is laid out on a row background (a table row's label, a value in its cell), so only
+      // its inset and its centre down are judged. A text with no align is unknown and gets the full check, as do a row's plate and a
+      // declared plate.
+      const laidOut = !plateAt.endsWith('.children[plate]')
+        && members.some((at) => !declared.has(at) && (aligns.get(at) === 'start' || aligns.get(at) === 'end'));
+      if (!laidOut && Math.abs(left - right) > CENTRE_TOLERANCE) {
         once('across', { offset: round((left - right) / 2), error: `${label} is ${round(Math.abs(left - right) / 2)} pt off centre across at ${t_ms} ms (padding ${round(left)} pt left, ${round(right)} pt right)`, hint: 'centre the content group (icons and texts together) in the plate, or size the plate from the measured content' });
       }
       if (Math.abs(top - bottom) > CENTRE_TOLERANCE) {
@@ -194,7 +221,7 @@ export function textInPlate(rows, { asset, ids = new Map(), names = new Map(), d
           state.reported = true;
           report({ icon: name(iconAt), text: name(textAt), at_ms: t_ms, offset: round(offset),
             error: `${name(iconAt)} sits ${round(Math.abs(offset))} pt ${offset > 0 ? 'below' : 'above'} the optical centre of "${text.text.value}" (${name(textAt)}) at ${t_ms} ms; the most is ${CENTRE_TOLERANCE} pt`,
-            hint: 'centre the icon on the middle of the cap height (x-height for lowercase), not on the text box' });
+            hint: 'centre the icon on the middle of the text\'s optical band (cap height for "+3", x-height for lowercase, between for a mixed label), not on the text box' });
         }
       }
     }

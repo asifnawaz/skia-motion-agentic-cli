@@ -47,6 +47,7 @@
   },
   "scripts": {
     "docs:rules": "node scripts/rules-doc.js",
+    "unicode:tables": "node scripts/unicode-tables.js",
     "pack:runtime": "node scripts/pack-runtime.js",
     "test": "node --test test/unit/*.test.js",
     "test:unit": "node --test test/unit/*.test.js",

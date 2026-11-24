@@ -3,7 +3,8 @@ import type { AssetNode, AssetTextNode, MotionAsset, PathCommand, Scalar } from 
 import type { Literal } from '../templates/motion/machine';
 import { meshPinPosition, meshPosition } from './asset-mesh';
 import type { AssetViewport } from './asset-attachments';
-import { digitText, rollFrame } from './asset-roll';
+import { digitText, rollFrame, rollWidthShare } from './asset-roll';
+import { blendInk, plateBox, rowItems, rowLayout, type RowChild, type TextInk } from './asset-ink';
 
 /** An axis-aligned box in artboard points: left, top, right, bottom. */
 export type Box = readonly [x0: number, y0: number, x1: number, y1: number];
@@ -19,6 +20,8 @@ export type InkEntry = {
   kind: AssetNode['kind'];
   /** Undefined when the node draws nothing at this time (zero size, zero opacity or nothing visible inside a group). */
   box?: Box;
+  /** A mesh's own surface, without the nodes on its pins (which `box` takes in, and which have entries of their own). */
+  own?: Box;
   /** Where the node sits, in artboard points, even while it is hidden or scaled to nothing: the transformed middle of its own extent. */
   centre?: { x: number; y: number };
   /** A circle (an ellipse with equal radii under its transform, feather included): its ink is judged by the circle, not the box corners. */
@@ -46,10 +49,14 @@ export function shownText(
   let value = typeof node.text === 'string' ? node.text : bound(node.text.value);
   if (node.roll) {
     const progress = channels[node.roll.progress] ?? asset.channels[node.roll.progress] ?? 0;
-    const frame = rollFrame(bound(node.roll.from), value, progress);
-    value = frame
-      ? frame.prefix + frame.places.map(({ current, next, turn }) => digitText(turn >= 0.5 ? next : current, frame.zero)).join('') + frame.suffix
-      : progress < 0.5 ? bound(node.roll.from) : value;
+    const frame = rollFrame(bound(node.roll.from), value, progress, node.roll);
+    // At either end the roll shows exactly the string the host set, zero padding and all.
+    if (progress <= 0) value = bound(node.roll.from);
+    else if (progress < 1) {
+      value = frame
+        ? frame.prefix + frame.places.map(({ current, next, turn }) => digitText(turn >= 0.5 ? next : current, frame.zero)).join('') + frame.suffix
+        : progress < 0.5 ? bound(node.roll.from) : value;
+    }
   }
   return value || undefined;
 }
@@ -107,15 +114,62 @@ export function assetInkBoxes(
     const out: Box = [Math.max(box[0], clip[0]), Math.max(box[1], clip[1]), Math.min(box[2], clip[2]), Math.min(box[3], clip[3])];
     return out[2] - out[0] > 0.01 && out[3] - out[1] > 0.01 ? out : undefined;
   };
-  const visit = (nodes: readonly AssetNode[], parent: string, transform: Transform, clip?: Box): Box | undefined => {
+  // A row moves each child by its layout (asset-ink.ts), from the same text ink and image parts the app measures.
+  // A bound text in a row with a widest sample is centred on that sample's band (asset-ink.ts rowItems), so it is judged on it too.
+  type RowPlacing = { moves: [number, number][]; bands: (readonly [number, number] | undefined)[] };
+  const rowMoves = (node: Extract<AssetNode, { kind: 'group' }>, where: string, local: Transform, clip?: Box): RowPlacing => {
+    const row = node.row!;
+    const rowBands: (readonly [number, number] | undefined)[] = [];
+    const align = row.align ?? 'start';
+    const rtl = row.direction === 'rtl';
+    const { items, widest, bands } = rowItems(node.children as unknown as readonly RowChild[], read, (child, index, wide) => {
+      const textNode = node.children[index] as AssetTextNode;
+      const inkOf = (text: string | undefined): TextInk | undefined => {
+        if (!text) return undefined;
+        const extent = textExtent(textNode, `${where}.children[${index}]`, text);
+        return { box: [extent.left, extent.top, extent.left + extent.width, extent.top + extent.height], band: extent.band ?? [extent.top, extent.top + extent.height] };
+      };
+      if (wide) {
+        const measured = inkOf(row.plate!.widest!);
+        rowBands[index] = measured?.band;
+        return measured;
+      }
+      if (textNode.roll && typeof textNode.text !== 'string') {
+        const bound = (name: string) => {
+          const value = values[name] ?? (asset.machine.values?.[name] as { default?: Literal } | undefined)?.default;
+          return typeof value === 'string' ? value : undefined;
+        };
+        const from = bound(textNode.roll.from);
+        const to = bound(textNode.text.value);
+        const share = from !== undefined && to !== undefined ? rollWidthShare(from, to, read(textNode.roll.progress), textNode.roll) : read(textNode.roll.progress);
+        return blendInk(inkOf(from), inkOf(to), share);
+      }
+      return inkOf(shownText(textNode, values, asset, channels));
+    }, (index) => {
+      const child = node.children[index]!;
+      return child.kind === 'image' && !asset.imageSlots?.[child.image] ? asset.imageInk?.[child.image] as Box | undefined ?? imageInk(child.image) : undefined;
+    }, Boolean(row.plate?.widest));
+    const { moves } = rowLayout(items, row.gap, align, rtl);
+    if (row.plate) {
+      const plate = plateBox(widest, bands, row.gap, align, rtl, row.plate.padding);
+      const box = clipped(transformed(plate, local), clip);
+      entries.set(`${where}.children[plate]`, { where: `${where}.children[plate]`, kind: 'roundRect', box, alpha: 1, centre: local((plate[0] + plate[2]) / 2, (plate[1] + plate[3]) / 2) });
+    }
+    return { moves, bands: rowBands };
+  };
+  const visit = (nodes: readonly AssetNode[], parent: string, outer: Transform, clip?: Box, placing?: RowPlacing): Box | undefined => {
+    const moves = placing?.moves;
     let all: Box | undefined;
     nodes.forEach((node, index) => {
       const where = `${parent}[${index}]`;
+      const move = moves?.[index];
+      const transform: Transform = move ? (px, py) => outer(px + move[0], py + move[1]) : outer;
       let box: Box | undefined;
       let centre: InkEntry['centre'];
       let circle: InkEntry['circle'];
       let alpha = 1;
       let text: InkEntry['text'];
+      let own: Box | undefined;
       if (node.kind === 'group') {
         const offset = anchorOffset(node.anchor, insetX, insetY);
         const x = read(node.x) + offset.x;
@@ -132,7 +186,8 @@ export function assetInkBoxes(
           const area = bounds && transformed(bounds, local);
           inner = area ? clipped(area, clip) ?? [0, 0, 0, 0] : [0, 0, 0, 0];
         }
-        box = visit(node.children, `${where}.children`, local, inner);
+        const placing = node.row ? rowMoves(node, where, local, inner) : undefined;
+        box = union(node.row?.plate ? entries.get(`${where}.children[plate]`)?.box : undefined, visit(node.children, `${where}.children`, local, inner, placing));
       } else if (node.kind === 'text') {
         const value = shownText(node, values, asset, channels);
         if (value) {
@@ -141,7 +196,8 @@ export function assetInkBoxes(
           const y = read(node.y) + extent.top;
           box = clipped(transformed([x, y, x + extent.width, y + extent.height], transform), clip);
           centre = transform(x + extent.width / 2, y + extent.height / 2);
-          const band = extent.band && [transform(x, read(node.y) + extent.band[0]).y, transform(x, read(node.y) + extent.band[1]).y] as const;
+          const measured = placing?.bands[index] ?? extent.band;
+          const band = measured && [transform(x, read(node.y) + measured[0]).y, transform(x, read(node.y) + measured[1]).y] as const;
           text = { value, source: extent.source, ...(band && { band }) };
         }
       } else if (node.kind === 'mesh') {
@@ -150,6 +206,7 @@ export function assetInkBoxes(
         const xs = points.map((p) => p.x);
         const ys = points.map((p) => p.y);
         if (alpha >= INK_ALPHA && points.length) box = clipped(transformed([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], transform), clip);
+        own = box ?? [0, 0, 0, 0];
         for (const [name, pin] of Object.entries(node.pins ?? {})) {
           if (!pin.children) continue;
           const at = meshPinPosition(node, pin, channels);
@@ -187,7 +244,7 @@ export function assetInkBoxes(
           }
         }
       }
-      entries.set(where, { where, kind: node.kind, box, alpha, ...(centre && { centre }), ...(circle && { circle }), ...(text && { text }) });
+      entries.set(where, { where, kind: node.kind, box, alpha, ...(own && { own }), ...(centre && { centre }), ...(circle && { circle }), ...(text && { text }) });
       all = union(all, box);
     });
     return all;

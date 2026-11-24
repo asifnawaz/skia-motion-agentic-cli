@@ -31,11 +31,21 @@ export type AssetStroke = {
   dash?: { intervals: readonly number[]; phase?: Scalar };
 };
 
+/**
+ * A row: the group's children (texts, images, simple shapes) placed left to right by their ink, `gap` points apart, each with its optical
+ * centre on the group's y; `align` puts the row's ink start, centre or end on the group's x. `plate` draws behind, sized from the ink
+ * plus padding, and from `widest` (a sample of the bound text) so it never resizes. See asset-ink.ts.
+ */
+export type AssetRow = {
+  gap: number; align?: 'start' | 'center' | 'end'; direction?: 'ltr' | 'rtl';
+  plate?: { padding: readonly [number, number]; radius?: number; fill: AssetColor; stroke?: { color: AssetColor; width: number }; widest?: string };
+};
 type Group = {
   kind: 'group'; x?: Scalar; y?: Scalar; scaleX?: Scalar; scaleY?: Scalar; rotation?: Scalar;
   anchor?: AssetAnchor;
   clip?: readonly PathCommand[];
   points?: Readonly<Record<string, { x: Scalar; y: Scalar }>>;
+  row?: AssetRow;
   children: readonly AssetNode[];
 };
 type Shape = { opacity?: Scalar; feather?: Scalar } & (
@@ -56,7 +66,7 @@ export type AssetTextNode = {
   fonts?: readonly string[]; direction?: 'ltr' | 'rtl'; align?: 'start' | 'center' | 'end'; maxLines?: number;
   fontFeatures?: readonly FontFeature[];
   /** Roll the number from another string value to this one as `progress` (a channel) runs 0 to 1; see asset-roll.ts. */
-  roll?: { progress: string; from: string };
+  roll?: { progress: string; from: string; ease?: 'out' | 'linear' };
 };
 export type AssetSemantic = {
   name: string; label: BoundText; role: 'button' | 'image' | 'text' | 'header';
@@ -75,6 +85,8 @@ export type MotionAsset<M extends Machine = Machine, R extends AssetResource = s
   channels: Readonly<Record<string, number>>;
   images?: Readonly<Record<string, R>>;
   imageSlots?: Readonly<Record<string, string>>;
+  /** The drawn part of each embedded image, as fractions of its box (left, top, right, bottom), from its alpha. Pack writes it. */
+  imageInk?: Readonly<Record<string, readonly [number, number, number, number]>>;
   palette?: Readonly<Record<string, string>>;
   fonts?: Readonly<Record<string, R>>;
   fontSlots?: Readonly<Record<string, { readonly fallback?: string }>>;
@@ -191,6 +203,42 @@ function checkStroke(value: unknown, at: string, { channels, palette }: NodeVali
     intervals.forEach((interval, i) => number(interval, `${at}.dash.intervals[${i}]`, 0.001, 4096));
     if (dash.phase !== undefined) scalar(dash.phase, `${at}.dash.phase`, channels);
   }
+}
+
+function checkRow(value: unknown, children: unknown, at: string, { palette }: NodeValidation): void {
+  const row = record(value, at, ['gap', 'align', 'direction', 'plate']);
+  number(row.gap, `${at}.gap`, 0, 256);
+  if (row.align !== undefined && !['start', 'center', 'end'].includes(row.align as string)) invalid(`${at}.align`, 'expected start, center or end');
+  if (row.direction !== undefined && row.direction !== 'ltr' && row.direction !== 'rtl') invalid(`${at}.direction`, 'expected ltr or rtl');
+  if (row.plate !== undefined) {
+    const plate = record(row.plate, `${at}.plate`, ['padding', 'radius', 'fill', 'stroke', 'widest']);
+    const bound = Array.isArray(children) && children.some((child) => (child as { kind?: unknown; text?: unknown }).kind === 'text' && typeof (child as { text?: unknown }).text !== 'string');
+    if (bound && plate.widest === undefined) invalid(`${at}.plate.widest`, 'a plate behind a bound text needs widest, a sample of its longest value, so it never resizes');
+    const padding = list(plate.padding, `${at}.plate.padding`, 2);
+    if (padding.length !== 2) invalid(`${at}.plate.padding`, 'expected [across, down] in points');
+    padding.forEach((side, i) => number(side, `${at}.plate.padding[${i}]`, 0, 256));
+    if (plate.radius !== undefined) number(plate.radius, `${at}.plate.radius`, 0, 4096);
+    checkColor(plate.fill, `${at}.plate.fill`, palette);
+    if (plate.stroke !== undefined) {
+      const stroke = record(plate.stroke, `${at}.plate.stroke`, ['color', 'width']);
+      checkColor(stroke.color, `${at}.plate.stroke.color`, palette);
+      number(stroke.width, `${at}.plate.stroke.width`, 0, 256);
+    }
+    if (plate.widest !== undefined && (typeof plate.widest !== 'string' || !plate.widest || plate.widest.length > 256)) {
+      invalid(`${at}.plate.widest`, 'expected a sample of the widest value, 1 to 256 characters');
+    }
+  }
+  list(children, `${at.slice(0, -4)}.children`, 8).forEach((child, i) => {
+    const key = `${at.slice(0, -4)}.children[${i}]`;
+    const kind = (child as { kind?: unknown } | null)?.kind;
+    if (!['text', 'image', 'ellipse', 'roundRect'].includes(kind as string)) invalid(key, 'a row places texts, images, ellipses and round rects');
+    // A row's text is placed by its measured ink, so it draws in a face of the asset's (left out, pack embeds the default one): the
+    // platform font (fonts: []) differs by phone, and check cannot measure it the way the phone draws it.
+    const fonts = (child as { fonts?: unknown }).fonts;
+    if (kind === 'text' && fonts !== undefined && !list(fonts, `${key}.fonts`, 8).length) {
+      invalid(`${key}.fonts`, 'a text in a row needs an embedded font or a font slot, or no fonts field for the default one');
+    }
+  });
 }
 
 function checkText(value: unknown, at: string, values: Record<string, unknown>): void {
@@ -325,7 +373,8 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     record(node, at, ['kind', 'text', 'x', 'y', 'width', 'fontSize', 'fill', 'fonts', 'direction', 'align', 'maxLines', 'fontFeatures', 'roll']);
     checkText(node.text, `${at}.text`, context.values);
     if (node.roll !== undefined) {
-      const roll = record(node.roll, `${at}.roll`, ['progress', 'from']);
+      const roll = record(node.roll, `${at}.roll`, ['progress', 'from', 'ease']);
+      if (roll.ease !== undefined && roll.ease !== 'out' && roll.ease !== 'linear') invalid(`${at}.roll.ease`, 'expected out (the default) or linear');
       if (typeof node.text === 'string') invalid(`${at}.text`, 'a rolling text binds its to-value: { value: "<string value>" }');
       if (typeof roll.progress !== 'string' || !Object.hasOwn(channels, roll.progress)) invalid(`${at}.roll.progress`, 'expected a declared channel');
       if (typeof roll.from !== 'string' || (context.values[roll.from] as { type?: string } | undefined)?.type !== 'string') {
@@ -365,7 +414,8 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     return;
   }
   if (node.kind === 'group') {
-    record(node, at, ['kind', 'children', 'x', 'y', 'scaleX', 'scaleY', 'rotation', 'anchor', 'clip', 'points']);
+    record(node, at, ['kind', 'children', 'x', 'y', 'scaleX', 'scaleY', 'rotation', 'anchor', 'clip', 'points', 'row']);
+    if (node.row !== undefined) checkRow(node.row, node.children, `${at}.row`, context);
     for (const key of ['x', 'y', 'scaleX', 'scaleY', 'rotation']) {
       if (node[key] !== undefined) scalar(node[key], `${at}.${key}`, channels);
     }
@@ -443,7 +493,7 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
 
 function validateAsset(value: unknown): DrawableMotionAsset {
   const data = record(value, 'asset', [
-    'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'palette', 'attachments', 'fonts', 'fontSlots', 'fontLicenses', 'audio', 'semantics',
+    'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'imageInk', 'palette', 'attachments', 'fonts', 'fontSlots', 'fontLicenses', 'audio', 'semantics',
   ]);
   if (data.schema !== ASSET_SCHEMA) invalid('asset.schema', `this player reads ${ASSET_SCHEMA}`);
   identifier(data.name, 'asset.name');
@@ -470,6 +520,14 @@ function validateAsset(value: unknown): DrawableMotionAsset {
     identifier(name, at);
     if (Object.hasOwn(images, name)) invalid(at, 'the slot name must be distinct from its embedded fallback');
     if (typeof fallback !== 'string' || !Object.hasOwn(images, fallback)) invalid(at, 'expected an embedded fallback from images');
+  }
+  if (data.imageInk !== undefined) {
+    for (const [name, value] of Object.entries(record(data.imageInk, 'imageInk'))) {
+      if (!Object.hasOwn(images, name)) invalid(`imageInk.${name}`, 'expected the name of an embedded image');
+      const box = list(value, `imageInk.${name}`, 4);
+      if (box.length !== 4) invalid(`imageInk.${name}`, 'expected [left, top, right, bottom] as fractions of the image');
+      box.forEach((side, i) => number(side, `imageInk.${name}[${i}]`, 0, 1));
+    }
   }
   let pixels = 0;
   for (const [name, uri] of Object.entries(images)) {

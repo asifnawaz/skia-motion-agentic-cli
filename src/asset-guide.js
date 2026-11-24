@@ -10,7 +10,7 @@ const topics = {
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
-    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'roll', 'chain', 'layout', 'playback', 'migrate'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'row', 'roll', 'chain', 'layout', 'playback', 'migrate'],
   },
   binary: {
     steps: [
@@ -278,7 +278,7 @@ const topics = {
       'Pieces are judged by their box (a blur adds its feather, a stroke half its width, a path its control points), and a circle by its edge.',
       'A shape whose box holds the whole text box is its background and is not judged. A landing\'s target is exempt from 100 ms before the landing to 400 ms after, so the piece arriving and the target\'s reaction (a pop, a glow, a ring) need no entry. Name any other pair that belongs together in allowOverlap with a reason.',
       'A text is judged by its ink: the glyphs Skia lays out with the asset\'s fonts (embedded, or host slots with --font). A text it cannot lay out (a platform font, fonts: []) is judged by its declared box: the node\'s width, 1.2 times its font size per line. textClear.textBoxes in the reply counts which.',
-      'Set the rule to warn or off in skia-motion.json: "rules": { "skac/text-clear": "warn" }. Packed .skmotion files carry no ids, so check the JSON source.',
+      'The rule warns by default. asset check --strict, or "checks": "strict" in the asset, makes it an error; or set it in skia-motion.json: "rules": { "skac/text-clear": "error" }. Packed .skmotion files carry no ids, so check the JSON source.',
     ],
     group: { kind: 'group', id: 'coin', x: 'coinX', y: 'coinY', children: [] },
     landings: [{ node: 'coin', target: 'counterValue', aim: true }],
@@ -288,13 +288,28 @@ const topics = {
       'skac asset check bonus.motion.json --commands=claim@0 --font=Label=Label.ttf',
     ],
   },
+  row: {
+    drawing: [
+      'Put an icon and its text in a row and skac places them: give a group row: { gap, align?, direction?, plate? } and its children (texts, images, ellipses, round rects) need no hand coordinates.',
+      'Each child sits gap points after the one before, measured ink to ink (an image by the drawn part of its alpha, a text by its glyphs), so the gap never changes with the value. Right to left (direction: "rtl") the first child sits on the right.',
+      'Every child\'s optical centre is on the group\'s y: a text\'s by its optical band (the x-height plus the share of its letters and digits that are capitals or digits of the step to the cap height, so "+3" by its cap height, "correct" by its x-height and "5 of 5 correct" mostly by its x-height; the ink for scripts with no case), an image\'s or shape\'s by its ink. align puts the row\'s ink start, centre or end on the group\'s x.',
+      'plate: { padding: [across, down], fill, radius?, stroke?, widest } draws behind the row, sized from the ink plus the padding; radius defaults to a full pill. widest is a sample of the longest value ("+888"), required when the row holds a bound text: the plate is sized for it, so "+3" and "+12" sit centred in one plate that never resizes. A bound text is also centred on the sample\'s band, so a word in a script with no case holds its height as the value changes. skac/text-in-plate judges the plate like any other, with the row\'s shapes counted as content.',
+      'A rolling count (roll) in a row slides between its old value\'s place and its new one\'s as it rolls, so at rest it sits as a still text of that value would.',
+      'The app, the PNG frame and asset check place a row by one rule (runtime/asset-ink.ts), so what check passes is what the phone draws. A row\'s text needs a font of the asset\'s (leave fonts out for the default one); pack writes each row image\'s ink. Needs a runtime release that knows row (asset check warns row-runtime). On react-native-skia before 3.10.2, or React Native Web, the app has no SkParagraph.extendedVisit and places a row by its text\'s advances and cap height, a few points from what check measures (row-approx). A text with a character its fonts lack (an emoji, say) is judged by its declared box, not the fallback font the phone draws it in: check warns text-layout-fallback with the text and the characters; add a font that has them, or draw them as an image.',
+    ],
+    group: { kind: 'group', x: 90, y: 60, row: { gap: 4, align: 'center', plate: { padding: [10, 6], fill: '#FFF6DC', widest: '+888' } }, children: [
+      { kind: 'image', image: 'coin', x: 0, y: 0, width: 18, height: 18 },
+      { kind: 'text', text: { value: 'count' }, x: 0, y: 0, width: 80, fontSize: 20, fill: '#1D2B2A', fontFeatures: [{ name: 'tnum', value: 1 }] },
+    ] },
+    commands: ['skac asset check counter.motion.json --commands=\'count="+12"@0\'', 'skac asset frame counter.motion.json --trace=0 --size=720x480 --out=counter.png'],
+  },
   plates: {
     drawing: [
       'Rule skac/text-in-plate. A text sits on a plate when a filled roundRect drawn before it in its group (or a group above it) holds its ink; the smallest such plate wins. Name another with plate: <id> on the text.',
-      'At rest, the content on a plate (its texts and the images inside it) is centred across and down within 1 pt. Down is judged by the texts\' optical band, not their boxes: cap height over the baseline for capitals, digits and signs, x-height for lowercase only, the ink for scripts with no case.',
+      'At rest, the content on a plate (its texts and the images inside it) is centred across and down within 1 pt. A text with align: "start" or "end" is laid out on a row background, not centred on it (a table row\'s label and value), so on a plate holding one only the centre down and the 4 pt inset are judged. A text with no align, a row\'s plate and a declared plate are always judged across. Down is judged by the texts\' optical band, not their boxes: from the baseline up by the x-height plus the share of its letters and digits that are capitals or digits of the step to the cap height. "+3" stands on its cap height, "correct" on its x-height, and "5 of 5 correct" (2 of 11) close to its x-height, where its lowercase sits. Scripts with no case are judged by their ink.',
       'Content keeps at least 4 pt inside every edge of the plate, by ink. The plate changes size by at most 1 pt between the values its texts show, so size it for the widest value and use tabular digits. Set each value with --commands so the trace shows it at rest.',
       'An image beside a text on one row (their heights overlap by more than half) is centred on the text\'s optical band within 1 pt, and the ink gap between them holds within 1 pt across values. An image\'s ink is its drawn part, from its alpha, so a clear margin in a sprite does not count.',
-      'Texts need a laid-out font to be judged: a platform font is listed under textInPlate.unmeasured. Set the rule to warn or off in skia-motion.json like any other.',
+      'Texts need a laid-out font to be judged: a platform font is listed under textInPlate.unmeasured. It warns by default and is an error under asset check --strict or "checks": "strict" in the asset, like skac/text-clear.',
     ],
     text: { kind: 'text', id: 'count', plate: 'pill', text: { value: 'count' }, x: 8.8, y: -11.1, width: 14, fontSize: 20, fill: '#1D2B2A', align: 'center', fontFeatures: [{ name: 'tnum', value: 1 }] },
     commands: [
@@ -306,12 +321,14 @@ const topics = {
       'A number that changes rolls. Bind the text to the new value and give it roll: { progress: <channel>, from: <string value> }. The host sets both strings, and a clip runs the channel from 0 to 1.',
       'Each digit place is a column clipped to one line: the old digit leaves upward as the next comes in from below. The rightmost place turns fastest; a place turns only while the one to its right wraps, like an odometer.',
       'At rest the number is its plain text with tabular figures, so asset check measures exactly what the app draws. While it rolls, Skia lays the number out with the node\'s alignment and direction; prefix and suffix (the non-digit ends, such as + or %) keep their shaping and only move while a new leading place opens, as its digit rolls in. Size a plate for the longest value, so it never resizes.',
-      'Any decimal digits roll in their own glyphs (Latin, Arabic-Indic, Extended Arabic-Indic, Devanagari and others), through the node\'s fonts or font slot. Right to left, the prefix sits on the right of the digits.',
+      'Any decimal digits (every Unicode decimal system: Latin, Arabic-Indic, Extended Arabic-Indic, Devanagari and the rest) roll in their own glyphs, through the node\'s fonts or font slot. Right to left, the prefix sits on the right of the digits.',
+      'The value eases out by default (roll.ease: "out"): it runs fast, then slows into the new number so its last turns read. Key the channel evenly from 0 to 1 ([[0, 0], [600, 1]]) and let roll.ease shape it; "linear" runs the value evenly.',
+      'A place turning faster than 30 times a second cannot be read, so it smears: the app draws its column as a vertical blur, full at 60 a second, and it sharpens as it slows into the value. Speed comes from how long the clip takes to run the channel, so 0 to 240 over 600 ms smears its units and tens early and lands sharp; 7 to 8 never smears.',
       'A value that is not one run of digits (1,250) or that changes prefix cuts at half way, and asset check warns (roll-cut). Set the clip\'s reducedAt to its end so Reduce Motion shows the new value.',
       'A rolling number needs a runtime release that knows roll; asset check warns (roll-runtime). Follow it with a punch (a scale pop with a damped settle) on the same text when the roll lands.',
     ],
     text: { kind: 'text', id: 'count', text: { value: 'count' }, roll: { progress: 'countTurn', from: 'previousCount' }, x: 20, y: 18, width: 120, fontSize: 20, fill: '#1D2B2A', align: 'center' },
-    clip: { ms: 600, reducedAt: 600, tracks: { countTurn: [[0, 0], [600, 1, 'inOut']] } },
+    clip: { ms: 600, reducedAt: 600, tracks: { countTurn: [[0, 0], [600, 1]] } },
     commands: [
       'skac asset frame counter.motion.json --trace=300 --commands=\'previousCount="+9"@0 count="+12"@0 roll@0\'',
       'skac asset check counter.motion.json --commands=\'previousCount="+9"@0 count="+12"@0 roll@0\'',

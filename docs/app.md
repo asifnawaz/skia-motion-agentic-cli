@@ -89,8 +89,15 @@ fire `land`. Generate typed bindings with `skac asset types reward-counter.skmot
   number from the `from` value to its own value as the channel runs from 0 to 1: each digit
   place turns in its own clipped column, rightmost fastest, in the value's own digits (Latin,
   Arabic-Indic, Extended Arabic-Indic and others). Set both strings, then fire the trigger whose
-  clip runs the channel. `skac asset guide roll` has the details. Install a runtime that knows
-  `roll` before shipping assets that use it.
+  clip runs the channel. The value eases out unless `"ease": "linear"`, and a place turning faster
+  than 30 times a second draws as a vertical blur (`ImageFilter.MakeBlur` in a layer). `skac asset
+  guide roll` has the details. Install a runtime that knows `roll` before shipping assets that use it.
+- A group with `"row": { "gap": 4, "align": "center", "plate": { ... } }` places its texts and
+  images side by side by their ink, each on the row's optical centre line, over a plate sized for
+  the widest value (`skac asset guide row`). Rows need a runtime that knows `row`. The runtime
+  measures the text with `SkParagraph.extendedVisit` (react-native-skia 3.10.2 or later); on older
+  react-native-skia and on React Native Web it falls back to the text's advances and cap height,
+  which places the row a few points from what `asset check` measures (it warns `row-approx`).
 - The 1 MiB packed budget covers the entire file, including images, audio, fonts and data.
   `asset resource` accepts up to 786,400 raw bytes per font or audio input. Base64 expands
   raw bytes by roughly one third in JSON packs. The default Allo Regular is 96,216 raw bytes.

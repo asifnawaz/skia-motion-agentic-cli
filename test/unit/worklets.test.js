@@ -281,7 +281,8 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     './asset': runtime,
     './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
     './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
-    './asset-roll': load('runtime/asset-roll.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
+    './asset-ink': load('runtime/asset-ink.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
     'react-native-skia': {
       Skia: skia, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0, Decal: 3 }, FilterMode: { Linear: 1 },
       MipmapMode: { None: 0 }, ClipOp: { Intersect: 1 }, VertexMode: { Triangles: 0 }, BlendMode: { SrcOver: 3 },
@@ -425,7 +426,7 @@ test('a rolling number draws an odometer through the production worklet transfor
   const asset = runtime.parseAsset(JSON.stringify({
     schema: 'skac.asset/1', name: 'Roll',
     artboard: { width: 200, height: 60, nodes: [{
-      kind: 'text', text: { value: 'to' }, roll: { progress: 'turn', from: 'from' }, x: 10, y: 5, width: 100, fontSize: 20,
+      kind: 'text', text: { value: 'to' }, roll: { progress: 'turn', from: 'from', ease: 'linear' }, x: 10, y: 5, width: 100, fontSize: 20,
       fill: '#000000', fonts: [], align: 'center',
     }] },
     channels: { turn: 0 }, clips: { run: { ms: 100, tracks: { turn: [[0, 0], [100, 1]] } } },
@@ -435,12 +436,14 @@ test('a rolling number draws an odometer through the production worklet transfor
   const paints = [];
   const clips = [];
   const features = [];
+  let builds = 0;
   const skia = {
     Data: { fromBase64: (data) => data },
     Typeface: { MakeFreeTypeFaceFromData: (data) => data },
     TypefaceFontProvider: { Make: () => ({ registerFont() {} }) },
     // Every character is 10 wide; a centred line starts at (width - length) / 2. Unseen runs are laid out but not painted.
     ParagraphBuilder: { Make(style) {
+      builds++;
       let text = '';
       let shown = '';
       let color;
@@ -464,21 +467,27 @@ test('a rolling number draws an odometer through the production worklet transfor
     } },
     Color: (hex) => hex,
     XYWHRect: (...xywh) => xywh,
+    Paint: () => ({ setImageFilter(filter) { this.filter = filter; } }),
+    ImageFilter: { MakeBlur: (sigmaX, sigmaY) => ({ sigmaX, sigmaY }) },
   };
+  const layers = [];
   const canvas = {
     save() {}, restore() {}, translate() {}, scale() {}, rotate() {},
     clipRect(rect) { clips.push(rect); },
+    saveLayer(paint) { layers.push(paint.filter); },
   };
   const { drawAsset, prepareAssetDrawing } = load('runtime/asset-draw.ts', {
     './asset': runtime,
     './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
     './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
-    './asset-roll': load('runtime/asset-roll.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
+    './asset-ink': load('runtime/asset-ink.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
     'react-native-skia': {
-      Skia: skia, ClipOp: { Intersect: 1 }, TextDirection: { RTL: 0, LTR: 1 }, TextAlign: { Start: 4, End: 5, Center: 2 },
+      Skia: skia, ClipOp: { Intersect: 1 }, TextDirection: { RTL: 0, LTR: 1 }, TextAlign: { Start: 4, End: 5, Center: 2 }, TileMode: { Decal: 3 },
     },
   }, 'production');
   const drawing = prepareAssetDrawing(asset, {});
+  builds = 0;
   // Half way from 9 to 10 is 9.5: the units turn 9 -> 0 and the tens enter from blank, both half way. Skia lays out "+0" (centred at
   // 40 in the 100-wide box) and "+00" (at 35); half way the "+" is at 37.5, drawn in the "+0" layout moved 2.5 left, and the digit run
   // starts after it at 10 + 47.5.
@@ -487,6 +496,8 @@ test('a rolling number draws an odometer through the production worklet transfor
     ['+', 7.5, 5], ['1', 52.5, 5 + 12], ['9', 62.5, 5 - 12], ['0', 62.5, 5 + 12],
   ]);
   assert.deepEqual(clips, [[0, 0, 200, 60], [57.5, 5, 5, 24], [62.5, 5, 10, 24]]); // the board, then one column per place
+  // The digit columns were laid out once in prepare: a rolling frame builds only the "+0" and "+00" layouts, not one per digit drawn.
+  assert.equal(builds, 2);
   paints.length = 0;
   clips.length = 0;
   // At rest the roll is the plain paragraph of the number it shows, so it lays out exactly as asset check measures it.
@@ -497,4 +508,172 @@ test('a rolling number draws an odometer through the production worklet transfor
   // A value with two runs of digits cannot roll: it cuts at half way.
   drawAsset(canvas, drawing, { turn: 0.4 }, 200, 60, {}, { from: '1,200', to: '1,300' });
   assert.deepEqual(paints.map(([text]) => text), ['1,200']);
+  // The clip runs the roll in 100 ms: 0 to 240 at a tenth of the way turns the units 2400 times a second and the tens 240, so both
+  // smear (a vertical blur of 0.2 of the 24 pt line), and the hundreds, at 24 a second, stay sharp.
+  drawAsset(canvas, drawing, { turn: 0.1 }, 200, 60, {}, { from: '0', to: '240' });
+  assert.deepEqual(layers, [{ sigmaX: 0, sigmaY: 24 * 0.2 }, { sigmaX: 0, sigmaY: 24 * 0.2 }]);
+});
+
+test('a row lays out by ink and draws its plate through the production worklet transform', async () => {
+  const validator = await import('../../runtime/machine-schema.js');
+  const motion = load('templates/motion/motion.ts', {}, 'production');
+  const base64 = load('runtime/base64.ts', {}, 'production');
+  const binary = load('runtime/asset-binary.ts', { './base64': base64 }, 'production');
+  const runtime = load('runtime/asset.ts', {
+    './machine-schema.js': validator, '../templates/motion/motion': motion,
+    './asset-image': load('runtime/asset-image.ts', { './base64': base64, './asset-binary': binary }, 'production'),
+    './base64': base64, './asset-binary': binary,
+  }, 'production');
+  const asset = runtime.parseAsset(JSON.stringify({
+    schema: 'skac.asset/1', name: 'Row',
+    artboard: { width: 180, height: 120, nodes: [{ kind: 'group', x: 90, y: 60,
+      row: { gap: 4, align: 'center', plate: { padding: [10, 6], fill: '#FFF6DC', widest: '+88' } },
+      children: [
+        { kind: 'ellipse', x: 0, y: 0, width: 18, height: 18, fill: '#E6B43C' },
+        { kind: 'text', text: { value: 'count' }, x: 0, y: 0, width: 80, fontSize: 20, fill: '#1D2B2A' },
+      ] }] },
+    channels: {}, clips: { show: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', values: { count: { type: 'string', default: '+3' } },
+      layers: [{ name: 'counter', entry: 'show', states: { show: { clip: 'show' } } }] },
+  }));
+  const calls = [];
+  // Every character is 10 wide on a baseline at 18, its glyph drawn 1..9 across and 14 tall above the baseline (a cap height of 14).
+  const font = { measureText: (text) => ({ x: 0, y: text === 'x' ? -10 : -14, width: 10, height: text === 'x' ? 10 : 14 }) };
+  const skia = {
+    Data: { fromBase64: (data) => data },
+    Typeface: { MakeFreeTypeFaceFromData: (data) => data },
+    TypefaceFontProvider: { Make: () => ({ registerFont() {} }) },
+    ParagraphBuilder: { Make() {
+      let text = '';
+      return {
+        pushStyle() {}, pop() {}, addText(value) { text += value; },
+        build: () => ({
+          layout() {}, getLongestLine: () => text.length * 10, getHeight: () => 24, getLineMetrics: () => [{ baseline: 18 }],
+          getRectsForRange: (start, end) => [{ x: start * 10, y: 0, width: (end - start) * 10, height: 24 }],
+          extendedVisit(visit) {
+            const chars = [...text];
+            visit(0, { font, origin: { x: 0, y: 0 }, glyphs: chars.map(() => 1), positions: chars.map((_, i) => ({ x: i * 10, y: 18 })),
+              bounds: chars.map(() => ({ x: 1, y: -14, width: 8, height: 14 })) });
+          },
+          paint(_canvas, x, y) { calls.push(['paint', text, x, y]); },
+        }),
+      };
+    } },
+    Paint: () => ({ setAntiAlias() {}, setColor() {}, setStyle() {}, setStrokeWidth() {}, setAlphaf() {}, setBlendMode() {} }),
+    RRectXY: (rect, rx, ry) => ({ rect, rx, ry }),
+    Color: (hex) => hex,
+    XYWHRect: (...xywh) => xywh,
+  };
+  const canvas = {
+    save() {}, restore() {}, scale() {}, rotate() {}, clipRect() {},
+    translate(x, y) { calls.push(['translate', x, y]); },
+    drawRRect(rrect) { calls.push(['plate', ...rrect.rect, rrect.rx]); },
+    drawOval(rect) { calls.push(['oval', ...rect]); },
+  };
+  const unicode = load('runtime/asset-unicode.ts', {}, 'production');
+  const { drawAsset, prepareAssetDrawing } = load('runtime/asset-draw.ts', {
+    './asset': runtime,
+    './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
+    './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', { './asset-unicode': unicode }, 'production'),
+    './asset-ink': load('runtime/asset-ink.ts', { './asset-unicode': unicode }, 'production'),
+    'react-native-skia': {
+      Skia: skia, ClipOp: { Intersect: 1 }, PaintStyle: { Fill: 0, Stroke: 1 }, TextDirection: { RTL: 0, LTR: 1 },
+      TextAlign: { Start: 4, End: 5, Center: 2 },
+    },
+  }, 'production');
+  drawAsset(canvas, prepareAssetDrawing(asset, {}), {}, 180, 120, {}, { count: '+3' });
+  // "+3" inks 1..19 with its cap band 4..18 (centre 11); the disc is 0..18 (centre 9). With a 4 pt gap the pair is 40 wide, centred: the
+  // disc moves to -20 and up 9, the text to 1 and up 11. The plate is sized for "+88" (28 + 4 + 18 = 50, padded to 70) and the taller
+  // half-height (the disc's 9, padded to 15), a full pill.
+  const after = calls.slice(calls.findIndex(([kind]) => kind === 'plate'));
+  assert.deepEqual(after, [
+    ['plate', -35, -15, 70, 30, 15],
+    ['translate', -20, -9], ['oval', 0, 0, 18, 18],
+    ['translate', 1, -11], ['paint', '+3', 0, 0],
+  ]);
+});
+
+test('a row on react-native-skia without extendedVisit falls back to advances and cap height', async () => {
+  const validator = await import('../../runtime/machine-schema.js');
+  const motion = load('templates/motion/motion.ts', {}, 'production');
+  const base64 = load('runtime/base64.ts', {}, 'production');
+  const binary = load('runtime/asset-binary.ts', { './base64': base64 }, 'production');
+  const runtime = load('runtime/asset.ts', {
+    './machine-schema.js': validator, '../templates/motion/motion': motion,
+    './asset-image': load('runtime/asset-image.ts', { './base64': base64, './asset-binary': binary }, 'production'),
+    './base64': base64, './asset-binary': binary,
+  }, 'production');
+  const asset = runtime.parseAsset(JSON.stringify({
+    schema: 'skac.asset/1', name: 'Row',
+    artboard: { width: 180, height: 120, nodes: [{ kind: 'group', x: 90, y: 60,
+      row: { gap: 4, align: 'center', plate: { padding: [10, 6], fill: '#FFF6DC', widest: '+88' } },
+      children: [
+        { kind: 'ellipse', x: 0, y: 0, width: 18, height: 18, fill: '#E6B43C' },
+        { kind: 'text', text: { value: 'count' }, x: 0, y: 0, width: 80, fontSize: 20, fill: '#1D2B2A' },
+      ] }] },
+    channels: {}, clips: { show: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', values: { count: { type: 'string', default: '+3' } },
+      layers: [{ name: 'counter', entry: 'show', states: { show: { clip: 'show' } } }] },
+  }));
+  const calls = [];
+  let web = false;
+  // Every character is 10 wide on a baseline at 18, its glyph drawn 1..9 across and 14 tall above the baseline (a cap height of 14).
+  const font = { measureText: (text) => ({ x: 0, y: text === 'x' ? -10 : -14, width: 10, height: text === 'x' ? 10 : 14 }) };
+  const skia = {
+    Data: { fromBase64: (data) => data },
+    Typeface: { MakeFreeTypeFaceFromData: (data) => data },
+    TypefaceFontProvider: { Make: () => ({ registerFont() {}, matchFamilyStyle: (name) => ({ name }) }) },
+    Font: (face, size) => ({ measureText: (text) => ({ x: 0, y: text === 'x' ? -size / 2 : -size * 0.6, width: 10, height: size }) }),
+    ParagraphBuilder: { Make() {
+      let text = '';
+      return {
+        pushStyle() {}, pop() {}, addText(value) { text += value; },
+        build: () => ({
+          layout() {}, getLongestLine: () => text.length * 10, getHeight: () => 24, getLineMetrics: () => [{ baseline: 18 }],
+          getRectsForRange: (start, end) => [{ x: start * 10, y: 0, width: (end - start) * 10, height: 24 }],
+          ...(web && { extendedVisit() { throw new Error('Not implemented on React Native Web'); } }),
+          paint(_canvas, x, y) { calls.push(['paint', text, x, y]); },
+        }),
+      };
+    } },
+    Paint: () => ({ setAntiAlias() {}, setColor() {}, setStyle() {}, setStrokeWidth() {}, setAlphaf() {}, setBlendMode() {} }),
+    RRectXY: (rect, rx, ry) => ({ rect, rx, ry }),
+    Color: (hex) => hex,
+    XYWHRect: (...xywh) => xywh,
+  };
+  const canvas = {
+    save() {}, restore() {}, scale() {}, rotate() {}, clipRect() {},
+    translate(x, y) { calls.push(['translate', x, y]); },
+    drawRRect(rrect) { calls.push(['plate', ...rrect.rect, rrect.rx]); },
+    drawOval(rect) { calls.push(['oval', ...rect]); },
+  };
+  const unicode = load('runtime/asset-unicode.ts', {}, 'production');
+  const { drawAsset, prepareAssetDrawing } = load('runtime/asset-draw.ts', {
+    './asset': runtime,
+    './asset-layout': load('runtime/asset-layout.ts', {}, 'production'),
+    './asset-mesh': load('runtime/asset-mesh.ts', {}, 'production'),
+    './asset-roll': load('runtime/asset-roll.ts', { './asset-unicode': unicode }, 'production'),
+    './asset-ink': load('runtime/asset-ink.ts', { './asset-unicode': unicode }, 'production'),
+    'react-native-skia': {
+      Skia: skia, ClipOp: { Intersect: 1 }, PaintStyle: { Fill: 0, Stroke: 1 }, TextDirection: { RTL: 0, LTR: 1 },
+      TextAlign: { Start: 4, End: 5, Center: 2 },
+    },
+  }, 'production');
+  drawAsset(canvas, prepareAssetDrawing(asset, {}), {}, 180, 120, {}, { count: '+3' });
+  // No extendedVisit: "+3" is its advance box, 0..20, from the cap height above the baseline at 18 down to it. The text has no font of
+  // its own here, so the cap height is 0.7 of the 20 pt size, 14: the band is 4..18 (centre 11), as the measured glyphs gave. The disc is
+  // 0..18. The pair is 42 wide: the disc moves to -21 and up 9, the text to 1 and up 11; the plate is sized for "+88" (30 + 4 + 18 = 52,
+  // padded to 72).
+  const after = calls.slice(calls.findIndex(([kind]) => kind === 'plate'));
+  assert.deepEqual(after, [
+    ['plate', -36, -15, 72, 30, 15],
+    ['translate', -21, -9], ['oval', 0, 0, 18, 18],
+    ['translate', 1, -11], ['paint', '+3', 0, 0],
+  ]);
+  // React Native Web has the method and throws: the same fallback.
+  web = true;
+  calls.length = 0;
+  drawAsset(canvas, prepareAssetDrawing(asset, {}), {}, 180, 120, {}, { count: '+3' });
+  assert.deepEqual(calls.slice(calls.findIndex(([kind]) => kind === 'plate')), after);
 });

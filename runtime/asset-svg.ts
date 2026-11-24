@@ -1,7 +1,8 @@
-import { MAX_FEATHER, resolveAssetColor, type AssetNode, type AssetStroke, type MotionAsset, type PathCommand } from './asset';
+import { MAX_FEATHER, resolveAssetColor, type AssetNode, type AssetStroke, type AssetTextNode, type MotionAsset, type PathCommand } from './asset';
 import { anchorOffset, layoutAsset } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshVertex, type MeshNode } from './asset-mesh';
-import { digitText, restText, rollFrame } from './asset-roll';
+import { digitText, restText, rollFrame, rollSpan, SMEAR_SIGMA } from './asset-roll';
+import { plateBox, rowItems, rowLayout, type RowChild, type TextInk } from './asset-ink';
 
 const opacity = (value: number) => Math.max(0, Math.min(1, value));
 type Point = ReturnType<typeof meshPosition>;
@@ -158,6 +159,39 @@ export function assetSVG(
       return strokeTag(path, `${dash(phase - distance)} mask="url(#${id})"`);
     }).join(''));
   };
+  // The preview has no text measurement: a text's ink is 0.6 of its font size per character, from its start, and its cap band 0.25 to
+  // 0.95 of the size below its top. The app and asset check measure both with Skia (asset frame --out=*.png shows the app's).
+  const roughInk = (node: AssetTextNode, text: string): TextInk => {
+    const width = [...text].length * node.fontSize * 0.6;
+    const left = node.align === 'center' ? (node.width - width) / 2 : (node.align === 'end') === (node.direction !== 'rtl') ? node.width - width : 0;
+    return { box: [left, node.fontSize * 0.2, left + width, node.fontSize * 1.05], band: [node.fontSize * 0.25, node.fontSize * 0.95] };
+  };
+  const svgRow = (node: Extract<AssetNode, { kind: 'group' }>): string => {
+    const row = node.row!;
+    const align = row.align ?? 'start';
+    const rtl = row.direction === 'rtl';
+    const shown = (child: AssetTextNode) => {
+      const found = typeof child.text === 'string' ? child.text : values[child.text.value] ?? asset.machine.values?.[child.text.value]?.default;
+      return typeof found === 'string' ? found : '';
+    };
+    const { items, widest, bands } = rowItems(node.children as unknown as readonly RowChild[], read, (_child, index, wide) => {
+      const child = node.children[index] as AssetTextNode;
+      const text = wide ? row.plate!.widest! : shown(child);
+      return text ? roughInk(child, text) : undefined;
+    }, (index) => {
+      const child = node.children[index]!;
+      return child.kind === 'image' && !asset.imageSlots?.[child.image] ? asset.imageInk?.[child.image] : undefined;
+    }, Boolean(row.plate?.widest));
+    const { moves } = rowLayout(items, row.gap, align, rtl);
+    let plate = '';
+    if (row.plate) {
+      const [x0, y0, x1, y1] = plateBox(widest, bands, row.gap, align, rtl, row.plate.padding);
+      const radius = Math.min(row.plate.radius ?? Infinity, (x1 - x0) / 2, (y1 - y0) / 2);
+      const stroke = row.plate.stroke ? ` stroke="${resolveAssetColor(row.plate.stroke.color, asset.palette ?? {})}" stroke-width="${row.plate.stroke.width}"` : '';
+      plate = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="${radius}" fill="${resolveAssetColor(row.plate.fill, asset.palette ?? {})}"${stroke}/>`;
+    }
+    return plate + node.children.map((child, index) => `<g transform="translate(${moves[index]![0]} ${moves[index]![1]})">${draw(child)}</g>`).join('');
+  };
   const draw = (node: AssetNode, paddingX = 0, paddingY = 0): string => {
     if (node.kind === 'group') {
       let clip = '';
@@ -169,6 +203,7 @@ export function assetSVG(
       }
       const offset = anchorOffset(node.anchor, paddingX, paddingY);
       const transform = `translate(${read(node.x) + offset.x} ${read(node.y) + offset.y}) rotate(${read(node.rotation)}) scale(${read(node.scaleX, 1)} ${read(node.scaleY, 1)})`;
+      if (node.row) return `<g transform="${transform}"${clip}>${svgRow(node)}</g>`;
       return `<g transform="${transform}"${clip}>${node.children.map((child) => draw(child)).join('')}</g>`;
     }
     if (node.kind === 'text') {
@@ -183,9 +218,9 @@ export function assetSVG(
       if (node.roll) {
         const progress = read(node.roll.progress);
         const from = bound(node.roll.from);
-        const frame = rollFrame(from, value, progress);
+        const frame = rollFrame(from, value, progress, { ...node.roll, ms: rollSpan(asset.clips, node.roll.progress) });
         // At rest the roll is its plain text, laid out by the viewer like any other; only a turning frame is drawn in columns.
-        if (frame && frame.places.every(({ turn }) => turn === 0)) value = restText(frame);
+        if (frame && frame.places.every(({ turn, smear }) => turn === 0 && smear === 0)) value = progress <= 0 ? from : progress >= 1 ? value : restText(frame);
         else if (frame) {
           // The preview has no text measurement: a digit place is 0.6 of the font size wide and a line 1.2, and right to left the prefix
           // is put on the right. The app lays the number out with Skia; `asset frame --out=*.png` shows that.
@@ -211,7 +246,14 @@ export function assetSVG(
             const id = `roll-${defs.length}`;
             const column = edge - advance;
             defs.push(`<clipPath id="${id}"><rect x="${edge - width}" y="${y0}" width="${width}" height="${line}"/></clipPath>`);
-            return `<g clip-path="url(#${id})">${glyph(digitText(current, frame.zero), column, y0 - turn * line)}${turn > 0 ? glyph(digitText(next, frame.zero), column, y0 + (1 - turn) * line) : ''}</g>`;
+            // A place too fast to read smears: a vertical blur of its column, as in the app.
+            const smear = frame.places[i]!.smear;
+            let blur = '';
+            if (smear > 0) {
+              blur = ` filter="url(#${id}-smear)"`;
+              defs.push(`<filter id="${id}-smear" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur stdDeviation="0 ${smear * line * SMEAR_SIGMA}"/></filter>`);
+            }
+            return `<g clip-path="url(#${id})"><g${blur}>${glyph(digitText(current, frame.zero), column, y0 - turn * line)}${turn > 0 ? glyph(digitText(next, frame.zero), column, y0 + (1 - turn) * line) : ''}</g></g>`;
           }).join('');
           return `${glyph(left, x0, y0)}${columns}${glyph(right, digits + digitsWidth, y0)}`;
         } else value = progress < 0.5 ? from : value;
