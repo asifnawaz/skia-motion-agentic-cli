@@ -2,36 +2,8 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { crc32, deflateSync } from 'node:zlib';
 import { execute } from '../../src/cli.js';
-import { tmp } from './helpers.js';
-
-// A 12 x 12 PNG: a solid disc of radius 4 in the middle, clear around it, so the drawn part is the middle 8 x 8.
-function coinPng() {
-  const size = 12;
-  const raw = Buffer.alloc((size * 4 + 1) * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const at = y * (size * 4 + 1) + 1 + x * 4;
-      const inside = Math.hypot(x + 0.5 - 6, y + 0.5 - 6) <= 4;
-      raw.set(inside ? [230, 180, 60, 255] : [0, 0, 0, 0], at);
-    }
-  }
-  const chunk = (type, data) => {
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(data.length);
-    const body = Buffer.concat([Buffer.from(type), data]);
-    const sum = Buffer.alloc(4);
-    sum.writeUInt32BE(crc32(body));
-    return Buffer.concat([length, body, sum]);
-  };
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(size, 0);
-  header.writeUInt32BE(size, 4);
-  header.set([8, 6, 0, 0, 0], 8);
-  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
-  return `data:image/png;base64,${png.toString('base64')}`;
-}
+import { coinPng, tmp } from './helpers.js';
 
 // A coin counter pill: a border plate, a fill plate, a coin icon, a "+" and a count. `layout` places the pieces inside the pill's group.
 function counter({ coin, plus, count, plate = { w: 78, h: 34 }, tracks = {}, channels = {}, extra = {} }) {
@@ -63,7 +35,7 @@ const check = async (asset, ...args) => {
   const file = join(cwd, 'counter.motion.json');
   writeFileSync(file, JSON.stringify(asset));
   try {
-    return await execute(['asset', 'check', file, ...args], cwd);
+    return await execute(['asset', 'check', file, '--strict', ...args], cwd);
   } catch (error) {
     return { ok: false, error: error.message, ...error.extra };
   }
@@ -132,4 +104,25 @@ test('a text with no laid-out font is listed as unmeasured, not judged', async (
   const result = await check(asset);
   assert.deepEqual(plateErrors(result), []);
   assert.deepEqual(result.textInPlate.unmeasured.sort(), ['count', 'plus']);
+});
+
+// A label pill: one text centred in its plate. Positions measured with the default face at 18 pt: "+3" is centred down at y -10 and
+// "correct" at -12, on their cap height and x-height; "5 of 5 correct" (2 of 11 digits) at -11.65, close to its x-height (O-8590).
+const label = (text, y) => ({
+  schema: 'skac.asset/1', name: 'Label', artboard: { width: 240, height: 120, nodes: [{ kind: 'group', x: 120, y: 60, children: [
+    { id: 'pill', kind: 'roundRect', x: -80, y: -17, width: 160, height: 34, radius: 17, fill: '#FFF6DC' },
+    { id: 'label', kind: 'text', text, x: -75, y, width: 150, fontSize: 18, fill: '#1D2B2A', align: 'center' },
+  ] }] },
+  channels: {}, clips: { show: { ms: 0, tracks: {} } },
+  machine: { schema: 'skac.machine/1', layers: [{ name: 'label', entry: 'show', states: { show: { clip: 'show' } } }] },
+});
+
+test('a mixed label is centred mostly on its x-height: "5 of 5 correct" centred passes, 1.5 pt low or on its digits fails', async () => {
+  assert.deepEqual(plateErrors(await check(label('5 of 5 correct', -11.65))), []);
+  assert.match(plateErrors(await check(label('5 of 5 correct', -10.15)))[0] ?? '', /^"5 of 5 correct" on pill is 1\.5 pt off centre down/);
+  // Centred on its two digits' cap height, as before: the lowercase sat low, and it fails.
+  assert.match(plateErrors(await check(label('5 of 5 correct', -10)))[0] ?? '', /^"5 of 5 correct" on pill is 1\.6 pt off centre down/);
+  // "+3" keeps its cap height and "correct" its x-height.
+  assert.deepEqual(plateErrors(await check(label('+3', -10))), []);
+  assert.deepEqual(plateErrors(await check(label('correct', -12))), []);
 });

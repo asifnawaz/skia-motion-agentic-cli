@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { execute } from '../../src/cli.js';
 import { boxGap, circleGap, travelChannels } from '../../src/asset-clear.js';
-import { tmp } from './helpers.js';
+import { coinPng, tmp } from './helpers.js';
 
 // A bonus row: a label on the left, the value it pays into on the right. A coin flies down from the top; a ring plays where it lands.
 // The broken flight ends beside the label, as a broken preview once did; the fixed one ends on the value.
@@ -39,7 +39,8 @@ function setup(asset, config) {
   const file = join(cwd, 'bonus.motion.json');
   writeFileSync(file, JSON.stringify(asset));
   if (config) writeFileSync(join(cwd, 'skia-motion.json'), JSON.stringify(config));
-  return { cwd, file, run: (...args) => execute(['asset', ...args], cwd) };
+  // These tests judge the rules themselves, so check runs them strict (errors); the warn default has its own tests.
+  return { cwd, file, run: (action, ...args) => execute(['asset', action, ...args, ...(action === 'check' ? ['--strict'] : [])], cwd) };
 }
 
 const failure = async (fn) => {
@@ -196,4 +197,162 @@ test('aim on a target in a host font slot needs --font, and pack then ships the 
   // aim writes the keys where the flight stops; an `at` would judge another moment, so the pair is refused.
   const timed = setup(bonusRow({ landX: 27, ringX: 280, landing: false, extra: { landings: [{ node: 'coin', target: 'counterValue', aim: true, at: 600 }] } }));
   assert.match((await failure(() => timed.run('check', timed.file))).message, /aim writes the keys where the flight stops/);
+});
+
+// A 20 pt "x3" at rest with one more piece drawn with it, judged by text-clear alone (no landings, no ids).
+function badge(piece, { before = false, extra = {} } = {}) {
+  const text = { kind: 'text', text: 'x3', x: 70, y: 70, width: 40, fontSize: 20, fill: '#1D2B2A', align: 'center' };
+  return {
+    schema: 'skac.asset/1', name: 'Badge', images: { coin: coinPng() },
+    artboard: { width: 180, height: 180, nodes: [{ kind: 'group', x: 0, y: 0, children: before ? [piece, text] : [text, piece] }] },
+    channels: {}, clips: { show: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', layers: [{ name: 'b', entry: 'show', states: { show: { clip: 'show' } } }] },
+    ...extra,
+  };
+}
+
+test('empty landings and allowOverlap are taken out like full ones, so the runtime never sees them', async () => {
+  for (const extra of [{ landings: [] }, { allowOverlap: [] }, { landings: [], allowOverlap: [] }]) {
+    const { file, run } = setup(badge({ kind: 'ellipse', x: 150, y: 150, width: 10, height: 10, fill: '#FFC25A' }, { extra }));
+    const summary = await run('check', file);
+    assert.equal(summary.ok, true, `${Object.keys(extra)}: ${summary.error}`);
+  }
+});
+
+test('a glow bigger than the text over it is judged: only the text\'s own plate is its background', async () => {
+  // A 60 x 60 glow centred on the text, drawn before or after it: it rests over the text.
+  for (const before of [false, true]) {
+    for (const glow of [
+      { kind: 'ellipse', x: 60, y: 52, width: 60, height: 60, fill: '#FFC25A', opacity: 0.6 },
+      { kind: 'roundRect', x: 60, y: 52, width: 60, height: 60, radius: 30, fill: '#FFC25A', feather: 8 },
+    ]) {
+      const { file, run } = setup(badge(glow, { before }));
+      const error = await failure(() => run('check', file));
+      assert.match(error.message, /rests [\d.]+ pt over the text "x3"/, `${glow.kind}${glow.feather ? ' feathered' : ''}, before: ${before}`);
+    }
+  }
+  // A filled round rect drawn behind the text is its plate, and is not judged here (text-in-plate judges how the text sits on it).
+  const plate = setup(badge({ kind: 'roundRect', x: 60, y: 62, width: 60, height: 40, radius: 20, fill: '#FFF6DC' }, { before: true }),
+    { rules: { 'skac/text-in-plate': 'off' } });
+  assert.equal((await plate.run('check', plate.file)).textClear.errors, 0);
+  // A plate narrower than its text still fails.
+  const narrow = setup(badge({ kind: 'roundRect', x: 84, y: 66, width: 12, height: 30, radius: 6, fill: '#FFF6DC' }, { before: true }),
+    { rules: { 'skac/text-in-plate': 'off' } });
+  assert.match((await failure(() => narrow.run('check', narrow.file))).message, /pt over the text "x3"/);
+});
+
+test('an icon beside its own label is left to text-in-plate; an icon over the text still fails', async () => {
+  // The coin's drawn disc (its middle 8/12 of 18) ends about 2 pt before the text's ink, on the same row, centred on the optical band
+  // of "x3" (half of it a digit, so half way from its x-height to its cap height).
+  const near = setup(badge({ kind: 'image', image: 'coin', x: 64, y: 73.5, width: 18, height: 18 }));
+  assert.equal((await near.run('check', near.file)).textClear.errors, 0);
+  const over = setup(badge({ kind: 'image', image: 'coin', x: 82, y: 72, width: 18, height: 18 }));
+  assert.match((await failure(() => over.run('check', over.file))).message, /pt over the text "x3"/);
+});
+
+test('a table row is laid out, not centred: a start-aligned label on a row background is judged down and by inset only', async () => {
+  // A row background with a start-aligned label and a centred value in the right cell.
+  const row = (labelAlign, labelY = 12) => ({
+    schema: 'skac.asset/1', name: 'Summary',
+    artboard: { width: 360, height: 120, nodes: [{ kind: 'group', x: 8, y: 40, children: [
+      { kind: 'roundRect', x: 0, y: 0, width: 344, height: 44, radius: 10, fill: '#FFF8ED' },
+      { kind: 'text', text: 'Correct', x: 16, y: labelY, width: 168, fontSize: 16, fill: '#002D2A', align: labelAlign },
+      { kind: 'text', text: '5 of 5', x: 200, y: 11, width: 128, fontSize: 18, fill: '#002D2A', align: 'center' },
+    ] }] },
+    channels: {}, clips: { show: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', layers: [{ name: 's', entry: 'show', states: { show: { clip: 'show' } } }] },
+  });
+  const laidOut = setup(row('start'));
+  const summary = await laidOut.run('check', laidOut.file);
+  assert.equal(summary.ok, true, summary.error);
+  assert.equal(summary.textClear.errors, 0, 'the row background is the texts\' background for text-clear');
+  // The same texts both centred are content on a plate, and sit far off its centre.
+  const centred = setup(row('center'));
+  assert.match((await failure(() => centred.run('check', centred.file))).message, /"Correct" "5 of 5" on artboard\.nodes\[0\]\.children\[0\] is [\d.]+ pt off centre across/);
+  // A laid-out label is still judged down: moved 6 pt low, it pulls the row's content off centre.
+  const low = setup(row('start', 18));
+  assert.match((await failure(() => low.run('check', low.file))).message, /off centre down/);
+});
+
+test('a pill whose text gives no align is judged across: 3 pt off centre fails', async () => {
+  const pill = (dx) => ({
+    schema: 'skac.asset/1', name: 'Pill',
+    artboard: { width: 200, height: 100, nodes: [{ kind: 'group', x: 40, y: 30, children: [
+      { kind: 'roundRect', x: 0, y: 0, width: 120, height: 40, radius: 20, fill: '#FFF6DC' },
+      { kind: 'text', text: '+12', x: 30 + dx, y: 9, width: 60, fontSize: 20, fill: '#1D2B2A', fontFeatures: [{ name: 'tnum', value: 1 }] },
+    ] }] },
+    channels: {}, clips: { show: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', layers: [{ name: 'p', entry: 'show', states: { show: { clip: 'show' } } }] },
+  });
+  // Find where the ink sits centred, then move it 3 pt right: with no align the text is not laid out on a row, so it fails across.
+  const probe = setup(pill(0));
+  const reply = await probe.run('check', probe.file).catch((error) => error.extra);
+  const off = /([\d.]+) pt off centre across.*?padding ([\d.]+) pt left, ([\d.]+) pt right/.exec(reply.problems?.map(({ error }) => error).join(' ') ?? '');
+  const centre = off ? (Number(off[3]) - Number(off[2])) / 2 : 0;
+  const centred = setup(pill(centre));
+  assert.equal((await centred.run('check', centred.file).catch((error) => error.extra)).textInPlate.errors, 0, 'centred, it passes');
+  const moved = setup(pill(centre + 3));
+  assert.match((await failure(() => moved.run('check', moved.file))).message, /"\+12" on artboard\.nodes\[0\]\.children\[0\] is 3 pt off centre across/);
+});
+
+// Two ordinary assets the text rules flag: a card whose background is a full-size round rect with two left-placed lines, and a static
+// ellipse behind a centred title. Without --strict they are warnings and check passes, as it did before the rules; strict, they fail.
+const plainCard = () => ({
+  schema: 'skac.asset/1', name: 'Card', artboard: { width: 320, height: 140, nodes: [
+    { kind: 'roundRect', x: 0, y: 0, width: 320, height: 140, radius: 16, fill: '#FFFFFF' },
+    { kind: 'text', text: 'Daily streak', x: 20, y: 24, width: 200, fontSize: 20, fill: '#1A1A1A' },
+    { kind: 'text', text: 'Keep going', x: 20, y: 60, width: 200, fontSize: 14, fill: '#555555' },
+  ] },
+  channels: { glow: 0 }, clips: { idle: { ms: 300, tracks: { glow: [[0, 0], [300, 1]] } } },
+  machine: { schema: 'skac.machine/1', layers: [{ name: 'card', entry: 'idle', states: { idle: { clip: 'idle', loop: 'once' } } }] },
+});
+const haloTitle = () => ({
+  schema: 'skac.asset/1', name: 'Halo', artboard: { width: 320, height: 200, nodes: [
+    { kind: 'ellipse', x: 60, y: 50, width: 200, height: 100, fill: '#FFE7A8' },
+    { kind: 'text', text: 'Level up', x: 60, y: 86, width: 200, fontSize: 24, align: 'center', fill: '#1A1A1A' },
+  ] },
+  channels: { glow: 0 }, clips: { idle: { ms: 300, tracks: { glow: [[0, 0], [300, 1]] } } },
+  machine: { schema: 'skac.machine/1', layers: [{ name: 'halo', entry: 'idle', states: { idle: { clip: 'idle', loop: 'once' } } }] },
+});
+
+test('the text rules warn by default: a plain card and a halo behind a title pass check with warnings', async () => {
+  for (const [asset, rule] of [[plainCard(), 'skac/text-in-plate'], [haloTitle(), 'skac/text-clear']]) {
+    const cwd = tmp('asset-default-');
+    const file = join(cwd, 'plain.motion.json');
+    writeFileSync(file, JSON.stringify(asset));
+    const summary = await execute(['asset', 'check', file], cwd);
+    assert.equal(summary.ok, true, asset.name);
+    assert.ok(summary.warnings.some((warning) => (warning.rule ?? warning.check) === rule), `${asset.name}: ${JSON.stringify(summary.warnings)}`);
+  }
+});
+
+test('the text rules are errors under --strict, and under "checks": "strict" in the asset', async () => {
+  for (const [asset, rule] of [[plainCard(), 'skac/text-in-plate'], [haloTitle(), 'skac/text-clear']]) {
+    const cwd = tmp('asset-strict-');
+    const file = join(cwd, 'plain.motion.json');
+    writeFileSync(file, JSON.stringify(asset));
+    const flagged = await failure(() => execute(['asset', 'check', file, '--strict'], cwd));
+    assert.ok(flagged.extra.problems.some(({ check }) => check === rule), `${asset.name}: ${flagged.message}`);
+    writeFileSync(file, JSON.stringify({ ...asset, checks: 'strict' }));
+    const marked = await failure(() => execute(['asset', 'check', file], cwd));
+    assert.ok(marked.extra.problems.some(({ check }) => check === rule), `${asset.name}: ${marked.message}`);
+  }
+  // The field is authoring-only: pack takes it out, and it takes only "strict".
+  const cwd = tmp('asset-strict-');
+  const file = join(cwd, 'plain.motion.json');
+  writeFileSync(file, JSON.stringify({ ...haloTitle(), checks: 'strict', allowOverlap: [{ nodes: ['halo', 'title'], reason: 'the halo sits behind the title' }] }).replace('"kind":"ellipse"', '"id":"halo","kind":"ellipse"').replace('"kind":"text"', '"id":"title","kind":"text"'));
+  await execute(['asset', 'pack', file, '--out=plain.skmotion'], cwd);
+  assert.equal('checks' in JSON.parse(readFileSync(join(cwd, 'plain.skmotion'), 'utf8')), false);
+  writeFileSync(file, JSON.stringify({ ...haloTitle(), checks: 'loose' }));
+  assert.match((await failure(() => execute(['asset', 'check', file], cwd))).message, /checks/);
+});
+
+test('the asset templates pass check --strict, so an asset started from one starts clean', async () => {
+  for (const name of ['game-hud', 'versus-hud', 'sprout', 'reward-counter']) {
+    const cwd = tmp('asset-template-');
+    const file = join(cwd, `${name}.motion.json`);
+    writeFileSync(file, readFileSync(new URL(`../../templates/assets/${name}.json`, import.meta.url), 'utf8'));
+    const summary = await execute(['asset', 'check', file, '--strict'], cwd);
+    assert.equal(summary.ok, true, name);
+  }
 });

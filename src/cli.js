@@ -22,7 +22,7 @@ import { update } from './update.js';
 import { CliError, errorDoc, fail, toJson } from './util.js';
 
 const SPEC = {
-  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced', 'text-layout'],
+  bool: ['verify', 'screenshot', 'render', 'sheet', 'force', 'help', 'stats', 'story', 'check', 'fix', 'version', 'draw', 'machine', 'reduced', 'text-layout', 'strict'],
   str: ['probe', 'probe-box', 'at','advance', 'commands', 'out', 'scale', 'size', 'fps', 'frames', 'event', 'expect', 'baseline',
     'search', 'as', 'trace', 'artboard', 'format', 'fonts', 'export', 'entry', 'root', 'out-dir', 'gl', 'background'],
   list: ['docs-dir', 'font'],

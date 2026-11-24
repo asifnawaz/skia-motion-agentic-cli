@@ -18,7 +18,46 @@ let draw;
 export function skiaShim(ck, fallbackFont) {
   const point = (p) => [p.x, p.y];
   const typeface = (bytes) => ({ bytes });
+  // RN Skia's SkFont.measureText: the ink of a string at its advances, relative to the pen at the baseline.
+  const measuring = (font) => ({
+    measureText(text) {
+      const ids = font.getGlyphIDs(text);
+      const bounds = font.getGlyphBounds(ids);
+      const widths = font.getGlyphWidths(ids);
+      let pen = 0;
+      let box;
+      for (let i = 0; i < ids.length; i++) {
+        const [l, t, r, b] = [bounds[i * 4] + pen, bounds[i * 4 + 1], bounds[i * 4 + 2] + pen, bounds[i * 4 + 3]];
+        if (r > l && b > t) box = box ? [Math.min(box[0], l), Math.min(box[1], t), Math.max(box[2], r), Math.max(box[3], b)] : [l, t, r, b];
+        pen += widths[i];
+      }
+      return box ? { x: box[0], y: box[1], width: box[2] - box[0], height: box[3] - box[1] } : { x: 0, y: 0, width: 0, height: 0 };
+    },
+  });
   const paragraph = (built) => ({
+    // RN Skia's extendedVisit, from CanvasKit's shaped lines: each run's face, glyph positions and tight glyph bounds.
+    extendedVisit(visitor) {
+      built.getShapedLines().forEach((line, number) => {
+        for (const run of line.runs) {
+          if (!run.typeface) continue;
+          const font = new ck.Font(run.typeface, run.size);
+          try {
+            const bounds = font.getGlyphBounds(run.glyphs);
+            const count = run.glyphs.length;
+            visitor(number, {
+              font: measuring(font), origin: { x: 0, y: 0 }, glyphs: Array.from(run.glyphs),
+              positions: Array.from({ length: count }, (_, i) => ({ x: run.positions[i * 2], y: run.positions[i * 2 + 1] })),
+              bounds: Array.from({ length: count }, (_, i) => ({
+                x: bounds[i * 4], y: bounds[i * 4 + 1], width: bounds[i * 4 + 2] - bounds[i * 4], height: bounds[i * 4 + 3] - bounds[i * 4 + 1],
+              })),
+            });
+          } finally {
+            font.delete();
+          }
+        }
+        visitor(number, null);
+      });
+    },
     layout: (width) => built.layout(width),
     paint: (canvas, x, y) => canvas.drawParagraph(built, x, y),
     getHeight: () => built.getHeight(),
@@ -67,6 +106,7 @@ export function skiaShim(ck, fallbackFont) {
       MakeRadialGradient: (center, radius, colors, positions, mode) => ck.Shader.MakeRadialGradient(point(center), radius, colors, positions, mode),
     },
     MaskFilter: { MakeBlur: (style, sigma, respectCTM) => ck.MaskFilter.MakeBlur(style, sigma, respectCTM) },
+    ImageFilter: { MakeBlur: (sigmaX, sigmaY, mode, input) => ck.ImageFilter.MakeBlur(sigmaX, sigmaY, mode, input ?? null) },
     PathEffect: { MakeDash: (intervals, phase) => ck.PathEffect.MakeDash(intervals, phase) },
     MakeVertices: (mode, positions, textures, colors, indices) => ck.MakeVertices(mode, positions.flatMap(point), textures?.flatMap(point), colors, indices),
     XYWHRect: (x, y, w, h) => ck.XYWHRect(x, y, w, h),

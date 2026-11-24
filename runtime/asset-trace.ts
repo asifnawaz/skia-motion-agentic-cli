@@ -1,5 +1,5 @@
 import { advance, compile, pose, settled, simulatedClock, start, writeProblem, type Literal, type MachineEvent, type StateEntry, type Write } from '../templates/motion/machine';
-import { assetClips, assetMarkerEvents, assetTextNodes, parseAsset, type AssetMarkerEvent, type MotionAsset } from './asset';
+import { assetClips, assetMarkerEvents, assetTextNodes, parseAsset, type AssetMarkerEvent, type AssetNode, type AssetTextNode, type MotionAsset } from './asset';
 
 import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } from './asset-attachments';
 
@@ -13,6 +13,7 @@ export { encodeBinaryAsset, isBinaryAsset, mapFileResources } from './asset-bina
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
 export { rollFrame, rollTextStyle } from './asset-roll';
+export { capShare, plateBox, rowLayout, textCase, textInk } from './asset-ink';
 import { rollTextStyle } from './asset-roll';
 export { validateMachine } from './machine-schema.js';
 
@@ -29,6 +30,25 @@ type TraceRow = {
 /** Paragraph width and font size are artboard units. One measurement covers repeated poses of the same label. */
 export function* assetTextSamples(asset: MotionAsset, rows: readonly TraceRow[]) {
   const chronological = [...rows].sort((a, b) => a.t_ms - b.t_ms);
+  // A row's plate is sized from its widest sample, so each bound text in it is measured showing that sample too.
+  const widest = function* (nodes: readonly AssetNode[], parent: string): Generator<{ node: AssetTextNode; where: string; text: string; t_ms: number }> {
+    for (const [index, node] of nodes.entries()) {
+      const where = `${parent}[${index}]`;
+      if (node.kind === 'mesh') {
+        for (const [name, pin] of Object.entries(node.pins ?? {})) if (pin.children) yield* widest(pin.children, `${where}.pins.${name}.children`);
+        continue;
+      }
+      if (node.kind !== 'group') continue;
+      const sample = node.row?.plate?.widest;
+      if (sample) {
+        for (const [i, child] of node.children.entries()) {
+          if (child.kind === 'text' && typeof child.text !== 'string') yield { node: rollTextStyle(child), where: `${where}.children[${i}]`, text: sample, t_ms: chronological[0]!.t_ms };
+        }
+      }
+      yield* widest(node.children, `${where}.children`);
+    }
+  };
+  yield* widest(asset.artboard.nodes, 'artboard.nodes');
   for (const { node, where } of assetTextNodes(asset.artboard.nodes)) {
     if (typeof node.text === 'string') {
       if (node.text) yield { node, where, text: node.text, t_ms: chronological[0]!.t_ms };
@@ -36,11 +56,13 @@ export function* assetTextSamples(asset: MotionAsset, rows: readonly TraceRow[])
     }
     const seen = new Set<string>();
     for (const row of chronological) {
-      const text = shownText(node, row.values, asset, row.channels);
-      if (typeof text !== 'string' || !text || seen.has(text)) continue;
-      seen.add(text);
-      // A rolling number is drawn with tabular figures, so it is measured with them.
-      yield { node: rollTextStyle(node), where, text, t_ms: row.t_ms };
+      // A rolling number is drawn with tabular figures, so it is measured with them; a row places it between its old and new values.
+      const ends = node.roll ? [row.values[node.roll.from], row.values[node.text.value]] : [];
+      for (const text of [shownText(node, row.values, asset, row.channels), ...ends]) {
+        if (typeof text !== 'string' || !text || seen.has(text)) continue;
+        seen.add(text);
+        yield { node: rollTextStyle(node), where, text, t_ms: row.t_ms };
+      }
     }
   }
 }

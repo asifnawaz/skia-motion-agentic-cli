@@ -1,13 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync, constants } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
-import { compileFunction } from 'node:vm';
-import { buildSync } from 'esbuild';
 import { parseCommands } from './args.js';
 import { assetGuide } from './asset-guide.js';
 import { previewHTML } from './asset-preview.js';
 import { extentKey, measureImageInk, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
-import { textInPlate } from './asset-plate.js';
+import { platesOf, textInPlate } from './asset-plate.js';
 import { causalChain } from './asset-chain.js';
 import { renderAssetPNG } from './asset-canvaskit.js';
 import { aimLandings, hasAims } from './asset-land.js';
@@ -15,6 +13,7 @@ import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js
 import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
 import { PACKAGE_ROOT } from './docs.js';
+import { assetRuntime } from './asset-runtime.js';
 import { CliError, fail } from './util.js';
 
 const SAMPLES = {
@@ -29,7 +28,7 @@ const USAGE = [
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
-  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear, skac/text-in-plate and skac/causal-chain)',
+  'skac asset check <file> [--strict] [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear, skac/text-in-plate and skac/causal-chain)',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
   'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg|frame.png>] [--background=#FFFFFF]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
@@ -37,21 +36,6 @@ const USAGE = [
   'skac asset pack <file> [--format=json|binary] [--fonts=host] [--out=<name.skmotion>] [--force]',
   'skac asset unpack <file.skmotion> [--out=<source.motion.json>] [--force]',
 ];
-let runtime;
-
-function assetRuntime() {
-  if (!runtime) {
-    // The CLI checks its own trusted runtime bundle. Asset text goes through JSON.parse in that runtime.
-    const { outputFiles } = buildSync({
-      entryPoints: [join(PACKAGE_ROOT, 'runtime', 'asset-trace.ts')],
-      bundle: true, write: false, format: 'cjs', platform: 'node', target: 'node18',
-    });
-    const module = { exports: {} };
-    compileFunction(outputFiles[0].text, ['module'])(module);
-    runtime = module.exports;
-  }
-  return runtime;
-}
 
 function describe(asset) {
   return {
@@ -344,11 +328,17 @@ function packHostFonts(file) {
   } : removeEmbeddedFonts(file);
 }
 
-/** The placement rules' severities from skia-motion.json ("rules": { "skac/text-clear": "warn" }); error by default. */
-function placementSeverities(cwd) {
+/**
+ * The placement rules' severities. A rule set in skia-motion.json ("rules": { "skac/text-clear": "error" }) has that severity. Otherwise
+ * the two text rules warn, and are errors under --strict or an asset's "checks": "strict"; causal-chain, which runs only on an authored
+ * chain, is an error.
+ */
+function placementSeverities(cwd, strict) {
   const { rules, configPath } = loadConfig(cwd);
-  return Object.fromEntries(['skac/text-clear', 'skac/text-in-plate', 'skac/causal-chain'].map((id) => {
-    const severity = rules[id] ?? 'error';
+  const text = strict ? 'error' : 'warn';
+  const defaults = { 'skac/text-clear': text, 'skac/text-in-plate': text, 'skac/causal-chain': 'error' };
+  return Object.fromEntries(Object.keys(defaults).map((id) => {
+    const severity = rules[id] ?? defaults[id];
     if (!['error', 'warn', 'off'].includes(severity)) fail(`rules["${id}"] in ${configPath} is ${JSON.stringify(severity)}`, 'use error, warn or off');
     return [id, severity];
   }));
@@ -375,6 +365,16 @@ function placementTimes(asset, flags, landings = []) {
 /** A rolling number warns once that it needs a runtime that knows `roll`, and once per pair of values it cannot roll (it cuts at 0.5). */
 function rollWarnings(runtime, visual, rows) {
   const warnings = [];
+  const rowsIn = (nodes, parent) => nodes.forEach((node, index) => {
+    if (node.kind !== 'group') return;
+    const where = `${parent}[${index}]`;
+    if (node.row) {
+      warnings.push({ code: 'row-runtime', where: `${where}.row`, error: 'a row needs a skia-motion-runtime release that knows row', hint: 'upgrade the app\'s runtime with this asset; older runtimes reject the file' });
+      warnings.push({ code: 'row-approx', where: `${where}.row`, error: 'on react-native-skia before 3.10.2, and on React Native Web, the app places a row by its text\'s advances and cap height (no SkParagraph.extendedVisit), so it can sit up to a few points from what check measures', hint: 'ship on react-native-skia 3.10.2 or later for the measured placement' });
+    }
+    rowsIn(node.children, `${where}.children`);
+  });
+  rowsIn(visual.artboard.nodes, 'artboard.nodes');
   for (const { node, where } of runtime.assetTextNodes(visual.artboard.nodes)) {
     if (!node.roll) continue;
     warnings.push({ code: 'roll-runtime', where: `${where}.roll`, error: 'a rolling number needs a skia-motion-runtime release that knows roll (after 3.3.1)', hint: 'upgrade the app\'s runtime with this asset; older runtimes reject the file' });
@@ -400,11 +400,15 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   const severity = severities['skac/text-clear'];
   const sources = { layout: 0, declared: 0 };
   const seen = new Set();
+  const fellBack = new Map();
   const extent = (node, where, text) => {
-    const found = extents.get(extentKey(runtime.rollTextStyle(node), text)) ?? runtime.declaredText(node);
+    const key = extentKey(runtime.rollTextStyle(node), text);
+    const found = extents.get(key) ?? runtime.declaredText(node);
     if (!seen.has(`${where}|${text}`)) {
       seen.add(`${where}|${text}`);
       sources[found.source]++;
+      const unresolved = extents.fallbacks?.get(key);
+      if (unresolved && !fellBack.has(where)) fellBack.set(where, { text, unresolved });
     }
     return found;
   };
@@ -414,6 +418,12 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   const ids = authored?.ids ?? new Map();
   const names = new Map([...ids].map(([id, where]) => [where, id]));
   const found = { samples: rows.length, warnings: rollWarnings(runtime, visual, rows) };
+  for (const [where, { text, unresolved }] of fellBack) {
+    const characters = unresolved.map((code) => `U+${code.toString(16).toUpperCase().padStart(4, '0')}`).join(', ');
+    found.warnings.push({ code: 'text-layout-fallback', where, ...(names.has(where) && { id: names.get(where) }), text,
+      error: `"${text}" has characters its fonts lack (${characters}), so check judges its declared box while the phone draws them in a fallback font`,
+      hint: 'add a font with those characters to the text\'s fonts, or draw them as an image' });
+  }
   const problems = [...chained.problems];
   if (authored?.landings.length) {
     found.landings = measureLandings(placed, authored.landings, ids, names, visual);
@@ -421,7 +431,8 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   }
   if (severity !== 'off') {
     const reacts = (found.landings ?? []).filter(({ t_ms }) => t_ms !== undefined).map(({ target, t_ms }) => ({ where: ids.get(target), from: t_ms }));
-    const { errors, warnings } = textClearance(placed, { ids, names, severity, reacts, allow: [
+    const { isPlate, icons } = platesOf(visual, { ids, declared: new Map(authored?.plates ?? []) });
+    const { errors, warnings } = textClearance(placed, { ids, names, severity, reacts, isPlate, icons, allow: [
       ...(authored?.allowOverlap ?? []),
       // A landing says its node belongs on its target.
       ...(authored?.landings ?? []).map(({ node, target }) => ({ nodes: [node, target], reason: 'the landing target' })),
@@ -448,6 +459,7 @@ export function assetCommand(args, flags, cwd) {
   const [action, input, output] = args;
   if (!action) return { ok: true, commands: USAGE, schema: 'skac.asset/1', next: 'skac asset guide' };
   if (flags['text-layout'] && action !== 'check') fail('--text-layout is for asset check', 'run skac asset check <file> --text-layout');
+  if (flags.strict && action !== 'check') fail('--strict is for asset check', 'run skac asset check <file> --strict');
   if (flags.fonts !== undefined && action !== 'pack') {
     fail('--fonts=host is for asset pack', 'use it to omit embedded fonts from an asset that uses font slots');
   }
@@ -499,7 +511,7 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
       ok: true, file: path, ...describe(asset), ...bundleInfo, ...(aimed && { aimed }), warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)],
     };
     const authored = boards.get(isBundle ? flags.artboard ?? file.defaultArtboard : '');
-    const severities = placementSeverities(cwd);
+    const severities = placementSeverities(cwd, Boolean(flags.strict || authored?.strict));
     // The placement checks judge the authored source; a packed .skmotion has no ids, landings or allowances left to read.
     const authoring = !binary && extname(path).toLowerCase() !== '.skmotion';
     const textRules = severities['skac/text-clear'] !== 'off' || severities['skac/text-in-plate'] !== 'off';
@@ -553,7 +565,13 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
     const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
     const samples = new Set(rows.map(({ t_ms }) => t_ms)).size;
     return measureTextLayout(runtime.resolveAssetFonts(visual, hostFonts), runtime.assetTextSamples(visual, rows), viewport, samples)
-      .then(({ stats, warnings: textWarnings }) => ({ ...summary, textLayout: stats, warnings: [...summary.warnings, ...textWarnings] }));
+      .then(({ stats, warnings: textWarnings }) => {
+        // --text-layout names a text whose glyphs its fonts lack as text-layout-unavailable; the placement checks' fallback warning then
+        // says the same of the same node, so it gives way.
+        const named = new Set(textWarnings.filter(({ code }) => code === 'text-layout-unavailable').map(({ where }) => where));
+        const own = summary.warnings.filter(({ code, where }) => code !== 'text-layout-fallback' || !named.has(where));
+        return { ...summary, textLayout: stats, warnings: [...own, ...textWarnings] };
+      });
   }
   if (action === 'trace') return { ok: true, name: asset.name, trace: trace(asset, flags) };
   if (action === 'preview') {
@@ -595,7 +613,8 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
     if (png) {
       // The PNG comes from the app's own draw code over CanvasKit: blur, gradients and text as on the phone.
       const pixels = size ?? { width: asset.artboard.width, height: asset.artboard.height };
-      return renderAssetPNG({ ...visual, fonts }, row.channels, row.values, pixels, flags.background).then((bytes) => {
+      const drawn = { ...visual, fonts };
+      return (visual.imageInk ? Promise.resolve(drawn) : addRowImageInk(drawn)).then((board) => renderAssetPNG(board, row.channels, row.values, pixels, flags.background)).then((bytes) => {
         writeOutput(destination, bytes, flags.force);
         return { ok: true, name: asset.name, file: destination, t_ms: row.t_ms, states: row.states, renderer: 'canvaskit' };
       });
@@ -610,6 +629,36 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
   const pruned = isBundle ? {
     ...file, artboards: Object.fromEntries(Object.entries(file.artboards).map(([name, artboard]) => [name, packArtboard(artboard)])),
   } : packArtboard(asset);
+  const packedBoards = isBundle ? Object.values(pruned.artboards) : [pruned];
+  if (packedBoards.some((board) => rowImages(board).size)) {
+    return Promise.all(packedBoards.map(addRowImageInk)).then(() => writePack(pruned, { destination, format, flags, bundleInfo }));
+  }
+  return writePack(pruned, { destination, format, flags, bundleInfo });
+}
+
+/** A row places an embedded image by its alpha ink; the app cannot read pixels, so pack writes the ink for it (and a PNG frame of a source). */
+async function addRowImageInk(board) {
+  const names = rowImages(board);
+  if (!names.size) return board;
+  const ink = await measureImageInk(Object.fromEntries([...names].map((name) => [name, board.images[name]])));
+  board.imageInk = Object.fromEntries([...ink].map(([name, box]) => [name, box.map((side) => Math.round(side * 10000) / 10000)]));
+  return board;
+}
+
+/** Embedded images placed by a row (not host slots, which are placed by their box). */
+function rowImages(board) {
+  const names = new Set();
+  const visit = (nodes) => nodes.forEach((node) => {
+    if (node.kind === 'mesh') for (const pin of Object.values(node.pins ?? {})) if (pin.children) visit(pin.children);
+    if (node.kind !== 'group') return;
+    if (node.row) for (const child of node.children) if (child.kind === 'image' && !board.imageSlots?.[child.image]) names.add(child.image);
+    visit(node.children);
+  });
+  visit(board.artboard.nodes);
+  return names;
+}
+
+function writePack(pruned, { destination, format, flags, bundleInfo }) {
   const packedFile = flags.fonts === 'host' ? packHostFonts(pruned) : applyDefaultFont(pruned);
   const limit = assetRuntime().MAX_ASSET_BYTES;
   let packed;

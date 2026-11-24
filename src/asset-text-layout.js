@@ -1,3 +1,4 @@
+import { assetRuntime } from './asset-runtime.js';
 import { fail } from './util.js';
 
 const MAX_CASES = 4096;
@@ -60,30 +61,32 @@ function trackTextLayout(kit, provider, node, text) {
 
 /**
  * Where each sampled text's ink sits inside its node, from Skia's paragraph layout with the asset's fonts (host font slots included):
- * the glyphs' own bounds, not the line box. `band` is the optical band from the font's metrics: cap height above the baseline when the
- * text holds capitals or digits, x-height for lowercase only, else the ink itself. A text that cannot be laid out (a platform font, a
+ * the glyphs' own bounds, not the line box. `band` is the optical band from the font's metrics (runtime/asset-ink.ts textInk): the
+ * x-height above the baseline plus the share of capitals and digits of the step to the cap height, or the ink itself for caseless scripts. A text that cannot be laid out (a platform font, a
  * missing slot or missing glyphs) is left out, and the caller uses its declared box.
  * @returns {Promise<Map<string, {left: number, top: number, width: number, height: number, band: [number, number], source: 'layout'}>>}
  *   keyed by `extentKey`.
  */
 export async function measureTextExtents({ fonts, missing }, cases) {
   const extents = new Map();
+  const fallbacks = new Map();
   let kit;
   let provider;
   const faces = new Map();
   const metrics = new Map();
-  const heights = (name, size) => {
-    const key = `${name}|${size}`;
-    if (!metrics.has(key)) {
-      const font = new kit.Font(faces.get(name), size);
+  const heights = (typeface, size) => {
+    if (!metrics.has(typeface)) metrics.set(typeface, new Map());
+    const sizes = metrics.get(typeface);
+    if (!sizes.has(size)) {
+      const font = new kit.Font(typeface, size);
       try {
         const bounds = font.getGlyphBounds(font.getGlyphIDs('Hx'));
-        metrics.set(key, { cap: Math.max(0, -bounds[1]), x: Math.max(0, -bounds[5]) });
+        sizes.set(size, { cap: Math.max(0, -bounds[1]), x: Math.max(0, -bounds[5]) });
       } finally {
         font.delete();
       }
     }
-    return metrics.get(key);
+    return sizes.get(size);
   };
   try {
     for (const { node, text } of cases) {
@@ -98,9 +101,12 @@ export async function measureTextExtents({ fonts, missing }, cases) {
           faces.set(name, kit.Typeface.MakeTypefaceFromData(data));
         }
       }
-      const extent = inkOf(kit, provider, faces, heights, node, text.replaceAll('\r\n', '\n'));
-      if (extent) extents.set(key, extent);
+      const extent = inkOf(kit, provider, heights, node, text.replaceAll('\r\n', '\n'));
+      // A glyph the fonts lack: the caller falls back to the declared box, and `fallbacks` says which text and which characters.
+      if (extent?.unresolved) fallbacks.set(key, extent.unresolved);
+      else if (extent) extents.set(key, extent);
     }
+    extents.fallbacks = fallbacks;
     return extents;
   } finally {
     for (const face of faces.values()) face?.delete();
@@ -109,7 +115,7 @@ export async function measureTextExtents({ fonts, missing }, cases) {
 }
 
 /** One text's ink box and optical band, in the node's own units, or undefined when a glyph is missing. */
-function inkOf(kit, provider, faces, heights, node, text) {
+function inkOf(kit, provider, heights, node, text) {
   const style = new kit.ParagraphStyle({
     textStyle: new kit.TextStyle({ fontSize: node.fontSize, fontFamilies: node.fonts, fontFeatures: node.fontFeatures }),
     textDirection: node.direction === 'rtl' ? kit.TextDirection.RTL : kit.TextDirection.LTR,
@@ -122,8 +128,10 @@ function inkOf(kit, provider, faces, heights, node, text) {
     builder.addText(text);
     paragraph = builder.build();
     paragraph.layout(node.width);
-    if (paragraph.unresolvedCodepoints().length) return undefined;
-    let ink;
+    const unresolved = paragraph.unresolvedCodepoints();
+    if (unresolved.length) return { unresolved: [...unresolved] };
+    // Every glyph's box at its place, and the first run's face for the band: the rule runtime/asset-ink.ts gives the app too.
+    const glyphs = [];
     let first;
     let last;
     let face;
@@ -131,43 +139,25 @@ function inkOf(kit, provider, faces, heights, node, text) {
       first ??= line.baseline;
       last = line.baseline;
       for (const run of line.runs) {
-        // The run's face: the first of the node's fonts that has every character of the run (the paragraph's own fallback order).
-        const part = text.slice(run.offsets[0], run.offsets[run.offsets.length - 1]);
-        const name = node.fonts.find((candidate) => {
-          if (!faces.get(candidate)) return false;
-          const font = new kit.Font(faces.get(candidate), run.size);
-          try {
-            const ids = font.getGlyphIDs(part);
-            return ids.every((id) => id !== 0);
-          } finally {
-            font.delete();
-          }
-        }) ?? node.fonts.find((candidate) => faces.get(candidate));
-        if (!name) continue;
-        face ??= { name, size: run.size };
-        const font = new kit.Font(faces.get(name), run.size);
+        if (!run.typeface) continue;
+        const font = new kit.Font(run.typeface, run.size);
         try {
+          face ??= heights(run.typeface, run.size);
           const bounds = font.getGlyphBounds(run.glyphs);
           for (let i = 0; i < run.glyphs.length; i++) {
             const [l, t, r, b] = bounds.slice(i * 4, i * 4 + 4);
-            if (!(r > l && b > t)) continue; // a space draws nothing
             const x = run.positions[i * 2];
             const y = run.positions[i * 2 + 1];
-            const box = [x + l, y + t, x + r, y + b];
-            ink = ink ? [Math.min(ink[0], box[0]), Math.min(ink[1], box[1]), Math.max(ink[2], box[2]), Math.max(ink[3], box[3])] : box;
+            glyphs.push([x + l, y + t, x + r, y + b]);
           }
         } finally {
           font.delete();
         }
       }
     }
-    if (!ink) return undefined;
-    const { cap, x } = heights(face.name, face.size);
-    // Lowercase only: the x-height. Letters with no case (Arabic, Devanagari...): the ink. Capitals, digits and signs: the cap height,
-    // so a "+" or a digit beside an icon is centred the way the row reads.
-    const lowercase = /\p{Ll}/u.test(text) && !/[\p{Lu}\p{Nd}]/u.test(text);
-    const caseless = /[\p{Lo}\p{Lm}]/u.test(text);
-    const band = lowercase && x ? [first - x, last] : !caseless && cap ? [first - cap, last] : [ink[1], ink[3]];
+    const measured = assetRuntime().textInk(glyphs, first, last, text, face ?? { cap: 0, x: 0 });
+    if (!measured) return undefined;
+    const { box: ink, band } = measured;
     return { left: ink[0], top: ink[1], width: ink[2] - ink[0], height: ink[3] - ink[1], band, source: 'layout' };
   } finally {
     paragraph?.delete();

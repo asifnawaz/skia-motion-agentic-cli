@@ -43,9 +43,11 @@ function collectIds(nodes, parent, ids, at, plates) {
   });
 }
 
+const AUTHORING_FIELDS = ['landings', 'allowOverlap', 'register', 'chain', 'checks'];
+
 function readBoard(board, at) {
   if (!record(board)) return { board, meta: undefined };
-  const { landings, allowOverlap, register, chain, ...rest } = board;
+  const { landings, allowOverlap, register, chain, checks, ...rest } = board;
   const ids = new Map();
   const plates = new Map();
   if (record(rest.artboard)) rest.artboard = { ...rest.artboard, nodes: collectIds(rest.artboard.nodes, 'artboard.nodes', ids, at, plates) };
@@ -53,7 +55,11 @@ function readBoard(board, at) {
     if (typeof value !== 'string' || !ids.has(value)) bad(where, `unknown node id ${JSON.stringify(value)}`, 'add "id" to the node and name it here');
     return value;
   };
-  const meta = { ids, landings: [], allowOverlap: [], plates: new Map(), chain: readChain(register, chain, at) };
+  const meta = { ids, landings: [], allowOverlap: [], plates: new Map(), chain: readChain(register, chain, at), strict: false };
+  if (checks !== undefined) {
+    if (checks !== 'strict') bad(`${at}checks`, `expected "strict", got ${JSON.stringify(checks)}`, 'write "checks": "strict" to make the text rules errors for this asset, or leave it out');
+    meta.strict = true;
+  }
   for (const [where, { id, at: field }] of plates) meta.plates.set(where, node(id, field));
   if (landings !== undefined) {
     if (!Array.isArray(landings) || landings.length > 256) bad(`${at}landings`, 'expected a list of up to 256 landings', 'write [{ "node": "coin", "target": "counterValue" }]');
@@ -113,10 +119,9 @@ export function splitAuthoring(text) {
   const take = (board, name, at) => {
     const { board: clean, meta } = readBoard(board, at);
     if (!meta) return board;
-    if (meta.ids.size || meta.landings.length || meta.allowOverlap.length || meta.plates.size || meta.chain) {
-      boards.set(name, meta);
-      changed = true;
-    }
+    if (meta.ids.size || meta.landings.length || meta.allowOverlap.length || meta.plates.size || meta.chain || meta.strict) boards.set(name, meta);
+    // An authoring field is taken out whenever it is there, even empty ("landings": []): the runtime does not know it.
+    if (boards.has(name) || AUTHORING_FIELDS.some((field) => Object.hasOwn(board, field))) changed = true;
     return clean;
   };
   let clean;
@@ -145,6 +150,14 @@ export function circleGap({ x, y, r }, box) {
   return Math.hypot(dx, dy) - r;
 }
 
+/** An icon beside a text on one row: their heights (the text's by its optical band) overlap by more than half, and their ink does not. */
+function beside(icon, text) {
+  const band = text.text?.band ?? [text.box[1], text.box[3]];
+  const overlap = Math.min(icon[3], band[1]) - Math.max(icon[1], band[0]);
+  if (overlap <= Math.min(icon[3] - icon[1], band[1] - band[0]) / 2) return false;
+  return text.box[0] >= icon[2] - 0.5 || icon[0] >= text.box[2] - 0.5;
+}
+
 const contains = (outer, inner) => outer[0] <= inner[0] + 0.5 && outer[1] <= inner[1] + 0.5 && outer[2] >= inner[2] - 0.5 && outer[3] >= inner[3] - 0.5;
 const round = (value) => Math.round(value * 10) / 10;
 
@@ -160,10 +173,13 @@ export function nodeName(where, names) {
  * skac/text-clear: no drawn piece comes within 4 points of a text's box while both hold still for 150 ms or more, or on the last frame.
  * Holding still means neither centre moved in that time, so a glow or ring that pulses in place is at rest. In flight a piece within 4
  * points is a warning.
- * A shape whose box holds the whole text box is the text's background and is not judged, and neither is anything drawn on a landing's
- * target in the 400 ms after the landing (`reacts`: the target's place and the landing time). `rows` holds `{t_ms, entries}`.
+ * The text's own plate (`isPlate(piece, text)`: a filled, unfeathered round rect drawn behind it, a row's plate, or the one its `plate`
+ * names) is not judged while it holds the whole text box; any other piece is, however large, so a glow or burst over a text counts. An
+ * icon beside a text on one row (`icons`: images and the shapes a row places; their heights overlap by more than half, their ink does
+ * not) is not judged either: skac/text-in-plate owns that gap. Nor is anything drawn on a landing's target in the 400 ms after the
+ * landing (`reacts`: the target's place and the landing time). `rows` holds `{t_ms, entries}`.
  */
-export function textClearance(rows, { ids = new Map(), names, allow = [], reacts = [], severity = 'error' }) {
+export function textClearance(rows, { ids = new Map(), names, allow = [], reacts = [], severity = 'error', isPlate = () => false, icons = new Set() }) {
   // A landing's target reacts: anything drawn on it from the landing to REACT_MS after is the point of the chain, not a collision.
   // The window opens REACT_LEAD_MS early: a reaction keyed a frame before contact, or a landing time read one sample late, still counts.
   const reacting = (textAt, t) => reacts.some(({ where, from }) => (textAt === where || textAt.startsWith(`${where}.`))
@@ -187,12 +203,16 @@ export function textClearance(rows, { ids = new Map(), names, allow = [], reacts
   const last = rows.length - 1;
   for (const textAt of texts) {
     for (const pieceAt of pieces) {
-      if (ok(pieceAt, textAt)) continue;
+      // A text on a mesh's pin is carried on that mesh, drawn over it like a label on its card.
+      if (ok(pieceAt, textAt) || textAt.startsWith(`${pieceAt}.`)) continue;
       const pair = rows.map(({ t_ms, entries }) => {
         const text = entries.get(textAt);
-        const piece = entries.get(pieceAt);
+        const entry = entries.get(pieceAt);
+        // A mesh is judged by its own surface; the nodes on its pins are pieces and texts of their own.
+        const piece = entry?.own ? { ...entry, box: entry.own[2] > entry.own[0] ? entry.own : undefined } : entry;
         const row = { t_ms, pieceAt: piece?.centre, textAt: text?.centre };
-        if (!text?.box || !piece?.box || contains(piece.box, text.box) || reacting(textAt, t_ms)) return row;
+        if (!text?.box || !piece?.box || (contains(piece.box, text.box) && isPlate(pieceAt, textAt)) || reacting(textAt, t_ms)) return row;
+        if ((piece.kind === 'image' || icons.has(pieceAt)) && beside(piece.box, text)) return row;
         return { ...row, gap: piece.circle ? circleGap(piece.circle, text.box) : boxGap(piece.box, text.box), text: text.text };
       });
       // At rest: neither the piece nor the text has moved in the REST_MS before (or it is the last frame). Only where they sit counts, so a

@@ -6,7 +6,8 @@ import { MAX_FEATHER, resolveAssetColor, resolveAssetFonts, usedAssetImages, typ
 import type { AssetResource } from './asset-binary';
 import { fitAsset, fittedAnchorOffset, type AssetLayoutOptions } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshNode, type MeshPin } from './asset-mesh';
-import { digitText, restText, rollFrame, rollTextStyle } from './asset-roll';
+import { digitText, restText, rollFrame, rollSpan, rollTextStyle, rollWidthShare, SMEAR_SIGMA, type RollTiming } from './asset-roll';
+import { blendInk, plateBox, rowItems, rowLayout, textInk, type Box, type RowChild, type TextInk } from './asset-ink';
 
 type Channels = Readonly<Record<string, number>>;
 type Palette = Readonly<Record<string, string>>;
@@ -21,6 +22,8 @@ type DrawableNode =
   | (Omit<Extract<AssetNode, { kind: 'group' }>, 'children'> & {
       children: readonly DrawableNode[];
       preparedClip?: SkPath;
+      /** A row's embedded images' ink, as fractions of their boxes, by child; none for a host image slot. */
+      rowParts?: readonly (Box | undefined)[];
     })
   | DrawableMesh
   | (AssetTextNode & { paragraph?: SkParagraph })
@@ -188,6 +191,9 @@ function rangeLeft(paragraph: SkParagraph, start: number, end: number): number {
   return left === Infinity ? 0 : left;
 }
 
+// A roll as drawn: its timing, and the ASCII digit columns prepareAssetDrawing laid out once.
+type RollDrawing = { progress: string; from: string; digits?: readonly SkParagraph[] } & RollTiming;
+
 /**
  * A rolling number (`roll` on a text node). At rest it is the plain paragraph of the number it shows, with tabular figures. While it rolls,
  * Skia lays out the same paragraph with zeros in the digit places, which places the prefix, the digit run and the suffix by the node's own
@@ -196,7 +202,7 @@ function rangeLeft(paragraph: SkParagraph, start: number, end: number): number {
  * odometer cannot roll (two runs of digits, different prefixes) cut from one to the other at half way.
  */
 function drawRoll(
-  canvas: SkCanvas, node: AssetTextNode & { roll: { progress: string; from: string } }, channels: Channels, values: TextValues,
+  canvas: SkCanvas, node: AssetTextNode & { roll: RollDrawing }, channels: Channels, values: TextValues,
   fonts: SkTypefaceFontProvider | undefined, text: string,
 ): void {
   'worklet';
@@ -205,7 +211,7 @@ function drawRoll(
   const x = read(node.x, channels);
   const y = read(node.y, channels);
   const styled = rollTextStyle(node);
-  const frame = rollFrame(from, text, progress);
+  const frame = rollFrame(from, text, progress, node.roll);
   if (!frame) {
     const content = progress < 0.5 ? from : text;
     if (content) makeParagraph(styled, content, fonts).paint(canvas, x, y);
@@ -217,8 +223,10 @@ function drawRoll(
     if (current >= 0) full++;
     else opening = Math.max(opening, turn);
   }
-  if (!opening && frame.places.every(({ turn }) => turn === 0)) {
-    makeParagraph(styled, restText(frame), fonts).paint(canvas, x, y);
+  // At rest (no place turning or smearing) the roll is its plain text. A fast roll passing a whole value still smears.
+  if (!opening && frame.places.every(({ turn, smear }) => turn === 0 && smear === 0)) {
+    // At either end it is exactly the string the host set (zero padding and all); between whole values, the value it rests on.
+    makeParagraph(styled, progress <= 0 ? from : progress >= 1 ? text : restText(frame), fonts).paint(canvas, x, y);
     return;
   }
   const zero = digitText(0, frame.zero);
@@ -249,26 +257,32 @@ function drawRoll(
   const baseline = y + now.baseline;
   const line = now.height;
   const plain: AssetTextNode = { ...styled, align: 'start', direction: 'ltr', maxLines: 1 };
-  const piece = (content: string, left: number, drop = 0) => {
-    const paragraph = makeParagraph(plain, content, fonts);
+  // ASCII digits come from the columns prepared once; another digit system lays its digit out here.
+  const prepared = frame.zero === 48 ? node.roll.digits : undefined;
+  const column = (digit: number) => prepared?.[digit] ?? makeParagraph(plain, digitText(digit, frame.zero), fonts);
+  const piece = (digit: number, left: number, drop = 0) => {
+    const paragraph = column(digit);
     paragraph.paint(canvas, left, baseline - baselineOf(paragraph) + drop);
   };
-  const advance = makeParagraph(plain, zero, fonts).getLongestLine();
+  const advance = column(0).getLongestLine();
   let edge = at('digits');
-  frame.places.forEach(({ current, next, turn }) => {
+  frame.places.forEach(({ current, next, turn, smear }) => {
     const width = current < 0 ? turn * advance : advance;
     edge += width;
     if (width <= 0) return;
     // Each digit sits against its column's right edge, so an opening place slides in beside the digit after it.
-    const column = edge - advance;
+    const left = edge - advance;
     canvas.save();
     canvas.clipRect(Skia.XYWHRect(edge - width, y, width, line), ClipOp.Intersect, true);
-    const shown = digitText(current, frame.zero);
-    if (shown) piece(shown, column, -turn * line);
-    if (turn > 0) {
-      const coming = digitText(next, frame.zero);
-      if (coming) piece(coming, column, (1 - turn) * line);
+    // A place turning too fast to read is drawn as a vertical blur of its column; it sharpens as it slows into the value.
+    if (smear > 0) {
+      const blur = Skia.Paint();
+      blur.setImageFilter(Skia.ImageFilter.MakeBlur(0, smear * line * SMEAR_SIGMA, TileMode.Decal, null));
+      canvas.saveLayer(blur);
     }
+    if (current >= 0) piece(current, left, -turn * line);
+    if (turn > 0 && next >= 0) piece(next, left, (1 - turn) * line);
+    if (smear > 0) canvas.restore();
     canvas.restore();
   });
 }
@@ -344,7 +358,24 @@ export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetIma
   }
   const textBindings = new Set<string>();
   const palette = asset.palette ?? {};
-  const nodes = asset.artboard.nodes.map((node) => prepareNode(node, images, shaders, shadersByImage, fontProvider, textBindings, palette));
+  // A row's embedded images carry their alpha ink (pack writes it); a host image slot is placed by its box, as check places it.
+  const withParts = (node: DrawableNode): DrawableNode => {
+    // A roll smears by how fast its places turn, which needs the time its progress channel takes (rollSpan).
+    // Its ASCII digit columns are laid out once here, so a frame of the roll builds only the number's own layout, not a paragraph per place.
+    if (node.kind === 'text' && node.roll) {
+      const plain = { ...rollTextStyle(node), align: 'start', direction: 'ltr', maxLines: 1 } as AssetTextNode;
+      const digits = Array.from({ length: 10 }, (_, digit) => makeParagraph(plain, String(digit), fontProvider));
+      return { ...node, roll: { ...node.roll, ms: rollSpan(asset.clips, node.roll.progress), digits } } as DrawableNode;
+    }
+    // Nodes on a mesh pin are drawn like a group's children, so they are prepared the same way.
+    if (node.kind === 'mesh') return node.pins ? { ...node, pins: node.pins.map((pin) => ({ ...pin, children: pin.children.map(withParts) })) } : node;
+    if (node.kind !== 'group') return node;
+    const children = node.children.map(withParts);
+    if (!node.row) return { ...node, children };
+    const rowParts = node.children.map((child) => (child.kind === 'image' && !asset.imageSlots?.[child.image] ? asset.imageInk?.[child.image] as Box | undefined : undefined));
+    return { ...node, children, rowParts };
+  };
+  const nodes = asset.artboard.nodes.map((node) => withParts(prepareNode(node, images, shaders, shadersByImage, fontProvider, textBindings, palette)));
   return {
     channels: asset.channels, artboard: { ...asset.artboard, nodes }, meshShaders: shaders,
     ...(fontProvider && { fontProvider }),
@@ -403,6 +434,121 @@ function drawStroke(
   canvas.drawPath(trimmed, paint);
 }
 
+/** One run of glyphs as `SkParagraph.extendedVisit` (react-native-skia 3.10.2 and later) reports it: typed here, so the runtime typechecks
+ * against older react-native-skia, which lacks the method. */
+type VisitedRun = {
+  font: { measureText(text: string): { y: number } };
+  origin: { x: number; y: number };
+  glyphs: ArrayLike<number>;
+  positions: ArrayLike<{ x: number; y: number }>;
+  bounds: ArrayLike<{ x: number; y: number; width: number; height: number }>;
+};
+type WithVisit = { extendedVisit?: (visitor: (line: number, run: VisitedRun | null) => void) => void };
+type WithMatch = { matchFamilyStyle?: (name: string, style: Record<string, never>) => SkTypeface | null };
+/** A face's cap height, when the font is not known, as a share of the font size. */
+const CAP_SHARE = 0.7;
+
+/**
+ * A laid-out text's ink and optical band, from the glyphs Skia placed and the first run's face: asset-ink.ts's rule, as check uses it.
+ * Without extendedVisit (react-native-skia before 3.10.2, or React Native Web, where it throws) the ink is approximate: the line's
+ * advance boxes from the cap height above the baseline down to it, the cap height read from the node's first font (asset check warns
+ * row-approx).
+ */
+function paragraphInk(paragraph: SkParagraph, text: string, node: AssetTextNode, fonts: SkTypefaceFontProvider | undefined): TextInk | undefined {
+  'worklet';
+  const lines = paragraph.getLineMetrics();
+  const first = lines[0]?.baseline ?? 0;
+  const last = lines[lines.length - 1]?.baseline ?? 0;
+  const glyphs: Box[] = [];
+  let heights = { cap: 0, x: 0 };
+  const visit = (paragraph as unknown as WithVisit).extendedVisit;
+  if (typeof visit === 'function') {
+    try {
+      let faced = false;
+      visit.call(paragraph, (_line, info) => {
+        if (!info) return;
+        if (!faced) {
+          faced = true;
+          heights = { cap: Math.max(0, -info.font.measureText('H').y), x: Math.max(0, -info.font.measureText('x').y) };
+        }
+        for (let i = 0; i < info.glyphs.length; i++) {
+          const at = info.positions[i]!;
+          const bounds = info.bounds[i]!;
+          const x = info.origin.x + at.x + bounds.x;
+          const y = info.origin.y + at.y + bounds.y;
+          glyphs.push([x, y, x + bounds.width, y + bounds.height]);
+        }
+      });
+      return textInk(glyphs, first, last, text, heights);
+    } catch {
+      glyphs.length = 0; // React Native Web: the method is there and throws
+    }
+  }
+  const match = (fonts as unknown as WithMatch | undefined)?.matchFamilyStyle;
+  const family = node.fonts?.[0];
+  const face = typeof match === 'function' && family ? match.call(fonts, family, {}) : null;
+  if (face) {
+    const font = Skia.Font(face, node.fontSize);
+    heights = { cap: Math.max(0, -font.measureText('H').y), x: Math.max(0, -font.measureText('x').y) };
+  }
+  if (!heights.cap) heights = { cap: node.fontSize * CAP_SHARE, x: 0 };
+  for (const rect of paragraph.getRectsForRange(0, text.length)) {
+    if (rect.width > 0) glyphs.push([rect.x, first - heights.cap, rect.x + rect.width, last]);
+  }
+  return textInk(glyphs, first, last, text, heights);
+}
+
+type RowGroup = Extract<DrawableNode, { kind: 'group' }> & { row: NonNullable<Extract<AssetNode, { kind: 'group' }>['row']> };
+
+/**
+ * Lay out a `row` group by its children's ink and optical centres (asset-ink.ts) and draw its plate; drawNodes then draws each child moved
+ * by its move (Worklets capture helpers when they are defined, so this one cannot call drawNodes back).
+ */
+function layoutRow(
+  canvas: SkCanvas, node: RowGroup, channels: Channels, values: TextValues, fonts: SkTypefaceFontProvider | undefined, palette: Palette,
+): { moves: [number, number][]; paragraphs: (SkParagraph | undefined)[] } {
+  'worklet';
+  const { row } = node;
+  const align = row.align ?? 'start';
+  const rtl = row.direction === 'rtl';
+  const paragraphs: (SkParagraph | undefined)[] = [];
+  const children = node.children as unknown as readonly RowChild[];
+  const { items, widest, bands } = rowItems(children, (value, fallback) => read(value, channels, fallback), (child, index, wide) => {
+    const drawn = node.children[index] as AssetTextNode & { paragraph?: SkParagraph };
+    const text = wide ? row.plate!.widest! : typeof drawn.text === 'string' ? drawn.text : values[drawn.text.value] ?? '';
+    if (drawn.roll && !wide) {
+      // A rolling count is placed between its old value's ink and its new one's, so at rest it is placed by the value it shows.
+      const styled = rollTextStyle(drawn);
+      const from = values[drawn.roll.from] ?? '';
+      const inkOf = (value: string) => (value ? paragraphInk(makeParagraph(styled, value, fonts), value, styled, fonts) : undefined);
+      return blendInk(inkOf(from), inkOf(text), rollWidthShare(from, text, read(drawn.roll.progress, channels), drawn.roll));
+    }
+    if (!text) return undefined;
+    const paragraph = !wide && drawn.paragraph ? drawn.paragraph : makeParagraph(rollTextStyle(drawn), text, fonts);
+    if (!wide) paragraphs[index] = paragraph;
+    return paragraphInk(paragraph, text, drawn, fonts);
+  }, (index) => node.rowParts?.[index], Boolean(row.plate?.widest));
+  const { moves } = rowLayout(items, row.gap, align, rtl);
+  if (row.plate) {
+    const box = plateBox(widest, bands, row.gap, align, rtl, row.plate.padding);
+    const rect = Skia.XYWHRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+    const radius = Math.min(row.plate.radius ?? Infinity, (box[2] - box[0]) / 2, (box[3] - box[1]) / 2);
+    const paint = Skia.Paint();
+    paint.setAntiAlias(true);
+    paint.setColor(Skia.Color(resolveAssetColor(row.plate.fill, palette)));
+    canvas.drawRRect(Skia.RRectXY(rect, radius, radius), paint);
+    if (row.plate.stroke && row.plate.stroke.width > 0) {
+      const edge = Skia.Paint();
+      edge.setAntiAlias(true);
+      edge.setStyle(PaintStyle.Stroke);
+      edge.setStrokeWidth(row.plate.stroke.width);
+      edge.setColor(Skia.Color(resolveAssetColor(row.plate.stroke.color, palette)));
+      canvas.drawRRect(Skia.RRectXY(rect, radius, radius), edge);
+    }
+  }
+  return { moves, paragraphs };
+}
+
 function drawNodes(
   canvas: SkCanvas, nodes: readonly DrawableNode[], channels: Channels, images: AssetImages, shaders: AssetMeshShaders,
   values: TextValues, fonts: SkTypefaceFontProvider | undefined, palette: Palette, layout?: ReturnType<typeof fitAsset>,
@@ -416,14 +562,24 @@ function drawNodes(
       canvas.rotate(read(node.rotation, channels), 0, 0);
       canvas.scale(read(node.scaleX, channels, 1), read(node.scaleY, channels, 1));
       if (node.clip) canvas.clipPath(node.preparedClip ?? makePath(node.clip, channels), ClipOp.Intersect, true);
-      drawNodes(canvas, node.children, channels, images, shaders, values, fonts, palette);
+      if (node.row) {
+        const { moves, paragraphs } = layoutRow(canvas, node as RowGroup, channels, values, fonts, palette);
+        node.children.forEach((child, index) => {
+          canvas.save();
+          canvas.translate(moves[index]![0], moves[index]![1]);
+          const paragraph = paragraphs[index];
+          if (child.kind === 'text' && !child.roll && paragraph) paragraph.paint(canvas, read(child.x, channels), read(child.y, channels));
+          else drawNodes(canvas, [child], channels, images, shaders, values, fonts, palette);
+          canvas.restore();
+        });
+      } else drawNodes(canvas, node.children, channels, images, shaders, values, fonts, palette);
       canvas.restore();
       continue;
     }
     if (node.kind === 'text') {
       const content = typeof node.text === 'string' ? node.text : values[node.text.value] ?? '';
       if (node.roll) {
-        drawRoll(canvas, node as AssetTextNode & { roll: { progress: string; from: string } }, channels, values, fonts, content);
+        drawRoll(canvas, node as AssetTextNode & { roll: RollDrawing }, channels, values, fonts, content);
         continue;
       }
       if (content) {
