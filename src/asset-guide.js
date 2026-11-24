@@ -271,6 +271,7 @@ const topics = {
   landings: {
     drawing: [
       'Give every flown piece and the thing it pays into an id. List each pair in landings.',
+      'Add aim: true and skac writes the flight\'s end keys for you: the last key of the piece\'s x and y channels (and the hold after it) moves so its ink centre ends on the target\'s ink centre. Key the path before it by hand. The piece\'s x and y must be channels keyed in one clip (name it with clip when several are); the groups above it may move and scale by fixed numbers, not rotate or scale by a channel. Every command reads the aimed keys, and asset check lists them in aimed. When the piece or its target has text in a host font slot, pass --font=<slot>=<file> to every command that reads the source, pack included; without it the aim is refused rather than made on a guessed box. aim and at do not mix.',
       'Asset check judges a landing where the piece stops travelling: the last change of an x or y channel on the piece, inside it or above it. Scale and opacity are left out, so a piece that shrinks into its target is judged where it arrived. A switch to another clip, such as the return to idle, is not travel. Give at, a marker name or a time in ms, to judge another moment, and always for a piece a looping clip moves.',
       'The piece passes when its centre lies inside the target\'s box widened by tolerance points (default 0). The error names the piece, the target, the distance in points and the time.',
       'Rule skac/text-clear: no drawn piece rests within 4 points of a text box. Resting means neither the piece nor the text moved in the 150 ms before, or the last frame, so a glow, ring or pop that plays in place on a text counts however briefly it shows. A piece passing a text in flight is a warning.',
@@ -280,7 +281,7 @@ const topics = {
       'Set the rule to warn or off in skia-motion.json: "rules": { "skac/text-clear": "warn" }. Packed .skmotion files carry no ids, so check the JSON source.',
     ],
     group: { kind: 'group', id: 'coin', x: 'coinX', y: 'coinY', children: [] },
-    landings: [{ node: 'coin', target: 'counterValue' }],
+    landings: [{ node: 'coin', target: 'counterValue', aim: true }],
     allowOverlap: [{ nodes: ['titleHalo', 'title'], reason: 'the halo sits behind the title' }],
     commands: [
       'skac asset check bonus.motion.json --commands=claim@0',

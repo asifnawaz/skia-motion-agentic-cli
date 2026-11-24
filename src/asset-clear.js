@@ -59,8 +59,8 @@ function readBoard(board, at) {
     if (!Array.isArray(landings) || landings.length > 256) bad(`${at}landings`, 'expected a list of up to 256 landings', 'write [{ "node": "coin", "target": "counterValue" }]');
     landings.forEach((item, i) => {
       const where = `${at}landings[${i}]`;
-      if (!record(item) || Object.keys(item).some((key) => !['node', 'target', 'at', 'tolerance'].includes(key))) {
-        bad(where, 'expected { node, target, at?, tolerance? }', 'at is a marker name or a time in ms; tolerance is in artboard points');
+      if (!record(item) || Object.keys(item).some((key) => !['node', 'target', 'at', 'tolerance', 'aim', 'clip'].includes(key))) {
+        bad(where, 'expected { node, target, at?, tolerance?, aim?, clip? }', 'at is a marker name or a time in ms; tolerance is in artboard points; aim: true writes the end keys');
       }
       const landing = { node: node(item.node, `${where}.node`), target: node(item.target, `${where}.target`), tolerance: item.tolerance ?? 0 };
       if (typeof landing.tolerance !== 'number' || !(landing.tolerance >= 0)) bad(`${where}.tolerance`, 'expected a number of points, 0 or more', 'leave it out for 0');
@@ -69,6 +69,15 @@ function readBoard(board, at) {
           bad(`${where}.at`, 'expected a marker name or a time in ms', 'leave it out to judge the node where it comes to rest');
         }
         landing.at = item.at;
+      }
+      if (item.aim !== undefined) {
+        if (item.aim !== true) bad(`${where}.aim`, 'expected true', 'aim: true writes the flight\'s end keys onto the target\'s centre; leave it out to key them by hand');
+        if (item.at !== undefined) bad(`${where}.at`, 'aim writes the keys where the flight stops, and at judges another moment', 'drop at to aim, or drop aim and key the landing by hand');
+        landing.aim = true;
+      }
+      if (item.clip !== undefined) {
+        if (typeof item.clip !== 'string') bad(`${where}.clip`, 'expected a clip name', 'name the clip that keys the flight');
+        landing.clip = item.clip;
       }
       meta.landings.push(landing);
     });

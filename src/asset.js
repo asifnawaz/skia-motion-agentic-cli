@@ -10,11 +10,12 @@ import { extentKey, measureImageInk, measureTextExtents, measureTextLayout } fro
 import { textInPlate } from './asset-plate.js';
 import { causalChain } from './asset-chain.js';
 import { renderAssetPNG } from './asset-canvaskit.js';
+import { aimLandings, hasAims } from './asset-land.js';
 import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js';
 import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
 import { PACKAGE_ROOT } from './docs.js';
-import { fail } from './util.js';
+import { CliError, fail } from './util.js';
 
 const SAMPLES = {
   'game-hud': 'Health and ammo bindings, low-health feedback, and a reload cue',
@@ -145,9 +146,37 @@ function readAsset(path, authoring) {
     // Node ids, landings and allowOverlap are authoring-only: asset check reads them and the runtime never sees them.
     const { text: source, boards } = packed ? { text: bytes.toString('utf8'), boards: new Map() } : splitAuthoring(bytes.toString('utf8'));
     const file = authoring && !packed ? runtime.parseAssetSource(source) : runtime.parseAssetFile(source);
-    return { file, source, boards };
+    return { file, source, boards, aims: hasAims(boards), authoring: authoring && !packed };
   } catch (error) {
     fail(error.message, 'see skac asset sample for an example of skac.asset/1', { file: path });
+  }
+}
+
+/**
+ * Write the end keys of landings marked aim: true, measuring ink as asset check does (text laid out with the asset's fonts and host slots,
+ * images by alpha), so every command (check, trace, frame, pack) sees the aimed flight.
+ */
+async function aimSource(read, path, flags, cwd) {
+  const runtime = assetRuntime();
+  const asset = runtime.selectArtboard(read.file);
+  const visual = applyDefaultFont(asset);
+  const values = Object.fromEntries(Object.entries(asset.machine.values ?? {}).map(([name, value]) => [name, value.default]));
+  const fonts = runtime.resolveAssetFonts(visual, readFontOverrides(asset, flags.font, cwd));
+  const [extents, ink] = await Promise.all([
+    measureTextExtents(fonts, runtime.assetTextSamples(visual, [{ t_ms: 0, values, channels: asset.channels }])),
+    measureImageInk(visual.images, visual.imageSlots),
+  ]);
+  try {
+    const { text, aimed } = aimLandings(runtime, read.source, read.boards, {
+      visual: applyDefaultFont, missing: fonts.missing,
+      textExtent: (node, _where, text) => extents.get(extentKey(runtime.rollTextStyle(node), text)) ?? runtime.declaredText(node),
+      imageInk: (image) => ink.get(image),
+    });
+    const file = read.authoring ? runtime.parseAssetSource(text) : runtime.parseAssetFile(text);
+    return { ...read, file, source: text, aimed };
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    fail(error.message, 'see skac asset guide landings', { file: path });
   }
 }
 
@@ -423,8 +452,8 @@ export function assetCommand(args, flags, cwd) {
     fail('--fonts=host is for asset pack', 'use it to omit embedded fonts from an asset that uses font slots');
   }
   if (flags.fonts !== undefined && flags.fonts !== 'host') fail('unknown font export option', 'use --fonts=host or omit --fonts to keep the authored fallbacks');
-  if (flags.font?.length && !(action === 'preview' || action === 'frame' || action === 'check')) {
-    fail('--font is for asset preview, frame, or check', 'supply --font=slot=path/to/font.ttf');
+  if (flags.font?.length && !['preview', 'frame', 'check', 'pack', 'trace'].includes(action)) {
+    fail('--font is for asset preview, frame, check, pack or trace', 'supply --font=slot=path/to/font.ttf');
   }
   if (action === 'sample') return sample(input, output, cwd, flags.force);
   if (action === 'guide' && !output) {
@@ -438,7 +467,12 @@ export function assetCommand(args, flags, cwd) {
     fail('invalid asset command', 'run skac asset for the command list');
   }
   const path = resolve(cwd, input);
-  const { file, source, binary, boards } = readAsset(path, action === 'pack' || action === 'check');
+  const read = readAsset(path, action === 'pack' || action === 'check');
+  return read.aims ? aimSource(read, path, flags, cwd).then((aimed) => assetAction(action, input, path, flags, cwd, aimed)) : assetAction(action, input, path, flags, cwd, read);
+}
+
+/** Run an asset command on a file already read (and its landings aimed). */
+function assetAction(action, input, path, flags, cwd, { file, source, binary, boards, aimed }) {
   const stem = input.replace(/(?:\.motion)?\.json$|\.skmotion$/i, '');
   if (action === 'unpack') {
     const destination = resolve(cwd, flags.out ?? `${stem}.unpacked.motion.json`);
@@ -461,7 +495,9 @@ export function assetCommand(args, flags, cwd) {
   if (action === 'check') {
     const runtime = assetRuntime();
     const { warnings } = runtime.validateMachine(asset.machine, { clips: asset.clips });
-    const summary = { ok: true, file: path, ...describe(asset), ...bundleInfo, warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)] };
+    const summary = {
+      ok: true, file: path, ...describe(asset), ...bundleInfo, ...(aimed && { aimed }), warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)],
+    };
     const authored = boards.get(isBundle ? flags.artboard ?? file.defaultArtboard : '');
     const severities = placementSeverities(cwd);
     // The placement checks judge the authored source; a packed .skmotion has no ids, landings or allowances left to read.

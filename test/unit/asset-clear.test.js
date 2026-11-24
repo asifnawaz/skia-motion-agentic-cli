@@ -153,3 +153,47 @@ test('gaps: boxes are negative inside, edge distance beside, corner distance dia
   assert.equal(Number(circleGap({ x: 0, y: 0, r: 10 }, [10, 10, 20, 20]).toFixed(1)), 4.1);
   assert.equal(circleGap({ x: 0, y: 0, r: 10 }, [12, -5, 20, 5]), 2);
 });
+
+test('aim: true writes the flight\'s end keys onto the target, so the hand-keyed miss lands', async () => {
+  const aimed = bonusRow({ landX: 27, ringX: 280, landing: false, extra: { landings: [{ node: 'coin', target: 'counterValue', aim: true }] } });
+  const { file, run } = setup(aimed);
+  const summary = await run('check', file);
+  assert.equal(summary.ok, true);
+  // The coin's end keys move it from beside the label onto the centre of the laid-out "+3 coins" ink (221 to 291.6 across, 382 to 397 down).
+  assert.deepEqual(summary.aimed, [{ node: 'coin', target: 'counterValue', clip: 'run', t_ms: 800, moved: { x: 229.3, y: -1.5 }, offset: 0 }]);
+  assert.deepEqual(summary.landings[0].centre, { x: 256.3, y: 389.5 });
+  assert.equal(summary.landings[0].distance, 0);
+  // Only the landing key and the hold after it move; the flight before keeps its hand-set path.
+  const trace = await run('trace', file, '--trace=200,800');
+  assert.equal(trace.trace[0].channels.coinX, 180);
+  assert.ok(Math.abs(trace.trace[1].channels.coinX - 27) > 200);
+});
+
+test('aim refuses a flight it cannot solve: an unbound x, or a group above that rotates', async () => {
+  const unbound = bonusRow({ landX: 27, ringX: 280, landing: false, extra: { landings: [{ node: 'counterLabel', target: 'counterValue', aim: true }] } });
+  assert.match((await failure(() => setup(unbound).run('check', setup(unbound).file))).message, /landing counterLabel: aim needs its x and y bound to channels/);
+  const rotated = bonusRow({ landX: 27, ringX: 280, landing: false, extra: { landings: [{ node: 'coin', target: 'counterValue', aim: true }] } });
+  rotated.artboard.nodes[3] = { kind: 'group', x: 0, y: 0, rotation: 5, children: [rotated.artboard.nodes[3]] };
+  const rotatedSetup = setup(rotated);
+  assert.match((await failure(() => rotatedSetup.run('check', rotatedSetup.file))).message, /landing coin: a group above it rotates/);
+});
+
+test('aim on a target in a host font slot needs --font, and pack then ships the keys check aimed', async () => {
+  const slotted = bonusRow({ landX: 27, ringX: 280, landing: false, extra: { landings: [{ node: 'coin', target: 'counterValue', aim: true }] } });
+  slotted.fontSlots = { Counter: {} };
+  slotted.artboard.nodes[1].fonts = ['Counter'];
+  const { cwd, file, run } = setup(slotted);
+  assert.match((await failure(() => run('check', file))).message,
+    /landing coin: counterValue has text in font slot "Counter", so its ink cannot be measured/);
+  const font = `--font=Counter=${new URL('../../templates/fonts/allo-1.0.3/Allo-Regular.otf', import.meta.url).pathname}`;
+  const checked = await run('check', file, font);
+  await run('pack', file, font, '--out=bonus.skmotion');
+  const unpacked = await run('unpack', join(cwd, 'bonus.skmotion'), '--out=bonus.unpacked.json');
+  const keys = JSON.parse(readFileSync(unpacked.file, 'utf8')).clips.run.tracks.coinX;
+  // The packed end key puts the coin where check measured it landed: on the laid-out ink's centre.
+  assert.ok(Math.abs(keys.at(-1)[1] - checked.landings[0].centre.x) < 0.01, `${keys.at(-1)[1]} against ${checked.landings[0].centre.x}`);
+  assert.equal(checked.landings[0].distance, 0);
+  // aim writes the keys where the flight stops; an `at` would judge another moment, so the pair is refused.
+  const timed = setup(bonusRow({ landX: 27, ringX: 280, landing: false, extra: { landings: [{ node: 'coin', target: 'counterValue', aim: true, at: 600 }] } }));
+  assert.match((await failure(() => timed.run('check', timed.file))).message, /aim writes the keys where the flight stops/);
+});

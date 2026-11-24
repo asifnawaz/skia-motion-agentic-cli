@@ -15,7 +15,7 @@ Run `skac --version`, `skac asset`, and `skac asset guide` to see the installed 
 | `asset trace <file>` | Sample states, values, channels and markers at millisecond times. Event times in `--commands` use seconds. |
 | `asset frame <file>` | Write a still for one sampled time. `--out=<name>.png` draws it with the app's own Skia draw code over CanvasKit, so blur, gradients, meshes, clips and text match the phone; `--background=#RRGGBB` fills behind it (default transparent). Otherwise it writes an SVG approximation. |
 | `asset pack <file>` | Write a `.skmotion` and report `sizeBreakdown`. Use `--format=binary` for compact resource storage and `--fonts=host` for a scene that uses font slots or platform text. |
-| `asset preview <file.skmotion>` | Open the actual packed asset in an offline interactive HTML preview. Supply required local fonts with repeatable `--font=slot=font.ttf`. The same mappings work in `asset frame`. |
+| `asset preview <file.skmotion>` | Open the actual packed asset in an offline interactive HTML preview. Supply required local fonts with repeatable `--font=slot=font.ttf`. The same mappings work in `asset frame`, `check`, `trace` and `pack`, where they only measure text (a landing with `aim` needs them for a target in a host slot) and embed nothing. |
 | `asset unpack <file.skmotion>` | Recover editable JSON on builds that list this command. |
 | `asset image`, `asset resource`, `asset types` | Embed artwork and media or generate typed app bindings. |
 
