@@ -1,6 +1,6 @@
 {
   "name": "skia-motion-agentic-cli",
-  "version": "3.3.1",
+  "version": "3.4.0",
   "description": "A JSON-only CLI for interactive motion assets with React Native Skia v3 and offline Remotion video.",
   "type": "module",
   "bin": {

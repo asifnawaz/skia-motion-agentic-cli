@@ -1,3 +1,21 @@
+# [3.4.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.3.1...v3.4.0) (2026-11-24)
+
+
+### Bug Fixes
+
+* **runtime:** a missing font slot draws in the default face, never throws ([d8fbec8](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/d8fbec8d8ecb8105c4d3906b71783c6928a883eb))
+
+
+### Features
+
+* **asset:** CanvasKit PNG frames ([c73ea77](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/c73ea77505ef8e3d9e867e1c13c46319e2eadca3))
+* **asset:** causal-chain check ([79b6ba3](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/79b6ba30cf2b836c001d1957baebcbf168d9b5ee))
+* **asset:** landing aim ([27f4734](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/27f4734e4ab5874d472364c24a7b3050fa9f338c))
+* **asset:** landings and text-clear checks ([78be856](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/78be856944e4d58092afe9c58a5934d39fc7679c))
+* **asset:** text-in-plate check ([83f5b86](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/83f5b86195b91c5231eea903afa5e902cb78e0df))
+* **runtime:** rolling counts ([f2f3ede](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/f2f3ede965dfe21bf445a327950c31a0bb2485b6))
+* **runtime:** row and plate auto, with the older-Skia fallback ([878959b](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/878959b8bc7e4a93688bac67a7928e3958842b25))
+
 ## [3.3.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.3.0...v3.3.1) (2026-11-24)
 
 
