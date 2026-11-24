@@ -13,7 +13,7 @@
         "children": [
           {"kind": "roundRect", "x": -107, "y": -24, "width": 214, "height": 48, "radius": 12, "fill": "#452B60"},
           {"kind": "roundRect", "x": -107, "y": -24, "width": 214, "height": 48, "radius": 12, "fill": "#84569E", "opacity": "landGlow"},
-          {"kind": "text", "text": {"value": "xpLabel"}, "x": -96, "y": -20, "width": 192, "fontSize": 31, "maxLines": 1, "align": "center", "fill": "#FFF4CA"}
+          {"kind": "text", "text": {"value": "xpLabel"}, "x": -96.6, "y": -18.5, "width": 192, "fontSize": 31, "maxLines": 1, "align": "center", "fill": "#FFF4CA"}
         ]
       }
     ]

@@ -2,7 +2,7 @@
 
 Every check `skac <Name> --check` and `skac lint` can report, in one table made from the code. A finding's `docs` field is the topic in the table, so `skac docs <topic>` gives the reason behind it. What each check proves, and what it cannot see, is in [motion/checks.md](motion/checks.md).
 
-Set a rule in `skia-motion.json`: `"rules": { "skac/speed-cap": "error", "skac/no-magic-motion": "warn" }`. Lint and rig rules take `error`, `warn` or `off`. The engine and spec checks are always errors and no setting turns them off. The asset rows run in `skac asset check` on JSON sources: `skac/text-clear` takes `error`, `warn` or `off`, and `skac/landing` is always an error.
+Set a rule in `skia-motion.json`: `"rules": { "skac/speed-cap": "error", "skac/no-magic-motion": "warn" }`. Lint and rig rules take `error`, `warn` or `off`. The engine and spec checks are always errors and no setting turns them off. The asset rows run in `skac asset check` on JSON sources: `skac/text-clear` and `skac/text-in-plate` take `error`, `warn` or `off`, and `skac/landing` is always an error.
 
 - A warn never fails `--check`; only an error does. A rig rule becomes an error once it passes known-good motion and fails a deliberately broken one.
 - A rig rule whose inputs are missing is skipped and listed under `skipped`. The "needs" column names them: `parts` is what the rig returns, the rest are `meta` keys.
@@ -43,7 +43,8 @@ Set a rule in `skia-motion.json`: `"rules": { "skac/speed-cap": "error", "skac/n
 | `skac/spec-beat` | spec (rig samples) | request | error | spec.beats | `blind` | a beat in `<Name>.spec.json` is unmet: no move, wrong direction, or `reaches` not reached |
 | `skac/spec-point` | spec (pixels) | request | error | spec.points | `blind` | the colour at a named point differs from the spec by more than 24 per channel |
 | `skac/text-clear` | asset | framing | error | text nodes | `motion/surge` | a drawn piece rests within 4 pt of a text box (neither moved in 150 ms, or the last frame); a pass in flight warns. `asset check` |
+| `skac/text-in-plate` | asset | framing | error | text nodes on plates or beside images | `motion/surge` | a plate's content is off centre (by the text's optical band) or within 4 pt of its edge, the plate resizes between values, or an icon beside a text is off its optical centre or its ink gap changes. `asset check` |
 | `skac/landing` | asset | request | error | `landings` | `motion/surge` | a flown node's centre is outside its target's box (plus tolerance) at its end key or `at`. `asset check` |
 | `skac/rest-spec` | spec (pixels) | request | error | spec.parts | `motion/checks` | a part box's edges do not sit on the drawing's edges in the still at t=0 |
 
-8 lint rules, 16 rig rules, 8 engine and spec checks.
+8 lint rules, 16 rig rules, 9 engine and spec checks.

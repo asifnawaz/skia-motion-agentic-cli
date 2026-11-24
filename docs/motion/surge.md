@@ -14,6 +14,7 @@ The numbers are worked ranges from one finished surge: a lamp that squashes, hop
 4. Add an attachment check for parts that must stay joined through the squash and stretch (`attachments: [{from, to, maxDistance}]`). In the lamp, the flame's centre and its halo's centre stay within 6 units.
 5. Every flown piece declares its landing. Give the piece and the thing it pays into an `id`, and list the pair in `landings: [{ "node": "coin", "target": "counterValue" }]`. `skac asset check` fails when the piece's centre ends outside the target's box. Add `tolerance` in points, or `at` (a marker name or a time in ms) when the landing is not where its travel ends. A piece that flies off and fades, as the lamp's pearls do, has no landing.
 6. Keep the payoff off the words. No piece may rest within 4 points of a text box (`skac/text-clear`). A glow, ring or pop that plays in place counts as resting, however briefly it shows. A pass on the way is only a warning. A landing's target reacts: the piece itself and anything drawn on the target from 100 ms before the landing to 400 ms after need no entry. Any other piece that belongs on a text, such as a halo behind a title, names the pair with a reason: `allowOverlap: [{ "nodes": ["titleHalo", "title"], "reason": "the halo sits behind the title" }]`.
+7. Place counters and chips from the ink, not by hand. A count on a plate, and an icon beside its number, are checked by `skac/text-in-plate`: the content is centred in the plate within 1 pt (down by the cap height, not the text box), keeps 4 pt inside its edges, and the plate holds its size while the value changes; an icon sits on the middle of the number's cap height, at one ink gap for every value. See `skac asset guide plates`.
 
 ## The beats
 
@@ -52,6 +53,6 @@ Random or variable rewards, slot reels, spinning wheels, coin showers, near-miss
 
 ## Checks
 
-- `skac asset check` on the JSON source, not the packed file: it runs the landings and `skac/text-clear` there. Pass the trigger (`--commands=reveal@0`) so the moment plays in its trace, and `--text-layout --font=<slot>=<file>` so text boxes are the laid-out lines rather than the declared box. Then `skac compare` on a render (`checks`), the frame list and a read at real speed.
+- `skac asset check` on the JSON source, not the packed file: it runs the landings, `skac/text-clear` and `skac/text-in-plate` there. Pass the trigger (`--commands=reveal@0`) so the moment plays in its trace, and `--font=<slot>=<file>` for each host font slot so text is judged by its laid-out ink rather than its declared box. Then `skac compare` on a render (`checks`), the frame list and a read at real speed.
 - The calm rig rules (`skac/overshoot`, `skac/speed-cap`, `skac/no-bouncy-spring`) judge against the calm budget and fail wild motion by design. In a project that ships earned moments, set them in `skia-motion.json` (`"rules": { "skac/overshoot": "off" }`) and write the reason in the plan. Keep every other rule on.
 - The moment plays once per cause, never as an idle loop, and the screen stays tappable while it plays.

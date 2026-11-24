@@ -6,7 +6,8 @@ import { buildSync } from 'esbuild';
 import { parseCommands } from './args.js';
 import { assetGuide } from './asset-guide.js';
 import { previewHTML } from './asset-preview.js';
-import { extentKey, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
+import { extentKey, measureImageInk, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
+import { textInPlate } from './asset-plate.js';
 import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js';
 import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
@@ -25,7 +26,7 @@ const USAGE = [
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
-  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings and skac/text-clear)',
+  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear and skac/text-in-plate)',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
   'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg>]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
@@ -312,12 +313,14 @@ function packHostFonts(file) {
   } : removeEmbeddedFonts(file);
 }
 
-/** skac/text-clear's severity from skia-motion.json ("rules": { "skac/text-clear": "warn" }); error by default. */
-function textClearSeverity(cwd) {
+/** The placement rules' severities from skia-motion.json ("rules": { "skac/text-clear": "warn" }); error by default. */
+function placementSeverities(cwd) {
   const { rules, configPath } = loadConfig(cwd);
-  const severity = rules['skac/text-clear'] ?? 'error';
-  if (!['error', 'warn', 'off'].includes(severity)) fail(`rules["skac/text-clear"] in ${configPath} is ${JSON.stringify(severity)}`, 'use error, warn or off');
-  return severity;
+  return Object.fromEntries(['skac/text-clear', 'skac/text-in-plate'].map((id) => {
+    const severity = rules[id] ?? 'error';
+    if (!['error', 'warn', 'off'].includes(severity)) fail(`rules["${id}"] in ${configPath} is ${JSON.stringify(severity)}`, 'use error, warn or off');
+    return [id, severity];
+  }));
 }
 
 /**
@@ -340,9 +343,10 @@ function placementTimes(asset, flags, landings = []) {
 
 /**
  * Landings and skac/text-clear over one trace. Every node's drawn box comes from the same pose the player draws. Text takes its laid-out
- * box from `extents` (measured with --text-layout, host slots via --font) and otherwise the box it declares; `textBoxes` counts which.
+ * ink from `extents` (laid out with the asset's fonts, host slots via --font) and otherwise the box it declares; `textBoxes` counts which.
  */
-function placement(runtime, visual, rows, viewport, extents, authored, severity, path) {
+function placement(runtime, visual, rows, viewport, { extents, imageInk }, authored, severities, path) {
+  const severity = severities['skac/text-clear'];
   const sources = { layout: 0, declared: 0 };
   const seen = new Set();
   const extent = (node, where, text) => {
@@ -354,7 +358,7 @@ function placement(runtime, visual, rows, viewport, extents, authored, severity,
     return found;
   };
   const placed = rows.map((row) => ({
-    t_ms: row.t_ms, states: row.states, markers: row.markers, channels: row.channels, entries: runtime.assetInkBoxes(visual, row.channels, row.values, extent, viewport),
+    t_ms: row.t_ms, states: row.states, markers: row.markers, channels: row.channels, entries: runtime.assetInkBoxes(visual, row.channels, row.values, extent, viewport, (image) => imageInk.get(image)),
   }));
   const ids = authored?.ids ?? new Map();
   const names = new Map([...ids].map(([id, where]) => [where, id]));
@@ -375,6 +379,13 @@ function placement(runtime, visual, rows, viewport, extents, authored, severity,
     found.warnings.push(...warnings);
     for (const error of errors) problems.push({ check: 'skac/text-clear', ...error });
   }
+  if (severities['skac/text-in-plate'] !== 'off') {
+    const plates = new Map([...(authored?.plates ?? [])].map(([where, id]) => [where, id]));
+    const { errors, warnings, unmeasured } = textInPlate(placed, { asset: visual, ids, names, declared: plates, severity: severities['skac/text-in-plate'] });
+    found.textInPlate = { severity: severities['skac/text-in-plate'], errors: errors.length, warnings: warnings.length, unmeasured };
+    found.warnings.push(...warnings);
+    for (const error of errors) problems.push({ check: 'skac/text-in-plate', ...error });
+  }
   if (problems.length) {
     const more = problems.length > 3 ? `; and ${problems.length - 3} more (see problems)` : '';
     fail(problems.slice(0, 3).map(({ error }) => error).join('; ') + more, problems[0].hint, { file: path, problems, ...found });
@@ -390,8 +401,8 @@ export function assetCommand(args, flags, cwd) {
     fail('--fonts=host is for asset pack', 'use it to omit embedded fonts from an asset that uses font slots');
   }
   if (flags.fonts !== undefined && flags.fonts !== 'host') fail('unknown font export option', 'use --fonts=host or omit --fonts to keep the authored fallbacks');
-  if (flags.font?.length && !(action === 'preview' || action === 'frame' || (action === 'check' && flags['text-layout']))) {
-    fail('--font is for asset preview, frame, or check --text-layout', 'supply --font=slot=path/to/font.ttf');
+  if (flags.font?.length && !(action === 'preview' || action === 'frame' || action === 'check')) {
+    fail('--font is for asset preview, frame, or check', 'supply --font=slot=path/to/font.ttf');
   }
   if (action === 'sample') return sample(input, output, cwd, flags.force);
   if (action === 'guide' && !output) {
@@ -430,22 +441,24 @@ export function assetCommand(args, flags, cwd) {
     const { warnings } = runtime.validateMachine(asset.machine, { clips: asset.clips });
     const summary = { ok: true, file: path, ...describe(asset), ...bundleInfo, warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)] };
     const authored = boards.get(isBundle ? flags.artboard ?? file.defaultArtboard : '');
-    const severity = textClearSeverity(cwd);
+    const severities = placementSeverities(cwd);
     // The placement checks judge the authored source; a packed .skmotion has no ids, landings or allowances left to read.
     const authoring = !binary && extname(path).toLowerCase() !== '.skmotion';
-    const clear = authoring && (Boolean(authored?.landings.length) || (severity !== 'off' && runtime.assetTextNodes(asset.artboard.nodes).length > 0));
+    const textRules = severities['skac/text-clear'] !== 'off' || severities['skac/text-in-plate'] !== 'off';
+    const clear = authoring && (Boolean(authored?.landings.length) || (textRules && runtime.assetTextNodes(asset.artboard.nodes).length > 0));
     if (!asset.attachments?.length && !flags['text-layout'] && !clear) return summary;
     const viewport = traceViewport(flags.size) ?? summary.artboard;
     if (clear) {
       const visual = applyDefaultFont(asset);
       const rows = trace(visual, { ...flags, trace: placementTimes(visual, flags, authored?.landings) }, viewport);
-      const finish = (extents) => {
-        const found = placement(runtime, visual, rows, viewport, extents, authored, severity, path);
+      // Text ink comes from Skia's layout with the asset's fonts (host slots via --font); an image's ink from its alpha.
+      return Promise.all([
+        measureTextExtents(runtime.resolveAssetFonts(visual, hostFonts), runtime.assetTextSamples(visual, rows)),
+        measureImageInk(visual.images, visual.imageSlots),
+      ]).then(([extents, imageInk]) => {
+        const found = placement(runtime, visual, rows, viewport, { extents, imageInk }, authored, severities, path);
         return checkRest({ ...summary, ...found, warnings: [...summary.warnings, ...found.warnings] });
-      };
-      // Laid-out text boxes need the layout engine, which --text-layout already loads; without it the declared box is used.
-      if (!flags['text-layout']) return finish(new Map());
-      return measureTextExtents(runtime.resolveAssetFonts(visual, hostFonts), runtime.assetTextSamples(visual, rows)).then(finish);
+      });
     }
     return checkRest(summary);
   }

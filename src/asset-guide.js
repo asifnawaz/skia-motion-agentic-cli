@@ -10,7 +10,7 @@ const topics = {
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
-    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'layout', 'playback', 'migrate'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'layout', 'playback', 'migrate'],
   },
   binary: {
     steps: [
@@ -62,7 +62,7 @@ const topics = {
       'An app-provided typeface replaces its slot fallback for the selected artboard. The runtime borrows that typeface and reports a missing slot if neither source is available.',
       'Pack with --fonts=host for a font-free motion file. Each text node must explicitly use declared slots or fonts: [] for the platform font. Normal packing retains embedded fallbacks.',
       'The pack result reports sizeBreakdown for fonts, images, audio and scene data. JSON reports its encoded data URI sizes. Binary reports deduplicated payload sizes.',
-      'Repeat --font=slot=path/to/font.ttf for preview, frame and check --text-layout. Local files feed those checks and the offline preview. Pack the source separately to ship it.',
+      'Repeat --font=slot=path/to/font.ttf for preview, frame and check. Local files feed those checks and the offline preview. Pack the source separately to ship it.',
       'Use asset unpack to recover editable .motion.json. Host font files and resources removed by a prior pack remain outside the recovered source.',
     ],
     commands: [
@@ -112,7 +112,7 @@ const topics = {
       landings: 'optional [{node,target,at?,tolerance?}] by node id: where each flown piece must end. Authoring only; pack drops it',
       allowOverlap: 'optional [{nodes:[a,b],reason}] by node id: pieces that may rest on a text. Authoring only; pack drops it',
     },
-    nodeId: 'Any node may carry id, a name unique in its artboard, for landings and allowOverlap. Authoring only; pack drops it.',
+    nodeId: 'Any node may carry id, a name unique in its artboard, for landings, allowOverlap and plate. A text may carry plate: <id>, the plate it sits on. Authoring only; pack drops both.',
     drawOrder: 'Nodes and group children draw from first to last.',
     nodeTypes: {
       ellipse: { kind: 'ellipse', x: 36, y: 18, width: 96, height: 96, fill: '#EDECAB' },
@@ -276,7 +276,7 @@ const topics = {
       'Rule skac/text-clear: no drawn piece rests within 4 points of a text box. Resting means neither the piece nor the text moved in the 150 ms before, or the last frame, so a glow, ring or pop that plays in place on a text counts however briefly it shows. A piece passing a text in flight is a warning.',
       'Pieces are judged by their box (a blur adds its feather, a stroke half its width, a path its control points), and a circle by its edge.',
       'A shape whose box holds the whole text box is its background and is not judged. A landing\'s target is exempt from 100 ms before the landing to 400 ms after, so the piece arriving and the target\'s reaction (a pop, a glow, a ring) need no entry. Name any other pair that belongs together in allowOverlap with a reason.',
-      'Text boxes are the laid-out lines when asset check runs with --text-layout and can load the fonts (embedded, or host slots with --font); otherwise the declared box: the node\'s width, 1.2 times its font size per line. textClear.textBoxes in the reply counts which.',
+      'A text is judged by its ink: the glyphs Skia lays out with the asset\'s fonts (embedded, or host slots with --font). A text it cannot lay out (a platform font, fonts: []) is judged by its declared box: the node\'s width, 1.2 times its font size per line. textClear.textBoxes in the reply counts which.',
       'Set the rule to warn or off in skia-motion.json: "rules": { "skac/text-clear": "warn" }. Packed .skmotion files carry no ids, so check the JSON source.',
     ],
     group: { kind: 'group', id: 'coin', x: 'coinX', y: 'coinY', children: [] },
@@ -284,7 +284,20 @@ const topics = {
     allowOverlap: [{ nodes: ['titleHalo', 'title'], reason: 'the halo sits behind the title' }],
     commands: [
       'skac asset check bonus.motion.json --commands=claim@0',
-      'skac asset check bonus.motion.json --commands=claim@0 --text-layout --font=Label=Label.ttf',
+      'skac asset check bonus.motion.json --commands=claim@0 --font=Label=Label.ttf',
+    ],
+  },
+  plates: {
+    drawing: [
+      'Rule skac/text-in-plate. A text sits on a plate when a filled roundRect drawn before it in its group (or a group above it) holds its ink; the smallest such plate wins. Name another with plate: <id> on the text.',
+      'At rest, the content on a plate (its texts and the images inside it) is centred across and down within 1 pt. Down is judged by the texts\' optical band, not their boxes: cap height over the baseline for capitals, digits and signs, x-height for lowercase only, the ink for scripts with no case.',
+      'Content keeps at least 4 pt inside every edge of the plate, by ink. The plate changes size by at most 1 pt between the values its texts show, so size it for the widest value and use tabular digits. Set each value with --commands so the trace shows it at rest.',
+      'An image beside a text on one row (their heights overlap by more than half) is centred on the text\'s optical band within 1 pt, and the ink gap between them holds within 1 pt across values. An image\'s ink is its drawn part, from its alpha, so a clear margin in a sprite does not count.',
+      'Texts need a laid-out font to be judged: a platform font is listed under textInPlate.unmeasured. Set the rule to warn or off in skia-motion.json like any other.',
+    ],
+    text: { kind: 'text', id: 'count', plate: 'pill', text: { value: 'count' }, x: 8.8, y: -11.1, width: 14, fontSize: 20, fill: '#1D2B2A', align: 'center', fontFeatures: [{ name: 'tnum', value: 1 }] },
+    commands: [
+      'skac asset check counter.motion.json --font=Counter=./fonts/Counter.ttf --commands=\'count="12"@0.5\'',
     ],
   },
   layout: {
