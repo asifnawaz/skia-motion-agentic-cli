@@ -4,6 +4,7 @@ import { assetClips, assetMarkerEvents, assetTextNodes, parseAsset, type AssetMa
 import { assetPoints, hasAssetPoints, type ArtboardPoint, type AssetViewport } from './asset-attachments';
 
 export { measureAttachments } from './asset-attachments';
+export { assetInkBoxes, declaredText, INK_ALPHA, shownText } from './asset-bounds';
 export { parseAsset };
 export { assetTextNodes, parseAssetFile, parseAssetSource, resolveAssetFonts, selectArtboard } from './asset';
 export { hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages } from './asset';

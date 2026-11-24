@@ -24,6 +24,10 @@ export const FIXED = [
     note: 'a beat in `<Name>.spec.json` is unmet: no move, wrong direction, or `reaches` not reached' },
   { id: 'skac/spec-point', layer: 'spec (pixels)', category: 'request', default: 'error', needs: 'spec.points', docs: 'blind', file: 'src/spec.js',
     note: 'the colour at a named point differs from the spec by more than 24 per channel' },
+  { id: 'skac/text-clear', layer: 'asset', category: 'framing', default: 'error', needs: 'text nodes', docs: 'motion/surge', file: 'src/asset-clear.js',
+    note: 'a drawn piece rests within 4 pt of a text box (neither moved in 150 ms, or the last frame); a pass in flight warns. `asset check`' },
+  { id: 'skac/landing', layer: 'asset', category: 'request', default: 'error', needs: '`landings`', docs: 'motion/surge', file: 'src/asset-clear.js',
+    note: "a flown node's centre is outside its target's box (plus tolerance) at its end key or `at`. `asset check`" },
   { id: 'skac/rest-spec', layer: 'spec (pixels)', category: 'request', default: 'error', needs: 'spec.parts', docs: 'motion/checks', file: 'src/rest.js',
     note: "a part box's edges do not sit on the drawing's edges in the still at t=0" },
 ];
