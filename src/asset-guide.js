@@ -10,7 +10,7 @@ const topics = {
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
-    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'roll', 'layout', 'playback', 'migrate'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'roll', 'chain', 'layout', 'playback', 'migrate'],
   },
   binary: {
     steps: [
@@ -315,6 +315,24 @@ const topics = {
       'skac asset frame counter.motion.json --trace=300 --commands=\'previousCount="+9"@0 count="+12"@0 roll@0\'',
       'skac asset check counter.motion.json --commands=\'previousCount="+9"@0 count="+12"@0 roll@0\'',
     ],
+  },
+  chain: {
+    drawing: [
+      'An earned moment is a chain of cause and effect: A touches B, B reacts, B sends C. Write it first, one line per beat, then key the clip so each beat starts at its contact.',
+      'Mark the artboard register: "earned" and list the beats in chain: { clip, beats }. A beat names the channels it moves, its cause ("<beat>@<contact>") and the contacts it offers the next beats, each a time in the clip (ms) or "end", its last change.',
+      'Rule skac/causal-chain: every beat but the first starts 0 to 80 ms after its cause\'s contact. Only the first beat, the trigger, has no cause. A beat that starts before its cause, or later than 80 ms, fails with its gap.',
+      'Two beats set off by the same contact at the same ms are layering, not chaining: a warning. Channels that move but belong to no beat are a warning too, listed by when they start.',
+      'register: "earned" with no chain fails and lists the clip\'s channels by when they start (chain.unclaimed in the reply), so the chain can be written from them. Interface chrome is register: "chrome" and is not judged.',
+      'Authoring only; pack drops register and chain. Set the rule to warn or off in skia-motion.json like any other.',
+    ],
+    register: 'earned',
+    chain: { clip: 'open', beats: [
+      { id: 'shake', channels: ['tilt'], contacts: { knock: 'end' } },
+      { id: 'lid', channels: ['lidY'], cause: 'shake@knock', contacts: { open: 'end' } },
+      { id: 'coins', channels: ['coin0X', 'coin1X'], cause: 'lid@open', contacts: { peak: 1000 } },
+      { id: 'sparkle', channels: ['sparkle'], cause: 'coins@peak' },
+    ] },
+    commands: ['skac asset check chest.motion.json'],
   },
   layout: {
     drawing: [

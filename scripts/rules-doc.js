@@ -28,6 +28,8 @@ export const FIXED = [
     note: 'a drawn piece rests within 4 pt of a text box (neither moved in 150 ms, or the last frame); a pass in flight warns. `asset check`' },
   { id: 'skac/text-in-plate', layer: 'asset', category: 'framing', default: 'error', needs: 'text nodes on plates or beside images', docs: 'motion/surge', file: 'src/asset-plate.js',
     note: "a plate's content is off centre (by the text's optical band) or within 4 pt of its edge, the plate resizes between values, or an icon beside a text is off its optical centre or its ink gap changes. `asset check`" },
+  { id: 'skac/causal-chain', layer: 'asset', category: 'timing', default: 'error', needs: '`register: "earned"`', docs: 'motion/surge', file: 'src/asset-chain.js',
+    note: 'in an earned moment, a beat starts more than 80 ms after the contact that causes it, or before it, or more than one beat has no cause; beats layered off one contact at one ms warn. `asset check`' },
   { id: 'skac/landing', layer: 'asset', category: 'request', default: 'error', needs: '`landings`', docs: 'motion/surge', file: 'src/asset-clear.js',
     note: "a flown node's centre is outside its target's box (plus tolerance) at its end key or `at`. `asset check`" },
   { id: 'skac/rest-spec', layer: 'spec (pixels)', category: 'request', default: 'error', needs: 'spec.parts', docs: 'motion/checks', file: 'src/rest.js',
