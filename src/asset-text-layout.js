@@ -58,6 +58,44 @@ function trackTextLayout(kit, provider, node, text) {
   };
 }
 
+/**
+ * Where each sampled text's lines sit inside its node, from Skia's paragraph layout with the asset's fonts (host font slots included).
+ * A text that cannot be laid out (a platform font, a missing slot or missing glyphs) is left out, and the caller uses its declared box.
+ * @returns {Promise<Map<string, {left: number, top: number, width: number, height: number, source: 'layout'}>>} keyed by `extentKey`.
+ */
+export async function measureTextExtents({ fonts, missing }, cases) {
+  const extents = new Map();
+  let kit;
+  let provider;
+  try {
+    for (const { node, text } of cases) {
+      const key = extentKey(node, text);
+      if (extents.has(key) || !node.fonts?.length || node.fonts.some((name) => missing.includes(name))) continue;
+      if (!provider) {
+        kit = await loadCanvasKit();
+        provider = kit.TypefaceFontProvider.Make();
+        for (const [name, uri] of Object.entries(fonts)) {
+          const data = Buffer.from(uri.slice(uri.indexOf(',') + 1), 'base64');
+          if (provider.registerFont(data, name) === null) fail(`fonts.${name}: Skia could not decode the font`, 'replace it with a valid TTF or OTF');
+        }
+      }
+      const { lines, missing: unresolved } = paragraphMetrics(kit, provider, node, text.replaceAll('\r\n', '\n'), false);
+      const shown = lines.slice(0, node.maxLines ?? 1);
+      if (unresolved.length || !shown.length) continue;
+      const left = Math.min(...shown.map((line) => line.left));
+      const right = Math.max(...shown.map((line) => line.left + line.width));
+      const height = shown.reduce((sum, line) => sum + line.height, 0);
+      extents.set(key, { left, top: 0, width: Math.max(0, right - left), height, source: 'layout' });
+    }
+    return extents;
+  } finally {
+    provider?.delete();
+  }
+}
+
+export const extentKey = (node, text) =>
+  JSON.stringify([text, node.fonts, node.width, node.fontSize, node.maxLines, node.direction, node.align, node.fontFeatures]);
+
 export async function measureTextLayout({ fonts, missing }, cases, viewport, samples) {
   const stats = { engine: 'skia-paragraph', viewport, samples, measured: 0, unmeasured: 0, overflow: 0 };
   const warnings = [];

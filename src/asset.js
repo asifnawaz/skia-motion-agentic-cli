@@ -6,7 +6,9 @@ import { buildSync } from 'esbuild';
 import { parseCommands } from './args.js';
 import { assetGuide } from './asset-guide.js';
 import { previewHTML } from './asset-preview.js';
-import { measureTextLayout } from './asset-text-layout.js';
+import { extentKey, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
+import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js';
+import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
 import { PACKAGE_ROOT } from './docs.js';
 import { fail } from './util.js';
@@ -23,7 +25,7 @@ const USAGE = [
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
-  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0]',
+  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings and skac/text-clear)',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
   'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg>]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
@@ -135,11 +137,12 @@ function readAsset(path, authoring) {
   }
   try {
     const runtime = assetRuntime();
-    if (runtime.isBinaryAsset(bytes)) return { file: runtime.parseAssetFile(bytes), source: bytes, binary: true };
-    const source = bytes.toString('utf8');
-    const file = authoring && extname(path).toLowerCase() !== '.skmotion'
-      ? runtime.parseAssetSource(source) : runtime.parseAssetFile(source);
-    return { file, source };
+    if (runtime.isBinaryAsset(bytes)) return { file: runtime.parseAssetFile(bytes), source: bytes, binary: true, boards: new Map() };
+    const packed = extname(path).toLowerCase() === '.skmotion';
+    // Node ids, landings and allowOverlap are authoring-only: asset check reads them and the runtime never sees them.
+    const { text: source, boards } = packed ? { text: bytes.toString('utf8'), boards: new Map() } : splitAuthoring(bytes.toString('utf8'));
+    const file = authoring && !packed ? runtime.parseAssetSource(source) : runtime.parseAssetFile(source);
+    return { file, source, boards };
   } catch (error) {
     fail(error.message, 'see skac asset sample for an example of skac.asset/1', { file: path });
   }
@@ -309,6 +312,76 @@ function packHostFonts(file) {
   } : removeEmbeddedFonts(file);
 }
 
+/** skac/text-clear's severity from skia-motion.json ("rules": { "skac/text-clear": "warn" }); error by default. */
+function textClearSeverity(cwd) {
+  const { rules, configPath } = loadConfig(cwd);
+  const severity = rules['skac/text-clear'] ?? 'error';
+  if (!['error', 'warn', 'off'].includes(severity)) fail(`rules["skac/text-clear"] in ${configPath} is ${JSON.stringify(severity)}`, 'use error, warn or off');
+  return severity;
+}
+
+/**
+ * The trace the placement checks read when no --trace is given: from 0 to 300 ms past the longest clip after the last command, at most
+ * 500 samples, plus the exact time of every landing given in ms.
+ */
+function placementTimes(asset, flags, landings = []) {
+  if (flags.trace) return flags.trace;
+  const longest = Math.max(0, ...Object.values(asset.clips).map(({ ms }) => ms));
+  const events = flags.commands ? parseCommands(flags.commands).events : [];
+  const after = Math.max(0, ...events.map(({ at }) => at * 1000));
+  const span = Math.min(60000, Math.ceil(after + longest + 300));
+  const exact = landings.map(({ at }) => at).filter((at) => typeof at === 'number' && at <= 60000);
+  const step = Math.max(16, Math.ceil(span / (499 - exact.length)));
+  const times = new Set(exact);
+  for (let t = 0; t < span; t += step) times.add(t);
+  times.add(span);
+  return [...times].sort((a, b) => a - b).join(',');
+}
+
+/**
+ * Landings and skac/text-clear over one trace. Every node's drawn box comes from the same pose the player draws. Text takes its laid-out
+ * box from `extents` (measured with --text-layout, host slots via --font) and otherwise the box it declares; `textBoxes` counts which.
+ */
+function placement(runtime, visual, rows, viewport, extents, authored, severity, path) {
+  const sources = { layout: 0, declared: 0 };
+  const seen = new Set();
+  const extent = (node, where, text) => {
+    const found = extents.get(extentKey(node, text)) ?? runtime.declaredText(node);
+    if (!seen.has(`${where}|${text}`)) {
+      seen.add(`${where}|${text}`);
+      sources[found.source]++;
+    }
+    return found;
+  };
+  const placed = rows.map((row) => ({
+    t_ms: row.t_ms, states: row.states, markers: row.markers, channels: row.channels, entries: runtime.assetInkBoxes(visual, row.channels, row.values, extent, viewport),
+  }));
+  const ids = authored?.ids ?? new Map();
+  const names = new Map([...ids].map(([id, where]) => [where, id]));
+  const found = { samples: rows.length, warnings: [] };
+  const problems = [];
+  if (authored?.landings.length) {
+    found.landings = measureLandings(placed, authored.landings, ids, names, visual);
+    for (const landing of found.landings) if (landing.problem) problems.push({ check: 'skac/landing', error: landing.problem, hint: landing.hint });
+  }
+  if (severity !== 'off') {
+    const reacts = (found.landings ?? []).filter(({ t_ms }) => t_ms !== undefined).map(({ target, t_ms }) => ({ where: ids.get(target), from: t_ms }));
+    const { errors, warnings } = textClearance(placed, { ids, names, severity, reacts, allow: [
+      ...(authored?.allowOverlap ?? []),
+      // A landing says its node belongs on its target.
+      ...(authored?.landings ?? []).map(({ node, target }) => ({ nodes: [node, target], reason: 'the landing target' })),
+    ] });
+    found.textClear = { severity, textBoxes: sources, errors: errors.length, warnings: warnings.length };
+    found.warnings.push(...warnings);
+    for (const error of errors) problems.push({ check: 'skac/text-clear', ...error });
+  }
+  if (problems.length) {
+    const more = problems.length > 3 ? `; and ${problems.length - 3} more (see problems)` : '';
+    fail(problems.slice(0, 3).map(({ error }) => error).join('; ') + more, problems[0].hint, { file: path, problems, ...found });
+  }
+  return found;
+}
+
 export function assetCommand(args, flags, cwd) {
   const [action, input, output] = args;
   if (!action) return { ok: true, commands: USAGE, schema: 'skac.asset/1', next: 'skac asset guide' };
@@ -332,7 +405,7 @@ export function assetCommand(args, flags, cwd) {
     fail('invalid asset command', 'run skac asset for the command list');
   }
   const path = resolve(cwd, input);
-  const { file, source, binary } = readAsset(path, action === 'pack' || action === 'check');
+  const { file, source, binary, boards } = readAsset(path, action === 'pack' || action === 'check');
   const stem = input.replace(/(?:\.motion)?\.json$|\.skmotion$/i, '');
   if (action === 'unpack') {
     const destination = resolve(cwd, flags.out ?? `${stem}.unpacked.motion.json`);
@@ -356,8 +429,30 @@ export function assetCommand(args, flags, cwd) {
     const runtime = assetRuntime();
     const { warnings } = runtime.validateMachine(asset.machine, { clips: asset.clips });
     const summary = { ok: true, file: path, ...describe(asset), ...bundleInfo, warnings: [...warnings, ...runtime.sparseBlendWarnings(asset)] };
-    if (!asset.attachments?.length && !flags['text-layout']) return summary;
+    const authored = boards.get(isBundle ? flags.artboard ?? file.defaultArtboard : '');
+    const severity = textClearSeverity(cwd);
+    // The placement checks judge the authored source; a packed .skmotion has no ids, landings or allowances left to read.
+    const authoring = !binary && extname(path).toLowerCase() !== '.skmotion';
+    const clear = authoring && (Boolean(authored?.landings.length) || (severity !== 'off' && runtime.assetTextNodes(asset.artboard.nodes).length > 0));
+    if (!asset.attachments?.length && !flags['text-layout'] && !clear) return summary;
     const viewport = traceViewport(flags.size) ?? summary.artboard;
+    if (clear) {
+      const visual = applyDefaultFont(asset);
+      const rows = trace(visual, { ...flags, trace: placementTimes(visual, flags, authored?.landings) }, viewport);
+      const finish = (extents) => {
+        const found = placement(runtime, visual, rows, viewport, extents, authored, severity, path);
+        return checkRest({ ...summary, ...found, warnings: [...summary.warnings, ...found.warnings] });
+      };
+      // Laid-out text boxes need the layout engine, which --text-layout already loads; without it the declared box is used.
+      if (!flags['text-layout']) return finish(new Map());
+      return measureTextExtents(runtime.resolveAssetFonts(visual, hostFonts), runtime.assetTextSamples(visual, rows)).then(finish);
+    }
+    return checkRest(summary);
+  }
+  function checkRest(summary) {
+    const runtime = assetRuntime();
+    const viewport = traceViewport(flags.size) ?? summary.artboard;
+    if (!asset.attachments?.length && !flags['text-layout']) return summary;
     const rows = trace(asset, flags, viewport);
     if (asset.attachments?.length) {
       const attachments = runtime.measureAttachments(asset.attachments, rows);

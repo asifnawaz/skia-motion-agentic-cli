@@ -5,12 +5,12 @@ const topics = {
       'Draw one resting silhouette at actual phone size. Block large shapes first. Add contours, small details, and a light direction once the silhouette reads.',
       'Draw the important poses before adding in-betweens. Use a shared pivot for connected parts and hold the endpoint long enough to read.',
       'Wire game or app inputs to named states. Place visual cues on state entry. Keep score, answers, ammo and other authoritative data in the host.',
-      'Run asset check, replay repeated and interrupted inputs with asset trace, then open selected asset frame SVGs and refine.',
+      'Run asset check on the JSON source, replay repeated and interrupted inputs with asset trace, then open selected asset frame SVGs and refine. Check fails when a flown piece misses its declared landing or a piece rests on text (see the landings guide).',
       'Run asset pack and load the resulting file with MotionPlayer from skia-motion-runtime. See the binary guide for compact exports and app loading.',
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
-    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'layout', 'playback', 'migrate'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'layout', 'playback', 'migrate'],
   },
   binary: {
     steps: [
@@ -109,7 +109,10 @@ const topics = {
       fonts: 'optional map of font names to embedded TTF or OTF data URIs',
       fontSlots: 'optional named host typefaces with an optional embedded fallback. See asset guide font-slots',
       attachments: 'optional [{from,to,maxDistance}] checks for named group points and mesh pins',
+      landings: 'optional [{node,target,at?,tolerance?}] by node id: where each flown piece must end. Authoring only; pack drops it',
+      allowOverlap: 'optional [{nodes:[a,b],reason}] by node id: pieces that may rest on a text. Authoring only; pack drops it',
     },
+    nodeId: 'Any node may carry id, a name unique in its artboard, for landings and allowOverlap. Authoring only; pack drops it.',
     drawOrder: 'Nodes and group children draw from first to last.',
     nodeTypes: {
       ellipse: { kind: 'ellipse', x: 36, y: 18, width: 96, height: 96, fill: '#EDECAB' },
@@ -263,6 +266,25 @@ const topics = {
     commands: [
       'skac asset check lamp.motion.json --trace=0:2400:16 --commands=surge@0',
       'skac asset trace lamp.motion.json --trace=0,800,1000 --commands=surge@0',
+    ],
+  },
+  landings: {
+    drawing: [
+      'Give every flown piece and the thing it pays into an id. List each pair in landings.',
+      'Asset check judges a landing where the piece stops travelling: the last change of an x or y channel on the piece, inside it or above it. Scale and opacity are left out, so a piece that shrinks into its target is judged where it arrived. A switch to another clip, such as the return to idle, is not travel. Give at, a marker name or a time in ms, to judge another moment, and always for a piece a looping clip moves.',
+      'The piece passes when its centre lies inside the target\'s box widened by tolerance points (default 0). The error names the piece, the target, the distance in points and the time.',
+      'Rule skac/text-clear: no drawn piece rests within 4 points of a text box. Resting means neither the piece nor the text moved in the 150 ms before, or the last frame, so a glow, ring or pop that plays in place on a text counts however briefly it shows. A piece passing a text in flight is a warning.',
+      'Pieces are judged by their box (a blur adds its feather, a stroke half its width, a path its control points), and a circle by its edge.',
+      'A shape whose box holds the whole text box is its background and is not judged. A landing\'s target is exempt from 100 ms before the landing to 400 ms after, so the piece arriving and the target\'s reaction (a pop, a glow, a ring) need no entry. Name any other pair that belongs together in allowOverlap with a reason.',
+      'Text boxes are the laid-out lines when asset check runs with --text-layout and can load the fonts (embedded, or host slots with --font); otherwise the declared box: the node\'s width, 1.2 times its font size per line. textClear.textBoxes in the reply counts which.',
+      'Set the rule to warn or off in skia-motion.json: "rules": { "skac/text-clear": "warn" }. Packed .skmotion files carry no ids, so check the JSON source.',
+    ],
+    group: { kind: 'group', id: 'coin', x: 'coinX', y: 'coinY', children: [] },
+    landings: [{ node: 'coin', target: 'counterValue' }],
+    allowOverlap: [{ nodes: ['titleHalo', 'title'], reason: 'the halo sits behind the title' }],
+    commands: [
+      'skac asset check bonus.motion.json --commands=claim@0',
+      'skac asset check bonus.motion.json --commands=claim@0 --text-layout --font=Label=Label.ttf',
     ],
   },
   layout: {
