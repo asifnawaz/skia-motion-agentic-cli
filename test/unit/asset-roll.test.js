@@ -90,3 +90,13 @@ test('roll: asset check warns about the runtime it needs, and about values it ca
   assert.ok(codes.includes('roll-runtime'));
   assert.ok(result.warnings.some(({ code, error }) => code === 'roll-cut' && error.startsWith('"1.200" to "1.300" cannot roll')));
 });
+
+test('roll: at rest a frame reads as its plain number, and a rolling text is styled with tabular figures', () => {
+  assert.equal(R.restText(R.rollFrame('+98', '+102', 0)), '+98');
+  assert.equal(R.restText(R.rollFrame('+98', '+102', 1)), '+102');
+  assert.equal(R.restText(R.rollFrame('۹۸%', '۱۰۲%', 1)), '۱۰۲%');
+  const node = { kind: 'text', roll: { progress: 'p', from: 'f' }, fontFeatures: [{ name: 'liga', value: 0 }] };
+  assert.deepEqual(R.rollTextStyle(node).fontFeatures, [{ name: 'liga', value: 0 }, { name: 'tnum', value: 1 }]);
+  const plain = { kind: 'text' };
+  assert.equal(R.rollTextStyle(plain), plain);
+});

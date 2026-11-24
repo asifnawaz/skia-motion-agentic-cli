@@ -30,7 +30,7 @@ function paragraphMetrics(kit, provider, node, text, capped) {
   }
 }
 
-async function loadCanvasKit() {
+export async function loadCanvasKit() {
   try {
     canvasKit ??= import('canvaskit-wasm').then(({ default: initialize }) => initialize());
     return await canvasKit;

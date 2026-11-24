@@ -6,7 +6,7 @@ import { MAX_FEATHER, resolveAssetColor, resolveAssetFonts, usedAssetImages, typ
 import type { AssetResource } from './asset-binary';
 import { fitAsset, fittedAnchorOffset, type AssetLayoutOptions } from './asset-layout';
 import { meshPinPosition, meshPosition, type MeshNode, type MeshPin } from './asset-mesh';
-import { digitText, rollFrame } from './asset-roll';
+import { digitText, restText, rollFrame, rollTextStyle } from './asset-roll';
 
 type Channels = Readonly<Record<string, number>>;
 type Palette = Readonly<Record<string, string>>;
@@ -144,7 +144,13 @@ function meshShader(image: SkImage): SkShader {
   return image.makeShaderOptions(TileMode.Decal, TileMode.Decal, FilterMode.Linear, MipmapMode.None);
 }
 
-function makeParagraph(node: AssetTextNode, text: string, provider?: SkTypefaceFontProvider): SkParagraph {
+/**
+ * Lay out a text node's paragraph. `text` is the whole string, or runs of it each shown or laid out unseen (a rolling number keeps its
+ * digits' place in the line while it draws them itself).
+ */
+function makeParagraph(
+  node: AssetTextNode, text: string | readonly (readonly [string, boolean])[], provider?: SkTypefaceFontProvider,
+): SkParagraph {
   'worklet';
   const builder = Skia.ParagraphBuilder.Make({
     textDirection: node.direction === 'rtl' ? TextDirection.RTL : TextDirection.LTR,
@@ -152,23 +158,42 @@ function makeParagraph(node: AssetTextNode, text: string, provider?: SkTypefaceF
     maxLines: node.maxLines ?? 1,
     ellipsis: '…',
   }, node.fonts?.length ? provider : undefined);
-  builder.pushStyle({
-    color: Skia.Color(node.fill), fontSize: node.fontSize,
-    ...(node.fonts?.length ? { fontFamilies: [...node.fonts] } : {}),
-    ...(node.fontFeatures?.length ? { fontFeatures: [...node.fontFeatures] } : {}),
-  });
-  builder.addText(text);
+  const runs = typeof text === 'string' ? [[text, true] as const] : text;
+  for (const [content, shown] of runs) {
+    if (!content) continue;
+    builder.pushStyle({
+      color: Skia.Color(shown ? node.fill : 'rgba(0,0,0,0)'), fontSize: node.fontSize,
+      ...(node.fonts?.length ? { fontFamilies: [...node.fonts] } : {}),
+      ...(node.fontFeatures?.length ? { fontFeatures: [...node.fontFeatures] } : {}),
+    });
+    builder.addText(content);
+    builder.pop();
+  }
   const paragraph = builder.build();
   paragraph.layout(node.width);
   return paragraph;
 }
 
-const TABULAR = { name: 'tnum', value: 1 } as const;
+/** The baseline of a paragraph's first line, from its top. */
+function baselineOf(paragraph: SkParagraph): number {
+  'worklet';
+  return paragraph.getLineMetrics()[0]?.baseline ?? 0;
+}
+
+/** The left edge of a range of a laid-out paragraph, in its own coordinates. */
+function rangeLeft(paragraph: SkParagraph, start: number, end: number): number {
+  'worklet';
+  let left = Infinity;
+  for (const rect of paragraph.getRectsForRange(start, end)) left = Math.min(left, rect.x);
+  return left === Infinity ? 0 : left;
+}
 
 /**
- * A rolling number (`roll` on a text node): each digit place is a column clipped to one line, the current digit leaving upward as the next
- * comes in from below by the place's turn. Every place takes the zero's advance with tabular figures, so the number never shifts. Values
- * the odometer cannot roll (two runs of digits, different prefixes) cut from one to the other at half way.
+ * A rolling number (`roll` on a text node). At rest it is the plain paragraph of the number it shows, with tabular figures. While it rolls,
+ * Skia lays out the same paragraph with zeros in the digit places, which places the prefix, the digit run and the suffix by the node's own
+ * alignment and direction; each digit place is then a column clipped to one line, the current digit leaving upward as the next comes in
+ * from below. A blank leading place opens as its digit arrives, so the layout eases between the shorter and the longer number. Values the
+ * odometer cannot roll (two runs of digits, different prefixes) cut from one to the other at half way.
  */
 function drawRoll(
   canvas: SkCanvas, node: AssetTextNode & { roll: { progress: string; from: string } }, channels: Channels, values: TextValues,
@@ -179,50 +204,70 @@ function drawRoll(
   const from = values[node.roll.from] ?? '';
   const x = read(node.x, channels);
   const y = read(node.y, channels);
+  const styled = rollTextStyle(node);
   const frame = rollFrame(from, text, progress);
   if (!frame) {
     const content = progress < 0.5 ? from : text;
-    if (content) makeParagraph(node, content, fonts).paint(canvas, x, y);
+    if (content) makeParagraph(styled, content, fonts).paint(canvas, x, y);
     return;
   }
-  const features = node.fontFeatures?.some(({ name }) => name === 'tnum') ? node.fontFeatures : [...(node.fontFeatures ?? []), TABULAR];
-  const plain: AssetTextNode = { ...node, align: 'start', maxLines: 1, fontFeatures: features };
-  const zero = makeParagraph(plain, digitText(0, frame.zero), fonts);
-  const advance = zero.getLongestLine();
-  const line = zero.getHeight();
-  const prefix = frame.prefix ? makeParagraph(plain, frame.prefix, fonts) : undefined;
-  const suffix = frame.suffix ? makeParagraph(plain, frame.suffix, fonts) : undefined;
-  const before = prefix?.getLongestLine() ?? 0;
-  const after = suffix?.getLongestLine() ?? 0;
-  // A blank leading place opens as its first digit rolls in, so "+98" never shows a gap before its hundreds arrive.
-  const widths = frame.places.map(({ current, turn }) => (current < 0 ? turn * advance : advance));
-  let digitsWidth = 0;
-  for (const width of widths) digitsWidth += width;
-  const total = before + digitsWidth + after;
-  const rtl = node.direction === 'rtl';
-  const align = node.align ?? 'start';
-  const start = align === 'center' ? (node.width - total) / 2 : (align === 'end') === !rtl ? node.width - total : 0;
-  // Right to left, the prefix reads first, so it sits on the right of the digits; the digits themselves run left to right.
-  const left = rtl ? suffix : prefix;
-  const right = rtl ? prefix : suffix;
-  const leftWidth = rtl ? after : before;
-  left?.paint(canvas, x + start, y);
-  const digits = x + start + leftWidth;
-  right?.paint(canvas, digits + digitsWidth, y);
-  let edge = digits;
-  frame.places.forEach(({ current, next, turn }, i) => {
-    const width = widths[i]!;
+  let full = 0;
+  let opening = 0;
+  for (const { current, turn } of frame.places) {
+    if (current >= 0) full++;
+    else opening = Math.max(opening, turn);
+  }
+  if (!opening && frame.places.every(({ turn }) => turn === 0)) {
+    makeParagraph(styled, restText(frame), fonts).paint(canvas, x, y);
+    return;
+  }
+  const zero = digitText(0, frame.zero);
+  const start = frame.prefix.length;
+  // The number laid out with zeros in its digit places, unseen; the prefix and suffix are drawn in it, so they keep their shaping in context.
+  const layoutOf = (count: number, prefix: boolean, suffix: boolean) => {
+    let zeros = '';
+    for (let i = 0; i < count; i++) zeros += zero;
+    const paragraph = makeParagraph(styled, [[frame.prefix, prefix], [zeros, false], [frame.suffix, suffix]], fonts);
+    const end = start + count * zero.length;
+    return {
+      paragraph,
+      baseline: baselineOf(paragraph),
+      height: paragraph.getHeight(),
+      prefix: frame.prefix ? rangeLeft(paragraph, 0, start) : 0,
+      digits: rangeLeft(paragraph, start, end),
+      suffix: frame.suffix ? rangeLeft(paragraph, end, end + frame.suffix.length) : 0,
+    };
+  };
+  const now = layoutOf(full, true, !opening);
+  const then = opening > 0 ? layoutOf(full + 1, false, false) : now;
+  const at = (key: 'prefix' | 'digits' | 'suffix') => x + now[key] + (then[key] - now[key]) * opening;
+  // While a place opens, the prefix and the suffix move apart by different amounts, so each is drawn from its own copy of the layout.
+  now.paragraph.paint(canvas, at('prefix') - now.prefix, y);
+  if (opening && frame.suffix) layoutOf(full, false, true).paragraph.paint(canvas, at('suffix') - now.suffix, y);
+  // Digits draw left to right in their own paragraphs, the layout having put the run in reading order. Each sits on the whole number's
+  // baseline: a digit alone can take a different line box.
+  const baseline = y + now.baseline;
+  const line = now.height;
+  const plain: AssetTextNode = { ...styled, align: 'start', direction: 'ltr', maxLines: 1 };
+  const piece = (content: string, left: number, drop = 0) => {
+    const paragraph = makeParagraph(plain, content, fonts);
+    paragraph.paint(canvas, left, baseline - baselineOf(paragraph) + drop);
+  };
+  const advance = makeParagraph(plain, zero, fonts).getLongestLine();
+  let edge = at('digits');
+  frame.places.forEach(({ current, next, turn }) => {
+    const width = current < 0 ? turn * advance : advance;
     edge += width;
     if (width <= 0) return;
-    // Each digit sits against its column's right edge, so a growing place slides in beside the digit after it.
+    // Each digit sits against its column's right edge, so an opening place slides in beside the digit after it.
     const column = edge - advance;
     canvas.save();
     canvas.clipRect(Skia.XYWHRect(edge - width, y, width, line), ClipOp.Intersect, true);
-    const now = digitText(current, frame.zero);
-    if (now) makeParagraph(plain, now, fonts).paint(canvas, column, y - turn * line);
+    const shown = digitText(current, frame.zero);
+    if (shown) piece(shown, column, -turn * line);
     if (turn > 0) {
-      const then = digitText(next, frame.zero);
-      if (then) makeParagraph(plain, then, fonts).paint(canvas, column, y + (1 - turn) * line);
+      const coming = digitText(next, frame.zero);
+      if (coming) piece(coming, column, (1 - turn) * line);
     }
     canvas.restore();
   });

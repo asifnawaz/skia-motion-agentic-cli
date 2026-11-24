@@ -4,7 +4,7 @@ Two registers. **Everyday motion** (interface chrome, a character idling, reacti
 
 For an earned moment these calm limits do not apply: the 5% overshoot cap, the one-rebound limit, the 8% squash limit and the 0.54 pt/ms burst cap. Both registers keep: Reduce Motion shows the end state with no travel; input is never blocked; the moment lasts about 2.5 s at most; nothing flashes over 3 Hz; and no casino pattern (below).
 
-The numbers are worked ranges from one finished surge: a lamp that squashes, hops, flares and pours out six pearls in 2.26 s. Start there and tune on frames; a value is a starting point, not a law.
+The numbers are worked ranges from one finished surge: a lamp that squashes, hops, flares and pours out six pearls in 2.26 s. Start there and tune on frames; a value is a starting point, not a law. Look at frames drawn as the phone draws them: `skac asset frame <file> --trace=<ms> --commands=<trigger>@0 --size=720x720 --out=<ms>.png` runs the app's own Skia draw code, so glows, gradients and text match the phone, which the SVG preview only approximates.
 
 ## Build it as channels and one trigger
 
