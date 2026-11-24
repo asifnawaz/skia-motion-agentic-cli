@@ -4,3 +4,4 @@ skia-motion-out/
 .DS_Store
 .release/
 skia-motion-runtime-*.tgz
+.scratch/

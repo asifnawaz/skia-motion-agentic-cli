@@ -12,6 +12,8 @@
     "src",
     "runtime",
     "docs",
+    "!docs/media",
+    "!docs/examples",
     "templates",
     "skills",
     "README.md",
@@ -49,6 +51,7 @@
     "docs:rules": "node scripts/rules-doc.js",
     "unicode:tables": "node scripts/unicode-tables.js",
     "pack:runtime": "node scripts/pack-runtime.js",
+    "readme:media": "node scripts/readme-media.js",
     "test": "node --test test/unit/*.test.js",
     "test:unit": "node --test test/unit/*.test.js",
     "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.js"
