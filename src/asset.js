@@ -8,6 +8,7 @@ import { assetGuide } from './asset-guide.js';
 import { previewHTML } from './asset-preview.js';
 import { extentKey, measureImageInk, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
 import { textInPlate } from './asset-plate.js';
+import { causalChain } from './asset-chain.js';
 import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js';
 import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
@@ -26,7 +27,7 @@ const USAGE = [
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
-  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear and skac/text-in-plate)',
+  'skac asset check <file> [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear, skac/text-in-plate and skac/causal-chain)',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
   'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg>]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
@@ -316,7 +317,7 @@ function packHostFonts(file) {
 /** The placement rules' severities from skia-motion.json ("rules": { "skac/text-clear": "warn" }); error by default. */
 function placementSeverities(cwd) {
   const { rules, configPath } = loadConfig(cwd);
-  return Object.fromEntries(['skac/text-clear', 'skac/text-in-plate'].map((id) => {
+  return Object.fromEntries(['skac/text-clear', 'skac/text-in-plate', 'skac/causal-chain'].map((id) => {
     const severity = rules[id] ?? 'error';
     if (!['error', 'warn', 'off'].includes(severity)) fail(`rules["${id}"] in ${configPath} is ${JSON.stringify(severity)}`, 'use error, warn or off');
     return [id, severity];
@@ -365,7 +366,7 @@ function rollWarnings(runtime, visual, rows) {
  * Landings and skac/text-clear over one trace. Every node's drawn box comes from the same pose the player draws. Text takes its laid-out
  * ink from `extents` (laid out with the asset's fonts, host slots via --font) and otherwise the box it declares; `textBoxes` counts which.
  */
-function placement(runtime, visual, rows, viewport, { extents, imageInk }, authored, severities, path) {
+function placement(runtime, visual, rows, viewport, { extents, imageInk }, authored, severities, path, chained) {
   const severity = severities['skac/text-clear'];
   const sources = { layout: 0, declared: 0 };
   const seen = new Set();
@@ -383,7 +384,7 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   const ids = authored?.ids ?? new Map();
   const names = new Map([...ids].map(([id, where]) => [where, id]));
   const found = { samples: rows.length, warnings: rollWarnings(runtime, visual, rows) };
-  const problems = [];
+  const problems = [...chained.problems];
   if (authored?.landings.length) {
     found.landings = measureLandings(placed, authored.landings, ids, names, visual);
     for (const landing of found.landings) if (landing.problem) problems.push({ check: 'skac/landing', error: landing.problem, hint: landing.hint });
@@ -408,7 +409,7 @@ function placement(runtime, visual, rows, viewport, { extents, imageInk }, autho
   }
   if (problems.length) {
     const more = problems.length > 3 ? `; and ${problems.length - 3} more (see problems)` : '';
-    fail(problems.slice(0, 3).map(({ error }) => error).join('; ') + more, problems[0].hint, { file: path, problems, ...found });
+    fail(problems.slice(0, 3).map(({ error }) => error).join('; ') + more, problems[0].hint, { file: path, problems, ...found, ...(chained.summary && { chain: chained.summary }) });
   }
   return found;
 }
@@ -466,6 +467,19 @@ export function assetCommand(args, flags, cwd) {
     const authoring = !binary && extname(path).toLowerCase() !== '.skmotion';
     const textRules = severities['skac/text-clear'] !== 'off' || severities['skac/text-in-plate'] !== 'off';
     const clear = authoring && (Boolean(authored?.landings.length) || (textRules && runtime.assetTextNodes(asset.artboard.nodes).length > 0));
+    // skac/causal-chain reads the clip's keys, not a trace; its findings join the placement checks' or fail on their own.
+    const chained = { problems: [] };
+    if (authoring && authored?.chain && severities['skac/causal-chain'] !== 'off') {
+      const { errors, warnings: chainWarnings, report } = causalChain(asset, authored.chain, severities['skac/causal-chain']);
+      summary.chain = { severity: severities['skac/causal-chain'], ...report, errors: errors.length, warnings: chainWarnings.length };
+      summary.warnings.push(...chainWarnings);
+      chained.problems = errors.map((error) => ({ check: 'skac/causal-chain', ...error }));
+      chained.summary = summary.chain;
+    }
+    if (!clear && chained.problems.length) {
+      const more = chained.problems.length > 3 ? `; and ${chained.problems.length - 3} more (see problems)` : '';
+      fail(chained.problems.slice(0, 3).map(({ error }) => error).join('; ') + more, chained.problems[0].hint, { file: path, problems: chained.problems, chain: summary.chain });
+    }
     if (!asset.attachments?.length && !flags['text-layout'] && !clear) return summary;
     const viewport = traceViewport(flags.size) ?? summary.artboard;
     if (clear) {
@@ -476,7 +490,7 @@ export function assetCommand(args, flags, cwd) {
         measureTextExtents(runtime.resolveAssetFonts(visual, hostFonts), runtime.assetTextSamples(visual, rows)),
         measureImageInk(visual.images, visual.imageSlots),
       ]).then(([extents, imageInk]) => {
-        const found = placement(runtime, visual, rows, viewport, { extents, imageInk }, authored, severities, path);
+        const found = placement(runtime, visual, rows, viewport, { extents, imageInk }, authored, severities, path, chained);
         return checkRest({ ...summary, ...found, warnings: [...summary.warnings, ...found.warnings] });
       });
     }

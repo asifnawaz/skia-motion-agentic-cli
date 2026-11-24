@@ -1,7 +1,9 @@
 import { fail } from './util.js';
+import { readChain } from './asset-chain.js';
 
 /**
- * Authoring-only fields: a node `id`, a text's `plate` (the id of the plate it sits on), and per artboard `landings` and `allowOverlap`. `skac asset check` reads them; every other command,
+ * Authoring-only fields: a node `id`, a text's `plate` (the id of the plate it sits on), and per artboard `landings`, `allowOverlap`,
+ * `register` and `chain`. `skac asset check` reads them; every other command,
  * and the packed `.skmotion`, never sees them, so assets built with them still load in runtimes that predate them.
  */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
@@ -43,7 +45,7 @@ function collectIds(nodes, parent, ids, at, plates) {
 
 function readBoard(board, at) {
   if (!record(board)) return { board, meta: undefined };
-  const { landings, allowOverlap, ...rest } = board;
+  const { landings, allowOverlap, register, chain, ...rest } = board;
   const ids = new Map();
   const plates = new Map();
   if (record(rest.artboard)) rest.artboard = { ...rest.artboard, nodes: collectIds(rest.artboard.nodes, 'artboard.nodes', ids, at, plates) };
@@ -51,7 +53,7 @@ function readBoard(board, at) {
     if (typeof value !== 'string' || !ids.has(value)) bad(where, `unknown node id ${JSON.stringify(value)}`, 'add "id" to the node and name it here');
     return value;
   };
-  const meta = { ids, landings: [], allowOverlap: [], plates: new Map() };
+  const meta = { ids, landings: [], allowOverlap: [], plates: new Map(), chain: readChain(register, chain, at) };
   for (const [where, { id, at: field }] of plates) meta.plates.set(where, node(id, field));
   if (landings !== undefined) {
     if (!Array.isArray(landings) || landings.length > 256) bad(`${at}landings`, 'expected a list of up to 256 landings', 'write [{ "node": "coin", "target": "counterValue" }]');
@@ -102,7 +104,7 @@ export function splitAuthoring(text) {
   const take = (board, name, at) => {
     const { board: clean, meta } = readBoard(board, at);
     if (!meta) return board;
-    if (meta.ids.size || meta.landings.length || meta.allowOverlap.length || meta.plates.size) {
+    if (meta.ids.size || meta.landings.length || meta.allowOverlap.length || meta.plates.size || meta.chain) {
       boards.set(name, meta);
       changed = true;
     }
