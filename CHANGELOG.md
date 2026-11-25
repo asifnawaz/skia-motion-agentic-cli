@@ -1,3 +1,10 @@
+## [3.5.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.5.0...v3.5.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **runtime:** a frame where nothing drawn changed records no new picture ([148cd34](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/148cd348c9ed36ca704ebfed5abe55375677bfe2))
+
 # [3.5.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.4.2...v3.5.0) (2026-11-25)
 
 
