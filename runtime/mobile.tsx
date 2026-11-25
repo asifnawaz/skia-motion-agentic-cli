@@ -15,7 +15,7 @@ export { parseAsset, parseAssetFile, selectArtboard, type MotionAsset, type Moti
 export type { MotionAssetData } from './asset-binary';
 
 export { loadMotionAsset, preloadMotionAsset, type LoadedMotionAsset, type MotionPrepareOptions } from './asset-load';
-export { useMotionAsset, type MotionAssetOptions, type MotionAssetSource, type MotionAssetResult } from './useMotionAsset';
+export { preloadMotionAssets, useMotionAsset, type MotionAssetOptions, type MotionAssetSource, type MotionAssetResult } from './useMotionAsset';
 export type { AssetFit, AssetAnchor } from './asset-layout';
 
 export type MotionBindings = { values: NonNullable<Machine['values']>; markers: string };

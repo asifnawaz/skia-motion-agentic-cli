@@ -18,6 +18,8 @@ type CacheEntry = {
   promise: Promise<LoadedMotionAsset>;
   controller: AbortController;
   users: number;
+  /** Set once prepared, so a player mounted after a preload is ready on its first render. */
+  asset?: LoadedMotionAsset;
 };
 
 // Cache prepared resources while subscribers own them. Each player creates its own machine snapshot.
@@ -72,12 +74,53 @@ function retain(key: string, source: MotionAssetSource, options: MotionAssetOpti
     entry = { promise, controller, users: 0 };
     const created = entry;
     cache.set(key, created);
-    promise.catch(() => {
+    promise.then((asset) => { created.asset = asset; }, () => {
       if (cache.get(key) === created) cache.delete(key);
     });
   }
   entry.users++;
   return entry;
+}
+
+function release(key: string, entry: CacheEntry) {
+  if (--entry.users > 0) return;
+  if (cache.get(key) === entry) cache.delete(key);
+  entry.controller.abort();
+}
+
+function sourceKey(source: MotionAssetSource, options: MotionAssetOptions) {
+  const { uploadImages = false, artboard, imageSlots, fontSlots, palette } = options;
+  const kind = typeof source === 'string' ? 'text' : source instanceof Uint8Array ? 'bytes' : 'uri' in source ? 'uri' : 'custom';
+  const id = typeof source === 'string' ? source
+    : source instanceof Uint8Array ? byteId(source) : 'uri' in source ? source.uri : source.key;
+  return JSON.stringify([
+    kind, id, uploadImages, artboard, slotKey(imageSlots), slotKey(fontSlots),
+    Object.keys(palette ?? {}).sort().map((name) => [name, palette![name]]),
+  ]);
+}
+
+/**
+ * Load and prepare files before the screen that plays them mounts. Each file stays in the shared cache
+ * that useMotionAsset and useExpoMotionAsset read, under the same source and options, until the returned
+ * release runs, so a player mounted meanwhile is ready on its first render. Release when the files are no
+ * longer about to be shown: prepared images and textures stay in memory while retained.
+ */
+export function preloadMotionAssets(
+  sources: readonly MotionAssetSource[], options: MotionAssetOptions = {},
+): { ready: Promise<LoadedMotionAsset[]>; release: () => void } {
+  const held = sources.map((source) => {
+    const key = sourceKey(source, options);
+    return { key, entry: retain(key, source, options) };
+  });
+  let released = false;
+  return {
+    ready: Promise.all(held.map(({ entry }) => entry.promise)),
+    release() {
+      if (released) return;
+      released = true;
+      for (const { key, entry } of held) release(key, entry);
+    },
+  };
 }
 
 /** Asynchronously load and share an asset. For Expo module IDs use the /expo entry point. */
@@ -87,10 +130,10 @@ export function useMotionAsset(source?: MotionAssetSource | null, options: Motio
     : source instanceof Uint8Array ? 'bytes' : 'uri' in source ? 'uri' : 'custom';
   const id = source == null || typeof source === 'string' ? source
     : source instanceof Uint8Array ? byteId(source) : 'uri' in source ? source.uri : source.key;
-  const key = useMemo(() => kind === undefined ? undefined : JSON.stringify([
-    kind, id, uploadImages, artboard, slotKey(imageSlots), slotKey(fontSlots),
-    Object.keys(palette ?? {}).sort().map((name) => [name, palette![name]]),
-  ]), [kind, id, uploadImages, artboard, imageSlots, fontSlots, palette]);
+  const key = useMemo(() => source == null ? undefined : sourceKey(source, options),
+    // The key reads the source's kind and identity and these options.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kind, id, uploadImages, artboard, imageSlots, fontSlots, palette]);
   const [state, setState] = useState<{ key: string; result: MotionAssetResult }>();
   useEffect(() => {
     setState((previous) => previous?.key === key ? previous : undefined);
@@ -107,14 +150,13 @@ export function useMotionAsset(source?: MotionAssetSource | null, options: Motio
     );
     return () => {
       active = false;
-      if (--entry.users === 0) {
-        if (cache.get(key) === entry) cache.delete(key);
-        entry.controller.abort();
-      }
+      release(key, entry);
     };
     // The key includes the source identity and options. Custom loaders are retained for that identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   if (key === undefined) return idle;
-  return state?.key === key ? state.result : loading;
+  if (state?.key === key) return state.result;
+  const prepared = cache.get(key)?.asset;
+  return prepared ? { status: 'ready', asset: prepared, error: null } : loading;
 }

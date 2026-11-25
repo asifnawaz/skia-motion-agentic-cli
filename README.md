@@ -137,6 +137,8 @@ timeline and state machine for each instance. To prepare before a screen opens,
 call `await preloadMotionAsset(text)`. On Skia builds with asynchronous image decode, it moves
 the decode off the JS thread. Pass `{ uploadImages: true }` to prepare GPU textures where the
 backend supports it. Keep the loaded file while it is in use, then release the reference.
+With the hooks, `preloadMotionAssets` or `preloadExpoMotionAssets` prepares files in their shared cache before
+a screen mounts, so its players draw on their first render; call the returned `release()` when done.
 
 For an Expo asset bundled by Metro, use the prepared loader.
 
