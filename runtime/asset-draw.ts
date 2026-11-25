@@ -36,7 +36,7 @@ export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
   artboard: Omit<MotionAsset['artboard'], 'nodes'> & { nodes: readonly DrawableNode[] };
   meshShaders?: AssetMeshShaders;
   /** Each image's shader for image nodes, sampled through its mip levels (drawImageRect's strict constraint would turn them off). */
-  imageShaders?: AssetMeshShaders;
+  imageShaders?: AssetImageShaders;
   fontProvider?: SkTypefaceFontProvider;
   textBindings?: readonly string[];
   palette?: Palette;
@@ -44,7 +44,9 @@ export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
 export type AssetImages = Readonly<Record<string, SkImage>>;
 export type AssetFontSlots = Readonly<Record<string, SkTypeface>>;
 export type AssetMeshShaders = Readonly<Record<string, SkShader>>;
-type DrawShaders = { mesh: AssetMeshShaders; image: AssetMeshShaders };
+/** An image node's shader with the image it samples, so a different image passed at draw time is not drawn with it. */
+export type AssetImageShaders = Readonly<Record<string, { image: SkImage; shader: SkShader }>>;
+type DrawShaders = { mesh: AssetMeshShaders; image: AssetImageShaders };
 
 function skiaData(resource: AssetResource): SkData {
   if (typeof resource === 'string') return Skia.Data.fromBase64(resource.slice(resource.indexOf(',') + 1));
@@ -161,20 +163,53 @@ function imageShader(image: SkImage): SkShader {
   return image.makeShaderOptions(TileMode.Clamp, TileMode.Clamp, FilterMode.Linear, MipmapMode.Linear);
 }
 
-function imageShaders(images: AssetImages): AssetMeshShaders {
+function imageShaders(images: AssetImages): AssetImageShaders {
   const byImage = new Map<SkImage, SkShader>();
   return Object.fromEntries(Object.entries(images).map(([name, image]) => {
     const shader = byImage.get(image) ?? imageShader(image);
     byImage.set(image, shader);
-    return [name, shader];
+    return [name, { image, shader }];
   }));
 }
 
+/** The most laid-out paragraphs, row inks and image paints the drawing thread keeps; the oldest unused one goes first. */
+const CACHE_LIMIT = 256;
+type CacheStore = Map<string, unknown>;
+
 /**
- * Lay out a text node's paragraph. `text` is the whole string, or runs of it each shown or laid out unseen (a rolling number keeps its
- * digits' place in the line while it draws them itself).
+ * The value under `key` on this thread, made once. Each thread (the UI thread, or Node for asset frame) has its own store on its global
+ * object: drawing worklets get a copy of every captured object, so a cache held by the drawing would start empty each frame.
  */
-function makeParagraph(
+function cached<T>(key: string | undefined, make: () => T): T {
+  'worklet';
+  if (key === undefined) return make();
+  const holder = globalThis as unknown as { __skiaMotionCache?: CacheStore };
+  const store = holder.__skiaMotionCache ?? (holder.__skiaMotionCache = new Map());
+  if (store.has(key)) {
+    const hit = store.get(key) as T;
+    store.delete(key);
+    store.set(key, hit);
+    return hit;
+  }
+  const value = make();
+  if (store.size >= CACHE_LIMIT) store.delete(store.keys().next().value as string);
+  store.set(key, value);
+  return value;
+}
+
+let nextNodeKey = 0;
+
+/** A text's layout key: the node (unique per prepared drawing, so per font provider), the style variant and the text runs. */
+function paragraphKey(node: AssetTextNode & { cacheKey?: string }, text: string | readonly (readonly [string, boolean])[]): string | undefined {
+  'worklet';
+  if (node.cacheKey === undefined) return undefined;
+  let runs = '';
+  if (typeof text === 'string') runs = text;
+  else for (const [content, shown] of text) runs += (shown ? '\x01' : '\x02') + content;
+  return `${node.cacheKey}|${node.align ?? ''}|${node.direction ?? ''}|${node.maxLines ?? 1}|${node.fontFeatures?.length ?? 0}|${runs}`;
+}
+
+function layOut(
   node: AssetTextNode, text: string | readonly (readonly [string, boolean])[], provider?: SkTypefaceFontProvider,
 ): SkParagraph {
   'worklet';
@@ -199,6 +234,18 @@ function makeParagraph(
   paragraph.layout(node.width);
   return paragraph;
 }
+
+/**
+ * Lay out a text node's paragraph. `text` is the whole string, or runs of it each shown or laid out unseen (a rolling number keeps its
+ * digits' place in the line while it draws them itself).
+ */
+function makeParagraph(
+  node: AssetTextNode, text: string | readonly (readonly [string, boolean])[], provider?: SkTypefaceFontProvider,
+): SkParagraph {
+  'worklet';
+  return cached(paragraphKey(node, text), () => layOut(node, text, provider));
+}
+
 
 /** The baseline of a paragraph's first line, from its top. */
 function baselineOf(paragraph: SkParagraph): number {
@@ -316,6 +363,7 @@ function prepareNode(
 ): DrawableNode {
   if (node.kind === 'text') {
     if (typeof node.text === 'string') return { ...node, paragraph: makeParagraph(node, node.text, provider) };
+    node = { ...node, cacheKey: `n${nextNodeKey++}` } as AssetTextNode;
     textBindings.add(node.text.value);
     if (node.roll) textBindings.add(node.roll.from);
     return node;
@@ -347,6 +395,7 @@ function prepareNode(
       textureCoords: image ? meshTextureCoords(node, image) : undefined,
     };
   }
+  if (node.kind === 'image') return { ...node, cacheKey: `n${nextNodeKey++}` } as DrawableNode;
   return { ...node, preparedPath: prepared, preparedPaint: preparePaint(node, palette) };
 }
 
@@ -551,6 +600,13 @@ function paragraphInk(paragraph: SkParagraph, text: string, node: AssetTextNode,
   return textInk(glyphs, first, last, text, heights);
 }
 
+/** A text's ink as a row places it, measured once per text. */
+function inkFor(node: AssetTextNode, text: string, fonts: SkTypefaceFontProvider | undefined): TextInk | undefined {
+  'worklet';
+  const key = paragraphKey(node, text);
+  return cached(key === undefined ? undefined : `ink|${key}`, () => paragraphInk(makeParagraph(node, text, fonts), text, node, fonts));
+}
+
 type RowGroup = Extract<DrawableNode, { kind: 'group' }> & { row: NonNullable<Extract<AssetNode, { kind: 'group' }>['row']> };
 
 /**
@@ -573,13 +629,14 @@ function layoutRow(
       // A rolling count is placed between its old value's ink and its new one's, so at rest it is placed by the value it shows.
       const styled = rollTextStyle(drawn);
       const from = values[drawn.roll.from] ?? '';
-      const inkOf = (value: string) => (value ? paragraphInk(makeParagraph(styled, value, fonts), value, styled, fonts) : undefined);
+      const inkOf = (value: string) => (value ? inkFor(styled, value, fonts) : undefined);
       return blendInk(inkOf(from), inkOf(text), rollWidthShare(from, text, read(drawn.roll.progress, channels), drawn.roll));
     }
     if (!text) return undefined;
     const paragraph = !wide && drawn.paragraph ? drawn.paragraph : makeParagraph(rollTextStyle(drawn), text, fonts);
     if (!wide) paragraphs[index] = paragraph;
-    return paragraphInk(paragraph, text, drawn, fonts);
+    const key = paragraphKey(rollTextStyle(drawn), text);
+    return cached(key === undefined ? undefined : `ink|${key}`, () => paragraphInk(paragraph, text, drawn, fonts));
   }, (index) => node.rowParts?.[index], Boolean(row.plate?.widest));
   const { moves } = rowLayout(items, row.gap, align, rtl);
   if (row.plate) {
@@ -670,10 +727,18 @@ function drawNodes(
       if (!image || width <= 0 || height <= 0) continue;
       const imageWidth = image.width();
       const imageHeight = image.height();
-      const filled = Skia.Paint();
-      filled.setAntiAlias(true);
+      // The prepared shader only for the image it was made from: a host can pass other images to drawAsset.
+      const prepared = shaders.image[node.image];
+      const shader = prepared && prepared.image === image ? prepared.shader : imageShader(image);
+      const key = (node as { cacheKey?: string }).cacheKey;
+      // One paint per image node, reset each frame: a picture records a copy of the paint it draws with.
+      const filled = cached(key === undefined ? undefined : `paint|${key}`, () => {
+        const paint = Skia.Paint();
+        paint.setAntiAlias(true);
+        return paint;
+      });
       filled.setAlphaf(alpha);
-      filled.setShader(shaders.image[node.image] ?? imageShader(image));
+      filled.setShader(shader);
       canvas.save();
       canvas.translate(read(node.x, channels), read(node.y, channels));
       canvas.scale(width / imageWidth, height / imageHeight);
