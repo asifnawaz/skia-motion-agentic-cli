@@ -218,6 +218,8 @@ export function PipButton({ motionAllowed }: { motionAllowed: boolean }) {
 
 - `fire(name)` adds `{ name, at }` to the rig's events on the UI thread, at that frame's time; the last 8 are kept. Name them as in `meta.events`.
 - `live` (default true) advances time, and changing it pauses or resumes at any point. When false the drawing freezes where it was: pass your own reduced-motion and off-screen gate. The component never reads reduced motion itself.
+- A frame much longer than the recent ones (more than three typical frames, and more than the larger of 50 ms and two `frameRate` intervals) is a stall: it moves the clock only that far, so a decode or a sheet opening delays motion instead of skipping its start. A device that is steadily slow keeps real time. Each stall leaves the picture behind wall time by what it dropped, and the lag adds up: sound you schedule yourself drifts from the picture, while `onAudio` cues fire from the machine's own time and stay with it. Layers on a named `clocks` value read your clock directly, so after a stall they are ahead of layers on machine time.
+- `MotionPlayer` pauses only when the app is in `'background'`. iOS's `'inactive'` (permission prompts, password managers, StoreKit sheets, but also the app switcher, Notification Center and Control Center) keeps it playing, as Android does. To pause under those, pass your own `live`.
 - One `<Canvas>` per component. Loops need nothing special: `rig()` is a function of absolute time.
 - The app needs `react-native-skia` 3 or later, React 19, Reanimated 4, and Worklets 0.7 or later.
 - The Skia version check follows direct ESM Skia imports and npm aliases. Other wrappers export with a warning.

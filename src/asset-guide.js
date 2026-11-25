@@ -149,6 +149,10 @@ const topics = {
       'Use MotionPlayer for state machines, named inputs, marker cues and semantic regions. Its view measures before drawing.',
       'Call a mounted MotionPlayer handle’s setOnUI from a Reanimated worklet to queue a bound text or machine input update. Use set or setValues on the React Native thread.',
       'Use MotionPicture for one named clip inside an existing Skia Canvas. Supply width, height and timeMs to begin without waiting for a separate player view to measure. Use drawMotionClip for an imperative canvas worklet.',
+      'MotionPlayer pauses only when the app is in the background. iOS reports permission prompts, StoreKit sheets, the app switcher and Notification Center as inactive, and the player keeps playing through them, as on Android. Pass live={false} to pause it yourself, for a hidden screen or an off-screen list row.',
+      'A frame much longer than the recent ones is a stall and moves the clock at most three typical frames (at least 50 ms): an image decode delays motion instead of skipping a clip\'s start. A steadily slow device keeps real time. Sound the host schedules itself drifts by what each stall dropped; onAudio cues follow the machine.',
+      'Bound text, rows and rolling numbers are laid out once per distinct string and kept in a small cache on the drawing thread. A string that changes every frame (a millisecond timer) is laid out every frame: round it to what the eye reads.',
+      'Images passed to drawAsset, drawMotionClip or MotionPicture at draw time are drawn as given, even when they differ from the images the asset was prepared with.',
     ],
     commands: ['skac asset preview scene.skmotion', 'skac asset preview scene.skmotion --artboard=reward --size=360x640'],
   },
@@ -206,6 +210,7 @@ const topics = {
     drawing: [
       'Use static artwork. Run skac asset image art.webp. Put the returned uri in images under a short name such as face.',
       'For a smaller texture, pass --size=160x160 to fit within the pixel dimensions without upscaling. Image node coordinates stay in artboard points.',
+      'Size the export as the largest size the image is drawn at, in points, times the device density (3 covers current phones), times any scale an animation reaches. Art drawn smaller is filtered through mip levels, so one export stays clean on every screen; mip levels add a third to its decoded memory. A larger export only costs memory and file size.',
       'Reference that name from an image node sized in artboard points. Use its original aspect ratio to avoid stretching the painting.',
       'Declare imageSlots: {portrait:"face"} to bind a different image at load time. Reference portrait from an image or mesh. The embedded face is the fallback and preview image.',
       'Place the image inside a group whose origin is the part\'s hinge or contact point. Animate the group transform and the image opacity.',

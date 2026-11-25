@@ -125,7 +125,9 @@ The player package also exposes `skia-motion-runtime/machine` for generated mach
 and shared motion helpers. Use a runtime version at least as new as the release that generated
 the component.
 
-Use `onMarker` for app-side sound or haptics. The player handles system reduced motion and backgrounding.
+Use `onMarker` for app-side sound or haptics. The player handles system reduced motion and backgrounding. It pauses
+only in the background, so iOS system sheets ('inactive') keep it playing as Android does, and a stalled frame
+delays motion instead of skipping it.
 In Expo, use a development build for Skia v3 and add `skmotion` to Metro's asset extensions.
 [Skia v3 migration guide](https://wcandillon.github.io/react-native-skia/docs/getting-started/migration/) · [Expo Metro assets](https://docs.expo.dev/guides/customizing-metro/#assets)
 
@@ -231,14 +233,15 @@ keyframe sampling in isolation.
 
 `skac asset image art.webp --size=160x160` preserves the aspect ratio and fits the painting inside
 a maximum pixel size. Use the intended display size, pixel density and largest animated scale
-to select the export size. Artboard coordinates and app layout can stay responsive.
+to select the export size. Artboard coordinates and app layout can stay responsive. Art drawn
+smaller than its export is filtered through mip levels, so one export serves every screen.
 
 | Lamp body | Encoded WebP | Estimated decoded RGBA |
 | --- | ---: | ---: |
 | 660 × 398 original | 234,016 B | 1,050,720 B |
 | 160 × 96 export | 19,508 B | 61,440 B |
 
-RGBA estimates are width × height × 4 and exclude driver overhead and mipmaps. In a separate
+RGBA estimates are width × height × 4 and exclude driver overhead and mip levels, which add a third. In a separate
 compression test, the 376 KB painted motion file compressed to 281 KB with gzip or Zstd and
 280 KB with Brotli. These are transport sizes. The decoded textures have the same dimensions.
 
