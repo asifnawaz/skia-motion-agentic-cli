@@ -68,6 +68,7 @@ export function LessonReward() {
 - A stalled frame (an image decode, a sheet opening) delays motion instead of skipping a clip's start; a steadily slow device keeps real time.
 - Images drawn smaller than their size are filtered through mip levels. `preloadMotionAsset(text, { uploadImages: true })` uploads textures with their mip levels.
 - Bound text, rows and rolling numbers are laid out once per distinct string, so updating a counter is cheap; a string that changes every frame is laid out every frame.
+- Drawing keeps one paint, rect and (for a still mesh) vertex set per node, and remakes a blur, light or dash only when its value moves. A frame allocates almost no Skia objects on the UI thread. `skac asset cost <file>` reports a file's per-frame cost.
 - Select a board by name with the `artboard` option when loading a multi-artboard file.
 - Prepare a shared file with `loadMotionAsset(text)` or `await preloadMotionAsset(text)`. Each player keeps its own state while sharing prepared artwork and image handles.
 - To have a screen's players ready on their first render, call `preloadMotionAssets(sources, options)` (or `preloadExpoMotionAssets([require('./reward.skmotion')])` from `skia-motion-runtime/expo`) before it opens. Use the same options its `useMotionAsset` or `useExpoMotionAsset` passes. The files stay prepared until you call the returned `release()`, so release when the screen is no longer about to open: prepared images stay in memory while held.
