@@ -86,6 +86,7 @@ export type AssetMarkerEvent = AssetMarker & { at: number };
 export type AssetAttachment = { from: string; to: string; maxDistance: number };
 export type MotionAsset<M extends Machine = Machine, R extends AssetResource = string> = {
   schema: typeof ASSET_SCHEMA;
+  minor?: number;
   name: string;
   artboard: { width: number; height: number; nodes: readonly AssetNode[] };
   channels: Readonly<Record<string, number>>;
@@ -107,6 +108,7 @@ export type MotionAsset<M extends Machine = Machine, R extends AssetResource = s
 export type DrawableMotionAsset = MotionAsset<Machine, AssetResource>;
 export type MotionAssetFile<R extends AssetResource = string> = MotionAsset<Machine, R> | {
   schema: typeof ASSET_BUNDLE_SCHEMA;
+  minor?: number;
   name: string;
   defaultArtboard: string;
   artboards: Readonly<Record<string, MotionAsset<Machine, R>>>;
@@ -144,8 +146,9 @@ const NODE_KINDS = ['ellipse', 'roundRect', 'path', 'image', 'mesh', 'text', 'gr
 function knownNodes(value: unknown): unknown {
   if (!newerMinor || !Array.isArray(value)) return value;
   for (let i = value.length - 1; i >= 0; i--) {
-    const kind = (value[i] as { kind?: unknown } | null)?.kind;
-    if (!NODE_KINDS.includes(kind as string)) value.splice(i, 1);
+    const node = value[i] as { kind?: unknown } | null;
+    // Only a well-formed node of a kind added later is skipped; anything malformed is still reported.
+    if (node && typeof node === 'object' && typeof node.kind === 'string' && !NODE_KINDS.includes(node.kind)) value.splice(i, 1);
   }
   return value;
 }
@@ -538,10 +541,11 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
 }
 
 function validateAsset(value: unknown): DrawableMotionAsset {
+  // The format comes first: a file of another major is told how to go on, not which of its fields this runtime does not know.
+  checkFormat(record(value, 'asset'), 'asset');
   const data = record(value, 'asset', [
     'schema', 'minor', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'imageInk', 'palette', 'attachments', 'fonts', 'fontSlots', 'fontLicenses', 'audio', 'semantics',
   ]);
-  checkFormat(data, 'asset');
   identifier(data.name, 'asset.name');
   const machine = record(data.machine, 'machine');
   const values = machine.values === undefined ? {} : record(machine.values, 'machine.values');
@@ -589,10 +593,9 @@ function validateAsset(value: unknown): DrawableMotionAsset {
   const artboard = record(data.artboard, 'artboard', ['width', 'height', 'nodes']);
   number(artboard.width, 'artboard.width', 1, 4096);
   number(artboard.height, 'artboard.height', 1, 4096);
-  const nodes = list(artboard.nodes, 'artboard.nodes', 256);
+  const nodes = list(knownNodes(artboard.nodes), 'artboard.nodes', 256);
   if (!nodes.length) invalid('artboard.nodes', 'add at least one shape');
   const context = { channels, images, imageSlots, fonts, fontSlots, values, palette, points: new Set<string>() };
-  knownNodes(nodes);
   nodes.forEach((node, i) => checkNode(node, `artboard.nodes[${i}]`, context, 0));
   if (data.semantics !== undefined) {
     const names = new Set<string>();
@@ -661,7 +664,7 @@ function validateAsset(value: unknown): DrawableMotionAsset {
     if (Object.keys(record(layer.states, `${at}.states`)).length > 128) invalid(`${at}.states`, 'maximum of 128 states per layer');
     if (layer.transitions !== undefined) list(layer.transitions, `${at}.transitions`, 512);
   });
-  const checked = validateMachine(machine, { clips: clips as MotionAsset['clips'] });
+  const checked = validateMachine(machine, { clips: clips as MotionAsset['clips'], lenient: newerMinor });
   if (checked.problems.length) {
     const { where, error, hint } = checked.problems[0]!;
     invalid(where ? `machine.${where}` : 'machine', `${error}. ${hint}`);
@@ -735,8 +738,8 @@ function validateAssetFile(decoded: unknown): MotionAssetFile<AssetResource> {
 
 function validateFormatted(file: Record<string, unknown>): MotionAssetFile<AssetResource> {
   if (typeof file.schema !== 'string' || !file.schema.startsWith('skac.bundle/')) return validateAsset(file);
-  record(file, 'bundle', ['schema', 'minor', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontSlots', 'fontLicenses', 'audio']);
   checkFormat(file, 'bundle');
+  record(file, 'bundle', ['schema', 'minor', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontSlots', 'fontLicenses', 'audio']);
   const name = identifier(file.name, 'bundle.name');
   const defaultArtboard = identifier(file.defaultArtboard, 'bundle.defaultArtboard');
   const artboards = record(file.artboards, 'bundle.artboards');
@@ -750,6 +753,7 @@ function validateFormatted(file: Record<string, unknown>): MotionAssetFile<Asset
   if (!Object.hasOwn(artboards, defaultArtboard)) invalid('bundle.defaultArtboard', 'unknown artboard');
   return {
     schema: ASSET_BUNDLE_SCHEMA, name, defaultArtboard,
+    ...(typeof file.minor === 'number' && { minor: file.minor }),
     ...(Object.keys(fonts).length && { fonts }),
     ...(Object.keys(fontSlots).length && { fontSlots }),
     ...(fontLicenses && { fontLicenses }),

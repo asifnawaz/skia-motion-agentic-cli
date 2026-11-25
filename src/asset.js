@@ -172,10 +172,16 @@ function migrateAsset(input, flags, cwd) {
   if (!result.steps.length) {
     return { ...base, current: true, changes: [], next: `format ${formatLabel(target)} is current: nothing to migrate` };
   }
-  const packed = extname(path).toLowerCase() === '.skmotion';
-  const text = JSON.stringify(result.file, null, packed ? undefined : 2);
+  // The input's bytes decide its format, whatever its name: a binary container, packed JSON (.skmotion) or a JSON source.
+  const binary = raw.format === 'binary';
+  const packed = binary || extname(path).toLowerCase() === '.skmotion';
+  const text = binary ? undefined : JSON.stringify(result.file, null, packed ? undefined : 2);
+  let data;
   try {
-    if (packed) runtime.parseAssetFile(text);
+    if (binary) {
+      ({ data } = runtime.encodeBinaryAsset(result.file, (value) => Buffer.from(value, 'utf8'), runtime.MAX_ASSET_BYTES));
+      runtime.parseAssetFile(data);
+    } else if (packed) runtime.parseAssetFile(text);
     else runtime.parseAssetSource(splitAuthoring(text).text);
   } catch (error) {
     fail(`the migrated file does not validate: ${error.message}`, 'report this with the file to the skia-motion maintainers', { file: path });
@@ -184,10 +190,7 @@ function migrateAsset(input, flags, cwd) {
   const stem = input.replace(/(?:\.motion)?\.json$|\.skmotion$/i, '');
   const destination = resolve(cwd, flags.out ?? `${stem}.migrated${packed ? '.skmotion' : '.motion.json'}`);
   if (destination === path) fail('migrate output is the same file', 'write to a new file with --out, compare, then replace');
-  if (raw.format === 'binary') {
-    const { data } = runtime.encodeBinaryAsset(result.file, (value) => Buffer.from(value, 'utf8'), runtime.MAX_ASSET_BYTES);
-    writeOutput(destination, data, flags.force);
-  } else writeOutput(destination, packed ? `${text}\n` : `${text}\n`, flags.force);
+  writeOutput(destination, binary ? data : `${text}\n`, flags.force);
   return {
     ...base, out: destination, changes: result.changes,
     next: `skac asset check ${destination}, then compare skac asset frame on both files at the same times before replacing the app's file`,
@@ -203,7 +206,11 @@ function readAsset(path, authoring) {
   }
   try {
     const runtime = assetRuntime();
-    if (runtime.isBinaryAsset(bytes)) return { file: runtime.parseAssetFile(bytes), source: bytes, binary: true, boards: new Map() };
+    if (runtime.isBinaryAsset(bytes)) {
+      const file = runtime.parseAssetFile(bytes);
+      newerThanCLI(file);
+      return { file, source: bytes, binary: true, boards: new Map() };
+    }
     const packed = extname(path).toLowerCase() === '.skmotion';
     // Node ids, landings and allowOverlap are authoring-only: asset check reads them and the runtime never sees them.
     const { text: source, boards } = packed ? { text: bytes.toString('utf8'), boards: new Map() } : splitAuthoring(bytes.toString('utf8'));
