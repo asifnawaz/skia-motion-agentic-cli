@@ -64,9 +64,11 @@ export async function preloadMotionAsset(
       const preloadable = image as SkImage & { makeRasterImage?: () => Promise<SkImage> };
       ready = await preloadable.makeRasterImage?.() ?? image;
       if (uploadImages) {
-        const uploadable = ready as SkImage & { makeTextureImage?: () => SkImage };
+        // Uploaded with mip levels: the draw samples them, and a texture made without them (react-native-skia's default) is
+        // sampled at full size, so art drawn small aliases. Older versions take no options and ignore it.
+        const uploadable = ready as SkImage & { makeTextureImage?: (options?: { mipmapped?: boolean }) => SkImage };
         try {
-          ready = uploadable.makeTextureImage?.() ?? ready;
+          ready = uploadable.makeTextureImage?.({ mipmapped: true }) ?? ready;
         } catch {
           // A reduced or unsupported backend can still upload the raster image when drawn.
         }
