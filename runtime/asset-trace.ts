@@ -8,8 +8,8 @@ export { assetInkBoxes, declaredText, INK_ALPHA, shownText } from './asset-bound
 import { shownText } from './asset-bounds';
 export { parseAsset };
 export { assetClips, assetTextNodes, parseAssetFile, parseAssetSource, resolveAssetFonts, selectArtboard } from './asset';
-export { hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages } from './asset';
-export { encodeBinaryAsset, isBinaryAsset, mapFileResources } from './asset-binary';
+export { ASSET_FORMAT, assetMinor, hasFontHeader, MAX_ASSET_BYTES, MAX_ASSET_SOURCE_BYTES, usedAssetImages } from './asset';
+export { decodeBinaryAsset, encodeBinaryAsset, isBinaryAsset, mapFileResources, resourceDataUri } from './asset-binary';
 export { imageFileSize } from './asset-image';
 export { assetSVG } from './asset-svg';
 export { rollFrame, rollTextStyle } from './asset-roll';

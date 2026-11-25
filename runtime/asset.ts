@@ -9,6 +9,12 @@ import type { MeshNode, MeshVertex } from './asset-mesh';
 
 export const ASSET_SCHEMA = 'skac.asset/1';
 export const ASSET_BUNDLE_SCHEMA = 'skac.bundle/1';
+/**
+ * The file format this runtime reads: the major is the schema's number, and the minor is a file's optional root `minor` (absent is 0).
+ * A file only carries a minor when it uses something added after the major's baseline, so every file before then stays loadable by
+ * every runtime of that major. This runtime reads files of a newer minor by skipping the fields and node kinds it does not know.
+ */
+export const ASSET_FORMAT = { major: 1, minor: 0 } as const;
 export const MAX_ASSET_BYTES = 1024 * 1024;
 export const MAX_ASSET_SOURCE_BYTES = 8 * MAX_ASSET_BYTES;
 export const MAX_FEATHER = 64;
@@ -122,11 +128,50 @@ function invalid(at: string, message: string): never {
   throw new Error(`${at}: ${message}`);
 }
 
+/** True while reading a file of a newer minor than ASSET_FORMAT: unknown fields and node kinds are skipped, not refused. */
+let newerMinor = false;
+
 function record(value: unknown, at: string, keys?: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(at, 'expected an object');
   const data = value as Record<string, unknown>;
-  if (keys) for (const key of Object.keys(data)) if (!keys.includes(key)) invalid(`${at}.${key}`, 'unknown field');
+  if (keys && !newerMinor) for (const key of Object.keys(data)) if (!keys.includes(key)) invalid(`${at}.${key}`, 'unknown field');
   return data;
+}
+
+const NODE_KINDS = ['ellipse', 'roundRect', 'path', 'image', 'mesh', 'text', 'group'];
+
+/** In a newer-minor file, drop the nodes whose kind this runtime cannot draw, in place, and draw the rest. */
+function knownNodes(value: unknown): unknown {
+  if (!newerMinor || !Array.isArray(value)) return value;
+  for (let i = value.length - 1; i >= 0; i--) {
+    const kind = (value[i] as { kind?: unknown } | null)?.kind;
+    if (!NODE_KINDS.includes(kind as string)) value.splice(i, 1);
+  }
+  return value;
+}
+
+/**
+ * Read a file's format: its schema's major against this runtime's, then its minor. A different major is refused with the way forward;
+ * a newer minor is read leniently.
+ */
+function checkFormat(file: Record<string, unknown>, kind: 'asset' | 'bundle'): void {
+  const expected = kind === 'asset' ? ASSET_SCHEMA : ASSET_BUNDLE_SCHEMA;
+  const match = typeof file.schema === 'string' ? /^skac\.(asset|bundle)\/(\d+)$/.exec(file.schema) : null;
+  if (match && match[1] === kind && Number(match[2]) !== ASSET_FORMAT.major) {
+    const major = Number(match[2]);
+    invalid(`${kind}.schema`, major > ASSET_FORMAT.major
+      ? `this file is format ${file.schema}, and this player reads ${expected}: update skia-motion-runtime to a release that reads format ${major}`
+      : `this file is format ${file.schema}, and this player reads ${expected}: run skac asset migrate <file> to upgrade it`);
+  }
+  if (file.schema !== expected) invalid(`${kind}.schema`, `this player reads ${expected}`);
+  if (file.minor !== undefined && (!Number.isInteger(file.minor) || (file.minor as number) < 1 || (file.minor as number) > 1000)) {
+    invalid(`${kind}.minor`, 'expected an integer from 1; leave it out for the baseline format');
+  }
+}
+
+/** The minor a validated file declares: 0 when it has none. */
+export function assetMinor(file: { minor?: unknown }): number {
+  return typeof file.minor === 'number' ? file.minor : 0;
 }
 
 function list(value: unknown, at: string, limit: number): unknown[] {
@@ -321,7 +366,7 @@ function registerPoint(name: string, at: string, points: Set<string>): void {
 
 function checkChildren(value: unknown, at: string, context: NodeValidation, depth: number): void {
   if (depth >= 16) invalid(at, 'nodes are nested more than 16 levels');
-  list(value, at, 256).forEach((child, i) => checkNode(child, `${at}[${i}]`, context, depth + 1));
+  list(knownNodes(value), at, 256).forEach((child, i) => checkNode(child, `${at}[${i}]`, context, depth + 1));
 }
 
 function checkMesh(node: Record<string, unknown>, at: string, context: NodeValidation, depth: number): void {
@@ -414,6 +459,7 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
     return;
   }
   if (node.kind === 'group') {
+    knownNodes(node.children);
     record(node, at, ['kind', 'children', 'x', 'y', 'scaleX', 'scaleY', 'rotation', 'anchor', 'clip', 'points', 'row']);
     if (node.row !== undefined) checkRow(node.row, node.children, `${at}.row`, context);
     for (const key of ['x', 'y', 'scaleX', 'scaleY', 'rotation']) {
@@ -493,9 +539,9 @@ function checkNode(value: unknown, at: string, context: NodeValidation, depth: n
 
 function validateAsset(value: unknown): DrawableMotionAsset {
   const data = record(value, 'asset', [
-    'schema', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'imageInk', 'palette', 'attachments', 'fonts', 'fontSlots', 'fontLicenses', 'audio', 'semantics',
+    'schema', 'minor', 'name', 'artboard', 'channels', 'clips', 'machine', 'markers', 'images', 'imageSlots', 'imageInk', 'palette', 'attachments', 'fonts', 'fontSlots', 'fontLicenses', 'audio', 'semantics',
   ]);
-  if (data.schema !== ASSET_SCHEMA) invalid('asset.schema', `this player reads ${ASSET_SCHEMA}`);
+  checkFormat(data, 'asset');
   identifier(data.name, 'asset.name');
   const machine = record(data.machine, 'machine');
   const values = machine.values === undefined ? {} : record(machine.values, 'machine.values');
@@ -546,6 +592,7 @@ function validateAsset(value: unknown): DrawableMotionAsset {
   const nodes = list(artboard.nodes, 'artboard.nodes', 256);
   if (!nodes.length) invalid('artboard.nodes', 'add at least one shape');
   const context = { channels, images, imageSlots, fonts, fontSlots, values, palette, points: new Set<string>() };
+  knownNodes(nodes);
   nodes.forEach((node, i) => checkNode(node, `artboard.nodes[${i}]`, context, 0));
   if (data.semantics !== undefined) {
     const names = new Set<string>();
@@ -677,8 +724,19 @@ function parseJSON(text: string): unknown {
 
 function validateAssetFile(decoded: unknown): MotionAssetFile<AssetResource> {
   const file = record(decoded, 'asset');
-  if (file.schema !== ASSET_BUNDLE_SCHEMA) return validateAsset(file);
-  record(file, 'bundle', ['schema', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontSlots', 'fontLicenses', 'audio']);
+  const minor = typeof file.minor === 'number' ? file.minor : 0;
+  newerMinor = Number.isInteger(minor) && minor > ASSET_FORMAT.minor;
+  try {
+    return validateFormatted(file);
+  } finally {
+    newerMinor = false;
+  }
+}
+
+function validateFormatted(file: Record<string, unknown>): MotionAssetFile<AssetResource> {
+  if (typeof file.schema !== 'string' || !file.schema.startsWith('skac.bundle/')) return validateAsset(file);
+  record(file, 'bundle', ['schema', 'minor', 'name', 'defaultArtboard', 'artboards', 'fonts', 'fontSlots', 'fontLicenses', 'audio']);
+  checkFormat(file, 'bundle');
   const name = identifier(file.name, 'bundle.name');
   const defaultArtboard = identifier(file.defaultArtboard, 'bundle.defaultArtboard');
   const artboards = record(file.artboards, 'bundle.artboards');

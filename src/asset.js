@@ -14,6 +14,7 @@ import { loadConfig } from './config.js';
 import { applyDefaultFont } from './default-font.js';
 import { PACKAGE_ROOT } from './docs.js';
 import { assetRuntime } from './asset-runtime.js';
+import { formatLabel, MIGRATIONS, migrateFile, parseFormat } from './asset-migrate.js';
 import { CliError, fail } from './util.js';
 
 const SAMPLES = {
@@ -36,6 +37,7 @@ const USAGE = [
   'skac asset types <file> [--artboard=<name>] [--out=<bindings.d.ts>] [--force|--check]',
   'skac asset pack <file> [--format=json|binary] [--fonts=host] [--out=<name.skmotion>] [--force]',
   'skac asset unpack <file.skmotion> [--out=<source.motion.json>] [--force]',
+  'skac asset migrate <file> [--to=<major.minor>] [--dry-run] [--out=<file>] [--force] (upgrade a file to the current format; prints the steps and changed fields)',
 ];
 
 function describe(asset) {
@@ -117,6 +119,81 @@ function embedImage(path, requestedSize) {
   return { ok: true, bytes: data.length, ...size, rgbaBytes: size.width * size.height * 4, uri };
 }
 
+/**
+ * The runtime reads a newer minor leniently, skipping what it does not know, so an app keeps playing a file from a newer exporter.
+ * The CLI authors and checks files, so it refuses one it cannot fully read.
+ */
+function newerThanCLI(file) {
+  const { ASSET_FORMAT, assetMinor } = assetRuntime();
+  if (assetMinor(file) > ASSET_FORMAT.minor) {
+    try {
+      fail(`this file is format ${ASSET_FORMAT.major}.${assetMinor(file)}, newer than this skac reads (${ASSET_FORMAT.major}.${ASSET_FORMAT.minor})`,
+        'update skia-motion-agentic-cli to check or edit it; apps on an older runtime still play it, without what is new');
+    } catch (error) {
+      error.newerFormat = true;
+      throw error;
+    }
+  }
+}
+
+/** Read a file raw, without validation, so a file of an older format can be upgraded. Embedded resources come back as data URIs. */
+function readRaw(path) {
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch {
+    fail(`cannot read ${path}`, 'pass a JSON source or a .skmotion file');
+  }
+  const runtime = assetRuntime();
+  try {
+    if (runtime.isBinaryAsset(bytes)) {
+      const decoded = runtime.decodeBinaryAsset(bytes, JSON.parse);
+      return { file: runtime.mapFileResources(decoded, (resource) => runtime.resourceDataUri(resource)), format: 'binary' };
+    }
+    return { file: JSON.parse(bytes.toString('utf8')), format: 'json' };
+  } catch (error) {
+    fail(error.message, 'pass a skac.asset or skac.bundle JSON source or a .skmotion file', { file: path });
+  }
+}
+
+function migrateAsset(input, flags, cwd) {
+  const path = resolve(cwd, input);
+  const runtime = assetRuntime();
+  const target = flags.to === undefined ? runtime.ASSET_FORMAT : parseFormat(flags.to);
+  if (!target) fail('invalid --to format', 'use major.minor, like --to=1.0');
+  const raw = readRaw(path);
+  let result;
+  try {
+    result = migrateFile(raw.file, { target, registry: MIGRATIONS });
+  } catch (error) {
+    fail(error.message, 'see skac asset guide migrate', { file: path });
+  }
+  const base = { ok: true, file: path, from: result.from, to: result.to, steps: result.steps };
+  if (!result.steps.length) {
+    return { ...base, current: true, changes: [], next: `format ${formatLabel(target)} is current: nothing to migrate` };
+  }
+  const packed = extname(path).toLowerCase() === '.skmotion';
+  const text = JSON.stringify(result.file, null, packed ? undefined : 2);
+  try {
+    if (packed) runtime.parseAssetFile(text);
+    else runtime.parseAssetSource(splitAuthoring(text).text);
+  } catch (error) {
+    fail(`the migrated file does not validate: ${error.message}`, 'report this with the file to the skia-motion maintainers', { file: path });
+  }
+  if (flags['dry-run']) return { ...base, changes: result.changes, dryRun: true, next: 'run again without --dry-run to write the migrated file' };
+  const stem = input.replace(/(?:\.motion)?\.json$|\.skmotion$/i, '');
+  const destination = resolve(cwd, flags.out ?? `${stem}.migrated${packed ? '.skmotion' : '.motion.json'}`);
+  if (destination === path) fail('migrate output is the same file', 'write to a new file with --out, compare, then replace');
+  if (raw.format === 'binary') {
+    const { data } = runtime.encodeBinaryAsset(result.file, (value) => Buffer.from(value, 'utf8'), runtime.MAX_ASSET_BYTES);
+    writeOutput(destination, data, flags.force);
+  } else writeOutput(destination, packed ? `${text}\n` : `${text}\n`, flags.force);
+  return {
+    ...base, out: destination, changes: result.changes,
+    next: `skac asset check ${destination}, then compare skac asset frame on both files at the same times before replacing the app's file`,
+  };
+}
+
 function readAsset(path, authoring) {
   let bytes;
   try {
@@ -131,8 +208,10 @@ function readAsset(path, authoring) {
     // Node ids, landings and allowOverlap are authoring-only: asset check reads them and the runtime never sees them.
     const { text: source, boards } = packed ? { text: bytes.toString('utf8'), boards: new Map() } : splitAuthoring(bytes.toString('utf8'));
     const file = authoring && !packed ? runtime.parseAssetSource(source) : runtime.parseAssetFile(source);
+    newerThanCLI(file);
     return { file, source, boards, aims: hasAims(boards), authoring: authoring && !packed };
   } catch (error) {
+    if (error.newerFormat) throw error;
     fail(error.message, 'see skac asset sample for an example of skac.asset/1', { file: path });
   }
 }
@@ -482,6 +561,7 @@ export function assetCommand(args, flags, cwd) {
   }
   if (action === 'image' && input && !output) return embedImage(resolve(cwd, input), flags.size);
   if (action === 'resource' && input && !output) return embedResource(resolve(cwd, input));
+  if (action === 'migrate' && input && !output) return migrateAsset(input, flags, cwd);
   if (!['check', 'trace', 'frame', 'cost', 'pack', 'unpack', 'types', 'preview'].includes(action) || !input || output) {
     fail('invalid asset command', 'run skac asset for the command list');
   }
