@@ -68,7 +68,7 @@ test('asset cost: an animated mesh makes new vertices only on frames where a pos
     return Math.round((cost.byKind.MakeVertices ?? 0) * cost.frames);
   };
   const base = await vertices(false, false);
-  assert.ok(await vertices(true, false) - base <= 1, 'a held mesh keeps its vertices');
-  const moving = await vertices(true, true);
-  assert.ok(moving - base >= 1 && moving - base <= 2, `a mesh that moves once makes new vertices once, got ${moving - base}`);
+  const held = await vertices(true, false);
+  assert.ok(held - base <= 1, 'a held mesh keeps its vertices');
+  assert.equal(await vertices(true, true), held + 1, 'a mesh that moves once makes new vertices exactly once more');
 });

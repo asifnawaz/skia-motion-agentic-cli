@@ -605,24 +605,24 @@ function drawMesh(canvas: SkCanvas, node: DrawableMesh, channels: Channels, imag
     paint.setShader(record.shader);
   }
   let mesh = record.vertices;
+  // An animated mesh reads each position once, and reuses its vertices while every position holds (vertices never change once made;
+  // a new image already cleared them above).
+  const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
   if (mesh && !node.fixedPositions) {
-    // An animated mesh reuses its vertices while every position holds (vertices made by Skia never change).
     const last = record.positions;
-    let held = last !== undefined && record.indexCount === node.indices.length && last.length === node.vertices.length * 2;
-    for (let i = 0; held && i < node.vertices.length; i++) {
-      const { x, y } = meshPosition(node.vertices[i]!, channels);
-      held = last![i * 2] === x && last![i * 2 + 1] === y;
-    }
+    let held = last !== undefined && record.indexCount === node.indices.length && last.length === positions.length * 2;
+    for (let i = 0; held && i < positions.length; i++) held = last![i * 2] === positions[i]!.x && last![i * 2 + 1] === positions[i]!.y;
     if (!held) mesh = undefined;
   }
   if (!mesh) {
-    const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
     const textures = node.textureCoords ?? meshTextureCoords(node, image);
     mesh = Skia.MakeVertices(VertexMode.Triangles, positions, textures, undefined, node.indices as number[]);
     if (node.fixedPositions) record.vertices = mesh;
     else if (node.cacheKey !== undefined) {
       record.vertices = mesh;
-      record.positions = positions.flatMap((point) => [point.x, point.y]);
+      const flat: number[] = [];
+      for (const point of positions) flat.push(point.x, point.y);
+      record.positions = flat;
       record.indexCount = node.indices.length;
     }
   }
