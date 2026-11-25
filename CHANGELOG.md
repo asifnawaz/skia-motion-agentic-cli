@@ -1,3 +1,23 @@
+## [3.6.3](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.2...v3.6.3) (2026-11-25)
+
+
+### Bug Fixes
+
+* **runtime:** an animated mesh reads each position once ([407e396](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/407e39606ed7b41ca04628ae4a2c232005232022))
+
+
+### Performance Improvements
+
+* **runtime:** an animated mesh makes new vertices only when a position changes ([2802d61](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/2802d61f04219c69b578d978c394559dfef4b18b))
+
+
+### Existing .skmotion files
+
+**No change.** Existing files play as before. No step is needed.
+
+* No change: an animated mesh reads each position once (407e396)
+* No change: an animated mesh makes new vertices only when a position changes (2802d61)
+
 ## [3.6.2](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.1...v3.6.2) (2026-11-25)
 
 
