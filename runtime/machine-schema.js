@@ -29,13 +29,15 @@ const typeOfLiteral = (v) => (typeof v === 'boolean' ? 'boolean' : typeof v === 
  * Judge a parsed machine. Returns `{problems, warnings}`: each `{where, error, hint}`. `clipNames`, when given, are the
  * clips `<Name>.clips.ts` exports; with `clips` their lengths are also checked against wrapping clocks.
  * @param {unknown} m
- * @param {{clips?: Record<string, {ms: number}>, clipNames?: string[]}} [opts]
+ * @param {{clips?: Record<string, {ms: number}>, clipNames?: string[], lenient?: boolean}} [opts]
  */
-export const validateMachine = (m, { clips, clipNames = clips && Object.keys(clips) } = {}) => {
+export const validateMachine = (m, { clips, clipNames = clips && Object.keys(clips), lenient = false } = {}) => {
   const problems = [];
   const warnings = [];
   const bad = (where, error, hint) => problems.push({ where, error, hint });
+  // lenient: a file of a newer format minor, whose keys this runtime may not know yet. They are skipped, not refused.
   const unknownKeys = (obj, allowed, where) => {
+    if (lenient) return;
     for (const k of Object.keys(obj)) {
       if (!allowed.includes(k)) bad(where, `unknown key "${k}"`, `allowed here: ${allowed.join(', ')}. A newer skac may know it: check \`skac --version\``);
     }

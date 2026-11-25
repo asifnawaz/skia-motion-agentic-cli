@@ -76,3 +76,29 @@ test('the CLI checks and packs only formats it fully reads', () => {
   assert.equal(checked.ok, false);
   assert.match(checked.error, /newer than this skac reads/);
 });
+
+test('review fixes: binary and bundle files of a newer minor are refused by the CLI, the way forward comes first', () => {
+  const { parseAssetFile } = assetRuntime();
+  const file = sample('game-hud');
+  // Another major with a field this runtime does not know still gets the way forward.
+  assert.throws(() => parseAssetFile(JSON.stringify({ ...file, schema: 'skac.asset/2', effects: {} })), /update skia-motion-runtime/);
+  // A newer minor may add machine keys too.
+  const machine = { ...file.machine, futureKey: true };
+  assert.doesNotThrow(() => parseAssetFile(JSON.stringify({ ...file, minor: 1, machine })));
+  assert.throws(() => parseAssetFile(JSON.stringify({ ...file, machine })), /unknown key "futureKey"/);
+  // Malformed nodes are still reported, and an artboard of only new kinds is refused, not drawn empty.
+  assert.throws(() => parseAssetFile(JSON.stringify({ ...file, minor: 1, artboard: { ...file.artboard, nodes: [...file.artboard.nodes, null] } })), /expected an object/);
+  assert.throws(() => parseAssetFile(JSON.stringify({ ...file, minor: 1, artboard: { ...file.artboard, nodes: [{ kind: 'sparkle' }] } })), /add at least one shape/);
+
+  const cwd = tmp('migrate-newer-binary-');
+  write(join(cwd, 'newer.motion.json'), JSON.stringify({ ...file, minor: 1 }));
+  const { encodeBinaryAsset } = assetRuntime();
+  const { data } = encodeBinaryAsset({ ...file, minor: 1 }, (text) => Buffer.from(text, 'utf8'), 1 << 20);
+  write(join(cwd, 'newer.skmotion'), Buffer.from(data));
+  write(join(cwd, 'bundle.motion.json'), JSON.stringify({ schema: 'skac.bundle/1', minor: 1, name: 'pair', defaultArtboard: 'hud', artboards: { hud: file } }));
+  for (const name of ['newer.skmotion', 'bundle.motion.json']) {
+    const checked = run(['asset', 'check', name], cwd);
+    assert.equal(checked.ok, false, name);
+    assert.match(checked.error, /newer than this skac reads/, name);
+  }
+});
