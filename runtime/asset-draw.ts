@@ -157,7 +157,7 @@ function setBlur(record: PaintRecord, sigma: number) {
   record.paint.setMaskFilter(next > 0 ? Skia.MaskFilter.MakeBlur(BlurStyle.Normal, next, true) : null);
 }
 
-function makePath(commands: readonly PathCommand[], channels: Channels) {
+function buildPath(commands: readonly PathCommand[], channels: Channels) {
   'worklet';
   const path = Skia.PathBuilder.Make();
   for (const [op, ...coords] of commands) {
@@ -169,6 +169,25 @@ function makePath(commands: readonly PathCommand[], channels: Channels) {
     else path.close();
   }
   return path.detach();
+}
+
+type PathRecord = { values: number[]; path: SkPath };
+
+/**
+ * An animated path. With a key the node keeps its last path and builds a new one only when a coordinate changes: a detached path never
+ * changes, so the next picture can record the same one.
+ */
+function makePath(commands: readonly PathCommand[], channels: Channels, key?: string) {
+  'worklet';
+  if (key === undefined) return buildPath(commands, channels);
+  const values: number[] = [];
+  for (const [, ...coords] of commands) for (const coord of coords) values.push(read(coord, channels));
+  const record = cached<PathRecord | undefined>(`path|${key}`, () => undefined);
+  if (record && record.values.length === values.length && record.values.every((value, i) => value === values[i])) return record.path;
+  const next: PathRecord = { values, path: buildPath(commands, channels) };
+  const holder = globalThis as unknown as { __skiaMotionCache?: CacheStore };
+  holder.__skiaMotionCache!.set(`path|${key}`, next);
+  return next.path;
 }
 
 /**
@@ -749,7 +768,7 @@ function drawNodes(
       canvas.translate(read(node.x, channels) + offset.x, read(node.y, channels) + offset.y);
       canvas.rotate(read(node.rotation, channels), 0, 0);
       canvas.scale(read(node.scaleX, channels, 1), read(node.scaleY, channels, 1));
-      if (node.clip) canvas.clipPath(node.preparedClip ?? makePath(node.clip, channels), ClipOp.Intersect, true);
+      if (node.clip) canvas.clipPath(node.preparedClip ?? makePath(node.clip, channels, node.cacheKey), ClipOp.Intersect, true);
       if (node.row) {
         const { moves, paragraphs } = layoutRow(canvas, node as RowGroup, channels, values, fonts, palette);
         node.children.forEach((child, index) => {
@@ -793,7 +812,7 @@ function drawNodes(
     }
     if (!alpha) continue;
     if (node.kind === 'path') {
-      const path = node.preparedPath ?? makePath(node.commands, channels);
+      const path = node.preparedPath ?? makePath(node.commands, channels, node.cacheKey);
       if (node.fill) canvas.drawPath(path, node.preparedPaint ?? makePaint(node, alpha, channels, palette, node.cacheKey));
       if (node.stroke) drawStroke(canvas, path, node.stroke, alpha, Math.min(MAX_FEATHER, read(node.feather, channels)), channels, palette, node.cacheKey);
       continue;
