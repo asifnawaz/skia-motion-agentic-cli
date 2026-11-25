@@ -17,9 +17,17 @@ tag, picks the version, updates CHANGELOG.md, tags, publishes to npm and creates
 ## Tests
 
 ```bash
-npm run test:unit   # fast, no browser
-npm run test:e2e    # creates a project, installs it and renders
+npm run test:unit           # fast, no browser
+npm run typecheck:runtime   # strict tsc over the packed runtime, as an Expo app compiles it
+npm run test:e2e            # creates a project, installs it and renders
 ```
+
+The runtime ships TypeScript sources, so every app that installs it compiles them with its own settings.
+The unit tests bundle the runtime with esbuild, which strips types without checking them. A change under
+`runtime/` or `templates/motion/` is not done until `npm run typecheck:runtime` passes. The check
+installs pinned host packages (`test/typecheck/package.json`) and runs `tsc` with `strict` and
+`noUncheckedIndexedAccess` over every entry point. CI runs it on every pull request. Raise the pins
+when the Expo SDK the runtime targets moves.
 
 The e2e suite needs `ffmpeg`. It runs `create` and `npm install` itself, which takes minutes.
 To reuse a project you already installed, set `SKIA_MOTION_E2E_PROJECT=/path/to/project`.
