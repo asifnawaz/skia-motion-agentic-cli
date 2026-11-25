@@ -200,6 +200,8 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const paragraphs = [];
   const translations = [];
   const scales = [];
+  const imagePaints = [];
+  let layouts = 0;
   const clipsDrawn = [];
   const clipRects = [];
   const strokes = [];
@@ -227,6 +229,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     TypefaceFontProvider: { Make: () => ({ registerFont: (...args) => fonts.push(args) }) },
     ParagraphBuilder: { Make(style, provider) {
       assert.ok(provider);
+      layouts++;
       let text;
       let width;
       return {
@@ -264,7 +267,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   };
   const canvas = {
     save() {}, restore() {}, translate(x, y) { translations.push([x, y]); }, scale(x, y) { scales.push([x, y]); }, rotate() {},
-    drawRect(rect, paint) { imageDraws.push({ rect, alpha: paint.alpha, shader: paint.shader }); },
+    drawRect(rect, paint) { imageDraws.push({ rect, alpha: paint.alpha, shader: paint.shader }); imagePaints.push(paint); },
     clipRect(rect) { clipRects.push(rect); },
     clipPath(path, op, antiAlias) { clipsDrawn.push({ path, op, antiAlias }); },
     drawPath(path, paint) {
@@ -325,16 +328,26 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     textures: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 3 }],
     indices: [0, 1, 2], alpha: 0.75, blend: 3, shader: 'source-texture',
   }]);
+  // Bound text is laid out once per value, and an image node keeps one paint, across frames.
+  const laidOut = layouts;
+  drawAsset(canvas, drawing, pose.channels, 320, 260, images, { title: 'مرحبا' });
+  assert.equal(layouts, laidOut, 'the same bound text is not laid out again');
+  drawAsset(canvas, drawing, pose.channels, 320, 260, images, { title: 'أهلا' });
+  assert.equal(layouts, laidOut + 1, 'a new value is laid out once');
+  assert.equal(imagePaints.at(-1), imagePaints[0], 'the image node reuses its paint');
   const warmed = { ...image, makeShaderOptions: () => 'warmed-texture' };
+  // An image passed at draw time that differs from the prepared one draws with its own shader, not the prepared image's.
+  drawAsset(canvas, drawing, pose.channels, 320, 260, Object.fromEntries(Object.keys(images).map((name) => [name, warmed])), {});
+  assert.equal(imageDraws.at(-1).shader, 'warmed-texture');
   const rebound = rebindAssetMeshShaders(drawing, { ...images, portrait: warmed });
   drawAsset(canvas, rebound, { ...pose.channels, lightX: 30 }, 320, 260, { ...images, portrait: warmed });
-  assert.deepEqual(meshDraws[1].positions[1], { x: 30, y: 0 });
-  assert.equal(meshDraws[1].shader, 'warmed-texture');
+  assert.deepEqual(meshDraws.at(-1).positions[1], { x: 30, y: 0 });
+  assert.equal(meshDraws.at(-1).shader, 'warmed-texture');
   const replacement = { ...warmed, width: () => 27, height: () => 31 };
   const overridden = decodeAssetImages(asset, { portrait: replacement });
   assert.equal(overridden.portrait, replacement);
   drawAsset(canvas, prepareAssetDrawing(asset, overridden), pose.channels, 320, 260, overridden);
-  assert.deepEqual(meshDraws[2].textures, [{ x: 0, y: 0 }, { x: 27, y: 0 }, { x: 0, y: 31 }]);
+  assert.deepEqual(meshDraws.at(-1).textures, [{ x: 0, y: 0 }, { x: 27, y: 0 }, { x: 0, y: 31 }]);
   assert.throws(() => decodeAssetImages(asset, { invalid: replacement }), /Unknown motion image slot/);
   clipRects.length = 0;
   drawAsset(canvas, drawing, pose.channels, 240, 100, images, {}, { fit: 'cover' });
