@@ -43,10 +43,23 @@ test('the release notes say what a release means for existing files', () => {
 
 test('the footer is needed on typed commits that touch file reading or writing', () => {
   assert.deepEqual(parseFiles('x\n\nFiles: No change.'), { verdict: 'no change', detail: '' });
+  assert.deepEqual(parseFiles('x\n\nFiles: no change.\n\nCo-Authored-By: X <x@example.com>'), { verdict: 'no change', detail: '' }, 'the next line is not the detail');
+  assert.equal(parseFiles('x\n\nFiles: no change.\nFiles: required. Run migrate.').verdict, 'required', 'the strictest of several wins');
   assert.equal(parseFiles('x\n\nFiles: maybe'), undefined);
   assert.equal(needsFooter('fix(runtime): x', ['runtime/asset-draw.ts']), true);
   assert.equal(needsFooter('feat: x', ['src/asset.js']), true);
   assert.equal(needsFooter('perf!: x', ['templates/motion/machine.ts']), true);
   assert.equal(needsFooter('docs: x', ['runtime/asset.ts']), false);
   assert.equal(needsFooter('fix: x', ['src/cli.js']), false);
+});
+
+test('a typed commit that should state its effect and does not is listed, and the summary never says no step is needed', () => {
+  // A hash git cannot read counts as touching the format: the notes say so rather than guess.
+  const notes = generateNotes({}, { cwd: process.cwd(), commits: [
+    commit('a', 'fix(runtime): a thing\n\nFiles: no change.'),
+    commit('d', 'feat(runtime): unstated'),
+  ] });
+  assert.match(notes, /\*\*Not stated\.\*\*/);
+  assert.match(notes, /\* Not stated: unstated \(ddddddd\)/);
+  assert.doesNotMatch(notes, /No step is needed/);
 });
