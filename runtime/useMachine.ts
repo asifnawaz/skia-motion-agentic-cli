@@ -16,6 +16,12 @@ import { assertRuntimeVersion } from './version';
 
 declare const __DEV__: boolean;
 const noClocks: Record<string, SharedValue<number>> = {};
+/** The longest frame the clock always takes whole, in ms; a longer one counts whole only if recent frames were as long. */
+const MAX_STEP_MS = 50;
+/** A frame longer than this many typical frames (and than MAX_STEP_MS) is a stall, and moves the clock only that far. */
+const STALL_FACTOR = 3;
+/** How fast the typical frame length follows the frames: a tenth of the way each frame. */
+const TYPICAL_WEIGHT = 0.1;
 
 /** Dev-only timing probe (skac docs app): frame timestamps, in ms, of the frame that applied a write and of the first frame that drew something different after it. */
 export type MachineProbe = { onWrite?: (frameMs: number) => void; onChanged?: (frameMs: number) => void };
@@ -125,6 +131,9 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
   const rate = options.frameRate;
   if (rate !== undefined && (!Number.isFinite(rate) || rate <= 0)) throw new Error('useMachine: frameRate must be positive');
   const frameInterval = rate === undefined ? 0 : 1000 / rate;
+  // The least a frame may move the clock before it counts as a stall: two intervals under a frame rate cap, so a frame a
+  // little late still counts whole. A stall (an image decode, a sheet opening) delays motion instead of eating it.
+  const minCap = Math.max(2 * frameInterval, MAX_STEP_MS);
   const compiled = useMemo(() => compile(machine, clips), [machine, clips]);
   // The clocks its layers run on: the pose reads only these, and each must be passed, since a missing one would read
   // machine time, which stops while the machine rests.
@@ -142,6 +151,8 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
   const first = useMemo(() => advance(compiled, start(compiled), 0, valueWrites(compiled, options.initialValues), read), [compiled]); // eslint-disable-line react-hooks/exhaustive-deps
   const ms = useSharedValue(0);
   const elapsed = useSharedValue(0);
+  // A running average of frame lengths, in ms, starting at one 60 Hz frame.
+  const typical = useSharedValue(1000 / 60);
   const snapshot = useSharedValue<Snapshot>(first);
   const pending = useSharedValue<Write[]>([]);
   const lastChannels = useSharedValue('');
@@ -188,7 +199,11 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
     const writes = pending.value;
     // The first frame after a wake has no previous frame (dt 0); advance takes writes after the snapshot's time only,
     // so writes waiting then are stamped a hair later, or they would be lost.
-    const dt = elapsed.value + (frame.timeSincePreviousFrame ?? 0);
+    // A stall is a frame far longer than the recent ones: a device that is steadily slow keeps real time.
+    const raw = frame.timeSincePreviousFrame ?? 0;
+    const step = Math.min(raw, Math.max(minCap, STALL_FACTOR * typical.value));
+    if (raw > 0) typical.value += (step - typical.value) * TYPICAL_WEIGHT;
+    const dt = elapsed.value + step;
     if (!writes.length && frameInterval > 0 && dt + 0.1 < frameInterval) {
       elapsed.value = dt;
       return;
@@ -212,11 +227,11 @@ export function useMachine<const M extends Machine>(machine: M, clips: Clips, op
       }
     }
     if (pending.value.length === 0 && settled(compiled, next, read, reduced).frame) scheduleOnRN(sleep);
-  }, [compiled, clips, reduced, probe, onStateEntries, frameInterval, read, channelDefaults]);
+  }, [compiled, clips, reduced, probe, onStateEntries, frameInterval, minCap, typical, read, channelDefaults]);
 
   const frames = useFrameCallback(tick, false);
   // The callback is switched from JavaScript only: switching it from a worklet makes a synchronous remote call that
-  // release builds refuse (found in Word Quran, 18 Oct 2026).
+  // release builds refuse (found in a host app, 18 Oct 2026).
   function sleep() {
     frames.setActive(false);
   }
