@@ -1,3 +1,17 @@
+## [3.4.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.4.0...v3.4.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **runtime:** a stall delays motion, never eats it ([d996b10](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/d996b10881dc8bad3d99d72c711c06aeaef88403))
+* **runtime:** art drawn small samples its mip levels ([d994a36](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/d994a3660606924910be8d0d4f9aa2a28e64e037))
+* **runtime:** only 'background' pauses a player, on both platforms ([d006dd4](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/d006dd43919e811d98d1514efd5063277f74e93d))
+
+
+### Performance Improvements
+
+* **runtime:** cache laid-out text, row ink and image paints ([bb5fc0e](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/bb5fc0e181b65c14c916ddbf119bbf6623ebe8d2))
+
 # [3.4.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.3.1...v3.4.0) (2026-11-24)
 
 
