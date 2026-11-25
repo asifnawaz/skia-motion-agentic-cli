@@ -120,6 +120,8 @@ function cached<T>(key: string | undefined, make: () => T): T {
 type PaintRecord = {
   paint: SkPaint; blur?: number; shaderKey?: string; dash?: number;
   image?: SkImage; shader?: SkShader; vertices?: ReturnType<typeof Skia.MakeVertices>;
+  /** An animated mesh's last positions (x, y pairs) and index count, so held vertices are reused. */
+  positions?: number[]; indexCount?: number;
 };
 
 function paintRecord(key: string | undefined): PaintRecord {
@@ -603,11 +605,26 @@ function drawMesh(canvas: SkCanvas, node: DrawableMesh, channels: Channels, imag
     paint.setShader(record.shader);
   }
   let mesh = record.vertices;
+  if (mesh && !node.fixedPositions) {
+    // An animated mesh reuses its vertices while every position holds (vertices made by Skia never change).
+    const last = record.positions;
+    let held = last !== undefined && record.indexCount === node.indices.length && last.length === node.vertices.length * 2;
+    for (let i = 0; held && i < node.vertices.length; i++) {
+      const { x, y } = meshPosition(node.vertices[i]!, channels);
+      held = last![i * 2] === x && last![i * 2 + 1] === y;
+    }
+    if (!held) mesh = undefined;
+  }
   if (!mesh) {
     const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
     const textures = node.textureCoords ?? meshTextureCoords(node, image);
     mesh = Skia.MakeVertices(VertexMode.Triangles, positions, textures, undefined, node.indices as number[]);
     if (node.fixedPositions) record.vertices = mesh;
+    else if (node.cacheKey !== undefined) {
+      record.vertices = mesh;
+      record.positions = positions.flatMap((point) => [point.x, point.y]);
+      record.indexCount = node.indices.length;
+    }
   }
   canvas.drawVertices(mesh, BlendMode.SrcOver, paint);
 }
