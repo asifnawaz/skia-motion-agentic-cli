@@ -138,6 +138,89 @@ async function drawModule() {
   return draw;
 }
 
+let counted;
+
+/** Wrap every Skia factory so each call counts as one object made, by name. */
+function countingShim(shim) {
+  const made = new Map();
+  const wrap = (target, prefix) => Object.fromEntries(Object.entries(target).map(([name, value]) => {
+    const label = prefix ? `${prefix}.${name}` : name;
+    if (typeof value === 'function') {
+      return [name, (...args) => { made.set(label, (made.get(label) ?? 0) + 1); return value(...args); }];
+    }
+    return [name, value && typeof value === 'object' ? wrap(value, label) : value];
+  }));
+  return { shim: { ...shim, Skia: wrap(shim.Skia, '') }, made };
+}
+
+async function countedDrawModule() {
+  if (counted) return counted;
+  const ck = await loadCanvasKit();
+  const fallback = readFileSync(join(PACKAGE_ROOT, 'templates', 'fonts', 'allo-1.0.3', 'Allo-Regular.otf'));
+  const { shim, made } = countingShim(skiaShim(ck, fallback));
+  const { outputFiles } = buildSync({
+    entryPoints: [join(PACKAGE_ROOT, 'runtime', 'asset-draw.ts')],
+    bundle: true, write: false, format: 'cjs', platform: 'node', target: 'node18', external: ['react-native-skia'],
+  });
+  const module = { exports: {} };
+  compileFunction(outputFiles[0].text, ['module', 'exports', 'require'])(module, module.exports, (name) => {
+    if (name === 'react-native-skia') return shim;
+    throw new Error(`asset-draw imports ${name}`);
+  });
+  counted = { ck, made, ...module.exports };
+  return counted;
+}
+
+const percentile = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+const round = (value) => Math.round(value * 1000) / 1000;
+
+/**
+ * Play a parsed asset's frames through the app's own draw code over CanvasKit's CPU rasteriser and report what each frame costs:
+ * milliseconds (first frame apart, as it holds one-time work) and the Skia objects the draw code makes per frame, which on a phone
+ * are allocations on the UI thread and garbage for its collector. Times are relative: a phone's GPU backend differs.
+ */
+export async function measureAssetFrames(asset, rows, size) {
+  const { ck, made, decodeAssetImages, prepareAssetDrawing, drawAsset } = await countedDrawModule();
+  const { fontSlots: _resolved, ...resolved } = asset;
+  made.clear();
+  const prepareStart = performance.now();
+  const images = decodeAssetImages(resolved);
+  const drawing = prepareAssetDrawing(resolved, images);
+  const prepareMs = performance.now() - prepareStart;
+  const prepareObjects = [...made.values()].reduce((sum, count) => sum + count, 0);
+  const surface = ck.MakeSurface(size.width, size.height);
+  if (!surface) throw new Error('CanvasKit could not make a raster surface');
+  const canvas = surface.getCanvas();
+  const frame = (row) => {
+    const text = Object.fromEntries(Object.entries(row.values).filter(([, value]) => typeof value === 'string'));
+    canvas.clear(ck.TRANSPARENT);
+    const start = performance.now();
+    drawAsset(canvas, drawing, row.channels, size.width, size.height, images, text);
+    surface.flush();
+    return performance.now() - start;
+  };
+  try {
+    made.clear();
+    const firstMs = frame(rows[0]);
+    made.clear();
+    const times = rows.map(frame);
+    const perFrame = new Map([...made].map(([name, count]) => [name, count / rows.length]));
+    const sorted = [...times].sort((a, b) => a - b);
+    const imageBytes = Object.values(images).reduce((sum, image) => sum + image.width() * image.height() * 4, 0);
+    return {
+      frames: rows.length,
+      prepare: { ms: round(prepareMs), objects: prepareObjects },
+      firstFrameMs: round(firstMs),
+      frameMs: { p50: round(percentile(sorted, 0.5)), p95: round(percentile(sorted, 0.95)), max: round(sorted.at(-1)) },
+      objectsPerFrame: round([...perFrame.values()].reduce((sum, count) => sum + count, 0)),
+      byKind: Object.fromEntries([...perFrame].sort((a, b) => b[1] - a[1]).map(([name, count]) => [name, round(count)])),
+      images: { decodedBytes: imageBytes, withMipsBytes: Math.round(imageBytes * 4 / 3) },
+    };
+  } finally {
+    surface.delete();
+  }
+}
+
 /**
  * Draw one pose of a parsed asset with the app's own Skia draw code and return the PNG bytes. `asset.fonts` must already hold every
  * font slot's face (resolveAssetFonts with the host fonts), so the slots are drawn as the plain fonts they resolved to.
