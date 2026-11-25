@@ -269,34 +269,81 @@ export type MotionClipOptions = AssetLayoutOptions & {
   text?: Readonly<Record<string, string>>;
 };
 
-/** Sample one named clip at absolute local time and paint into the supplied Skia canvas. */
-export function drawMotionClip(
-  canvas: SkCanvas, asset: LoadedMotionAsset, name: string, timeMs: number, options: MotionClipOptions,
-): void {
+/**
+ * The channels of one named clip at absolute local time, with the host's shared channels applied: the pose drawMotionClip draws.
+ * A host that reads the pose too (for its own text or layout) samples it once here and draws it with drawMotionPose.
+ */
+export function motionClipChannels(
+  asset: LoadedMotionAsset, name: string, timeMs: number, options: Pick<MotionClipOptions, 'reduced' | 'channels'> = {},
+): Pose['channels'] {
   'worklet';
   if (!Object.hasOwn(asset.clips, name)) throw new Error(`Unknown motion clip "${name}"`);
   const clip = asset.clips[name]!;
   const time = options.reduced ? clip.reducedAt ?? clip.ms
     : Math.max(0, Math.min(clip.ms, Number.isFinite(timeMs) ? timeMs : 0));
+  return readChannels(clip.play(time).channels, options.channels);
+}
+
+/** Paint channels already sampled (motionClipChannels, or a host's own) into the supplied Skia canvas. */
+export function drawMotionPose(
+  canvas: SkCanvas, asset: LoadedMotionAsset, channels: Pose['channels'], options: MotionClipOptions,
+): void {
+  'worklet';
   const text: Record<string, string> = {};
   for (const key of asset.drawing.textBindings ?? []) {
     const value = options.text?.[key] ?? asset.machine.values?.[key]?.default;
     if (typeof value === 'string') text[key] = value;
   }
-  drawAsset(canvas, asset.drawing, readChannels(clip.play(time).channels, options.channels),
-    options.width, options.height, asset.images, text, options);
+  drawAsset(canvas, asset.drawing, channels, options.width, options.height, asset.images, text, options);
 }
 
-/** Compose a host-controlled clip inside an existing Skia Canvas. */
+/** Sample one named clip at absolute local time and paint into the supplied Skia canvas. */
+export function drawMotionClip(
+  canvas: SkCanvas, asset: LoadedMotionAsset, name: string, timeMs: number, options: MotionClipOptions,
+): void {
+  'worklet';
+  drawMotionPose(canvas, asset, motionClipChannels(asset, name, timeMs, options), options);
+}
+
+function sameChannels(left: Pose['channels'] | undefined, right: Pose['channels']): boolean {
+  'worklet';
+  if (!left) return false;
+  let count = 0;
+  for (const name in right) {
+    if (!Object.hasOwn(right, name)) continue;
+    if (left[name] !== right[name]) return false;
+    count++;
+  }
+  for (const name in left) if (Object.hasOwn(left, name)) count--;
+  return count === 0;
+}
+
+/**
+ * Compose a host-controlled clip inside an existing Skia Canvas. A time where the clip's channels do not change (a hold, the end of
+ * the clip, a host clock that keeps running) records no new picture, so the canvas does not present again.
+ */
 export function MotionPicture({ asset, clip, timeMs, ...options }: MotionClipOptions & {
   asset: LoadedMotionAsset;
   clip: string;
   timeMs: SharedValue<number>;
 }) {
   if (!Object.hasOwn(asset.clips, clip)) throw new Error(`Unknown motion clip "${clip}"`);
-  const picture = useDerivedValue(() => createPicture(
-    (canvas) => drawMotionClip(canvas, asset, clip, timeMs.value, options),
-    Skia.XYWHRect(0, 0, options.width, options.height),
-  ));
+  // The last pose and its picture, changed in place so reading it subscribes to nothing. Reanimated runs no mapper when a shared value
+  // is set to the object it holds, so returning the same picture leaves the canvas as it is. A render makes a new options object, and
+  // with it a new picture.
+  const last = useSharedValue<{ options?: object; channels?: Pose['channels']; picture?: ReturnType<typeof createPicture> }>({});
+  const picture = useDerivedValue(() => {
+    const channels = motionClipChannels(asset, clip, timeMs.value, options);
+    const memo = last.value;
+    if (memo.picture && memo.options === options && sameChannels(memo.channels, channels)) return memo.picture;
+    const recorded = createPicture(
+      (canvas) => drawMotionPose(canvas, asset, channels, options),
+      Skia.XYWHRect(0, 0, options.width, options.height),
+    );
+    memo.options = options;
+    memo.channels = channels;
+    memo.picture = recorded;
+    return recorded;
+  });
   return <Picture picture={picture} />;
 }

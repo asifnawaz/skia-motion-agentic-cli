@@ -36,9 +36,8 @@ function track(run, compute) {
   }
 }
 
-test('a player records a new picture only when the pose, a channel or a bound string changes', () => {
-  let pictures = 0;
-  let label = '5';
+function harness() {
+  const state = { pictures: 0, label: '5' };
   const pose = shared({ channels: {} });
   const snapshot = shared({ frame: 0 });
   const slots = [];
@@ -67,7 +66,7 @@ test('a player records a new picture only when the pose, a channel or a bound st
     'react-native-skia': {
       Canvas: 'Canvas', Picture: 'Picture', TileMode: { Clamp: 0 }, BlurStyle: { Normal: 0 },
       TextAlign: { Left: 0, Right: 1, Center: 2 }, TextDirection: { LTR: 0, RTL: 1 },
-      createPicture: () => ({ picture: ++pictures }),
+      createPicture: () => ({ picture: ++state.pictures }),
       Skia: {
         XYWHRect: (...rect) => rect,
         RRectXY: (rect) => rect,
@@ -109,14 +108,21 @@ test('a player records a new picture only when the pose, a channel or a bound st
     'machine-stub': {
       useMachine: () => ({
         pose, snapshot,
-        readOnUI: () => { void snapshot.value; return label; },
+        readOnUI: () => { void snapshot.value; return state.label; },
       }),
     },
   };
   const module = { exports: {} };
   new Function('module', 'require', text)(module, (name) => modules[name]);
+  return { state, pose, snapshot, exports: module.exports, resetSlots: () => { slot = 0; } };
+}
+
+test('a player records a new picture only when the pose, a channel or a bound string changes', () => {
+  const { state, pose, snapshot, exports, resetSlots } = harness();
+  const module = { exports };
+  const slot = { set value(_) { resetSlots(); } };
   const render = () => {
-    slot = 0;
+    slot.value = 0;
     const element = module.exports.MotionPlayer({ source });
     return element.type(element.props);
   };
@@ -124,16 +130,33 @@ test('a player records a new picture only when the pose, a channel or a bound st
   view.props.onLayout({ nativeEvent: { layout: { width: 280, height: 114 } } });
   const picture = render().props.children[0].props.children;
   picture.type(picture.props);
-  assert.equal(pictures, 1);
+  assert.equal(state.pictures, 1);
 
   // The machine runs (a hold, a wait) and writes a new snapshot each frame, but nothing drawn moves.
   for (let frame = 1; frame <= 30; frame++) snapshot.value = { frame };
-  assert.equal(pictures, 1, 'an unchanged frame records no picture');
+  assert.equal(state.pictures, 1, 'an unchanged frame records no picture');
 
-  label = '6';
+  state.label = '6';
   snapshot.value = { frame: 31 };
-  assert.equal(pictures, 2, 'a changed bound string records one picture');
+  assert.equal(state.pictures, 2, 'a changed bound string records one picture');
 
   pose.value = { channels: { pulse: 0.5 } };
-  assert.equal(pictures, 3, 'a changed pose records one picture');
+  assert.equal(state.pictures, 3, 'a changed pose records one picture');
+});
+
+test('a MotionPicture records a new picture only when the clip\'s channels change, not on every host frame', () => {
+  const { state, exports } = harness();
+  const asset = exports.loadMotionAsset(source);
+  const clip = 'pulse';
+  const ms = asset.clips[clip].ms;
+  const timeMs = shared(0);
+  exports.MotionPicture({ asset, clip, timeMs, width: 280, height: 114 });
+  assert.equal(state.pictures, 1);
+  timeMs.value = 85;
+  assert.equal(state.pictures, 2, 'a moving clip records a picture');
+  // The host clock runs on past the clip's end: the pose holds, so nothing is recorded.
+  timeMs.value = ms;
+  const atEnd = state.pictures;
+  for (let frame = 1; frame <= 30; frame++) timeMs.value = ms + frame * 16;
+  assert.equal(state.pictures, atEnd, 'a held pose records no picture');
 });
