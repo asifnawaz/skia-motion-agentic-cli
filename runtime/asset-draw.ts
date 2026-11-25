@@ -157,15 +157,27 @@ function setBlur(record: PaintRecord, sigma: number) {
   record.paint.setMaskFilter(next > 0 ? Skia.MaskFilter.MakeBlur(BlurStyle.Normal, next, true) : null);
 }
 
-function buildPath(commands: readonly PathCommand[], channels: Channels) {
+/** The numbers a path is built from, read once: each command's letter (as a code) then its coordinates. */
+function pathValues(commands: readonly PathCommand[], channels: Channels): number[] {
+  'worklet';
+  const values: number[] = [];
+  for (const command of commands) {
+    values.push(command[0].charCodeAt(0));
+    for (let i = 1; i < command.length; i++) values.push(read(command[i] as Parameters<typeof read>[0], channels));
+  }
+  return values;
+}
+
+function buildPath(values: readonly number[]) {
   'worklet';
   const path = Skia.PathBuilder.Make();
-  for (const [op, ...coords] of commands) {
-    const args = coords.map((coord) => read(coord, channels));
-    if (op === 'M') path.moveTo(args[0]!, args[1]!);
-    else if (op === 'L') path.lineTo(args[0]!, args[1]!);
-    else if (op === 'Q') path.quadTo(args[0]!, args[1]!, args[2]!, args[3]!);
-    else if (op === 'C') path.cubicTo(args[0]!, args[1]!, args[2]!, args[3]!, args[4]!, args[5]!);
+  let i = 0;
+  while (i < values.length) {
+    const op = String.fromCharCode(values[i++]!);
+    if (op === 'M') { path.moveTo(values[i]!, values[i + 1]!); i += 2; }
+    else if (op === 'L') { path.lineTo(values[i]!, values[i + 1]!); i += 2; }
+    else if (op === 'Q') { path.quadTo(values[i]!, values[i + 1]!, values[i + 2]!, values[i + 3]!); i += 4; }
+    else if (op === 'C') { path.cubicTo(values[i]!, values[i + 1]!, values[i + 2]!, values[i + 3]!, values[i + 4]!, values[i + 5]!); i += 6; }
     else path.close();
   }
   return path.detach();
@@ -174,17 +186,17 @@ function buildPath(commands: readonly PathCommand[], channels: Channels) {
 type PathRecord = { values: number[]; path: SkPath };
 
 /**
- * An animated path. With a key the node keeps its last path and builds a new one only when a coordinate changes: a detached path never
- * changes, so the next picture can record the same one.
+ * An animated path. With a key the node keeps its last path and builds a new one only when a command or coordinate changes: a detached
+ * path never changes, so the next picture can record the same one. The command letters are compared too, since keys restart in each
+ * copy of this module while copies on one thread share the cache.
  */
 function makePath(commands: readonly PathCommand[], channels: Channels, key?: string) {
   'worklet';
-  if (key === undefined) return buildPath(commands, channels);
-  const values: number[] = [];
-  for (const [, ...coords] of commands) for (const coord of coords) values.push(read(coord, channels));
+  const values = pathValues(commands, channels);
+  if (key === undefined) return buildPath(values);
   const record = cached<PathRecord | undefined>(`path|${key}`, () => undefined);
   if (record && record.values.length === values.length && record.values.every((value, i) => value === values[i])) return record.path;
-  const next: PathRecord = { values, path: buildPath(commands, channels) };
+  const next: PathRecord = { values, path: buildPath(values) };
   const holder = globalThis as unknown as { __skiaMotionCache?: CacheStore };
   holder.__skiaMotionCache!.set(`path|${key}`, next);
   return next.path;
@@ -448,7 +460,7 @@ function prepareNode(
     : undefined;
   if (node.kind === 'group') {
     const { points: _points, ...drawing } = node;
-    return { ...drawing, preparedClip: prepared, ...(node.row && { cacheKey: `n${nextNodeKey++}` }), children: node.children.map((child) =>
+    return { ...drawing, preparedClip: prepared, ...((node.row || (node.clip && !prepared)) && { cacheKey: `n${nextNodeKey++}` }), children: node.children.map((child) =>
       prepareNode(child, images, shaders, shadersByImage, provider, textBindings, palette)) };
   }
   if (node.kind === 'mesh') {
