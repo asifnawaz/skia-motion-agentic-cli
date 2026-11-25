@@ -23,7 +23,8 @@ function shared(initial) {
   const value = { current: initial, subscribers: new Set() };
   return {
     get value() { tracking?.add(value); return value.current; },
-    set value(next) { value.current = next; for (const run of [...value.subscribers]) run(); },
+    // As Reanimated: setting the value a shared value already holds runs nothing.
+    set value(next) { if (value.current === next) return; value.current = next; for (const run of [...value.subscribers]) run(); },
   };
 }
 function track(run, compute) {
@@ -50,7 +51,13 @@ function harness() {
       useCallback: (fn) => fn,
       useEffect() {},
       useImperativeHandle() {},
-      useMemo: (compute) => compute(),
+      useMemo: (compute, deps) => {
+        const index = slot++;
+        const kept = slots[index];
+        if (kept && deps && kept.deps.length === deps.length && kept.deps.every((dep, i) => Object.is(dep, deps[i]))) return kept.value;
+        slots[index] = { deps: deps ?? [], value: compute() };
+        return slots[index].value;
+      },
       useRef: (current) => ({ current }),
       useState: (initialize) => {
         const index = slot++;
@@ -88,7 +95,8 @@ function harness() {
       },
     },
     'react-native-reanimated': {
-      useSharedValue: (initial) => shared(initial),
+      // As worklets in development: the initial object is locked against new properties.
+      useSharedValue: (initial) => shared(initial && typeof initial === 'object' ? Object.preventExtensions(initial) : initial),
       useDerivedValue(compute) {
         const out = shared(undefined);
         const run = () => { out.value = track(run, compute); };
@@ -120,9 +128,8 @@ function harness() {
 test('a player records a new picture only when the pose, a channel or a bound string changes', () => {
   const { state, pose, snapshot, exports, resetSlots } = harness();
   const module = { exports };
-  const slot = { set value(_) { resetSlots(); } };
   const render = () => {
-    slot.value = 0;
+    resetSlots();
     const element = module.exports.MotionPlayer({ source });
     return element.type(element.props);
   };
@@ -144,19 +151,34 @@ test('a player records a new picture only when the pose, a channel or a bound st
   assert.equal(state.pictures, 3, 'a changed pose records one picture');
 });
 
-test('a MotionPicture records a new picture only when the clip\'s channels change, not on every host frame', () => {
-  const { state, exports } = harness();
+test('a MotionPicture records a new picture only when what it draws changes, not on every host frame or render', () => {
+  const harnessSlots = harness();
+  const { state, exports } = harnessSlots;
   const asset = exports.loadMotionAsset(source);
-  const clip = 'pulse';
-  const ms = asset.clips[clip].ms;
   const timeMs = shared(0);
-  exports.MotionPicture({ asset, clip, timeMs, width: 280, height: 114 });
+  const glow = shared(0);
+  const props = { asset, clip: 'pulse', timeMs, width: 280, height: 114, channels: { landGlow: glow } };
+  const { resetSlots } = harnessSlots;
+  resetSlots();
+  const element = exports.MotionPicture(props);
   assert.equal(state.pictures, 1);
+  const picture = element.props.picture;
   timeMs.value = 85;
   assert.equal(state.pictures, 2, 'a moving clip records a picture');
-  // The host clock runs on past the clip's end: the pose holds, so nothing is recorded.
-  timeMs.value = ms;
+  // The host clock runs on past the clip's end: the pose holds, so nothing is recorded and the picture value is not set again.
+  timeMs.value = 280;
   const atEnd = state.pictures;
-  for (let frame = 1; frame <= 30; frame++) timeMs.value = ms + frame * 16;
+  const held = picture.value;
+  for (let frame = 1; frame <= 30; frame++) timeMs.value = 280 + frame * 16;
   assert.equal(state.pictures, atEnd, 'a held pose records no picture');
+  assert.equal(picture.value, held, 'the canvas gets the same picture, so it does not present');
+  glow.value = 0.5;
+  assert.equal(state.pictures, atEnd + 1, 'a host channel that changes while the clip holds records one picture');
+  // A render with equal props (a new options object) keeps the picture.
+  resetSlots();
+  exports.MotionPicture({ ...props });
+  assert.equal(state.pictures, atEnd + 1, 'a render with the same props records no picture');
+  resetSlots();
+  exports.MotionPicture({ ...props, width: 300 });
+  assert.equal(state.pictures, atEnd + 2, 'a new size records one');
 });

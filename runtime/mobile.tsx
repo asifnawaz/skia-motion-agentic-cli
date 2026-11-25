@@ -305,13 +305,34 @@ export function drawMotionClip(
   drawMotionPose(canvas, asset, motionClipChannels(asset, name, timeMs, options), options);
 }
 
+let nextPictureId = 0;
+const PICTURE_MEMO_LIMIT = 64;
+type PictureMemo = { inputs?: string; channels?: Pose['channels']; picture?: ReturnType<typeof createPicture> };
+
+/**
+ * One MotionPicture's last pose and picture, on the thread that draws it. It lives on the thread's global object, not in a shared value:
+ * a shared value's initial object is frozen in development builds, and the memo is written on every new pose. The least recently drawn
+ * pictures beyond the limit are let go.
+ */
+function pictureMemo(id: string): PictureMemo {
+  'worklet';
+  const holder = globalThis as unknown as { __skiaMotionPictures?: Map<string, PictureMemo> };
+  const store = holder.__skiaMotionPictures ?? (holder.__skiaMotionPictures = new Map());
+  let memo = store.get(id);
+  if (memo) store.delete(id);
+  else memo = {};
+  store.set(id, memo);
+  if (store.size > PICTURE_MEMO_LIMIT) store.delete(store.keys().next().value as string);
+  return memo;
+}
+
 function sameChannels(left: Pose['channels'] | undefined, right: Pose['channels']): boolean {
   'worklet';
   if (!left) return false;
   let count = 0;
   for (const name in right) {
     if (!Object.hasOwn(right, name)) continue;
-    if (left[name] !== right[name]) return false;
+    if (!Object.is(left[name], right[name])) return false;
     count++;
   }
   for (const name in left) if (Object.hasOwn(left, name)) count--;
@@ -328,19 +349,21 @@ export function MotionPicture({ asset, clip, timeMs, ...options }: MotionClipOpt
   timeMs: SharedValue<number>;
 }) {
   if (!Object.hasOwn(asset.clips, clip)) throw new Error(`Unknown motion clip "${clip}"`);
-  // The last pose and its picture, changed in place so reading it subscribes to nothing. Reanimated runs no mapper when a shared value
-  // is set to the object it holds, so returning the same picture leaves the canvas as it is. A render makes a new options object, and
-  // with it a new picture.
-  const last = useSharedValue<{ options?: object; channels?: Pose['channels']; picture?: ReturnType<typeof createPicture> }>({});
+  const id = useMemo(() => `picture${nextPictureId++}`, []);
+  // What the picture depends on besides time and the shared channels, by value: a render with the same props reuses the picture.
+  const { channels: _shared, ...plain } = options;
+  const inputs = `${asset.key}|${clip}|${JSON.stringify(plain)}`;
   const picture = useDerivedValue(() => {
     const channels = motionClipChannels(asset, clip, timeMs.value, options);
-    const memo = last.value;
-    if (memo.picture && memo.options === options && sameChannels(memo.channels, channels)) return memo.picture;
+    const memo = pictureMemo(id);
+    // Reanimated runs no mapper when a shared value is set to the object it already holds: returning the last picture leaves the
+    // canvas as it is.
+    if (memo.picture && memo.inputs === inputs && sameChannels(memo.channels, channels)) return memo.picture;
     const recorded = createPicture(
       (canvas) => drawMotionPose(canvas, asset, channels, options),
       Skia.XYWHRect(0, 0, options.width, options.height),
     );
-    memo.options = options;
+    memo.inputs = inputs;
     memo.channels = channels;
     memo.picture = recorded;
     return recorded;
