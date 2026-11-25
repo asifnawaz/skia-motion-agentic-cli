@@ -24,7 +24,7 @@ const SAMPLES = {
 };
 
 const USAGE = [
-  'skac asset guide [workflow|format|binary|text|font-slots|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|migrate]',
+  'skac asset guide [workflow|format|binary|text|font-slots|hud|character|lighting|feathering|images|mesh|masking|attachments|layout|playback|performance|migrate]',
   'skac asset sample [game-hud|reward-counter|sprout|versus-hud] [output.json]',
   'skac asset image <file.png|file.webp> [--size=<maxWidth>x<maxHeight>]',
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',

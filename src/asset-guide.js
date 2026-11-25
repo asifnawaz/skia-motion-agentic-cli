@@ -10,7 +10,7 @@ const topics = {
       'Run asset preview against the packed file to test inputs and viewport sizes offline in a browser.',
     ],
     examples: ['skac asset sample versus-hud', 'skac asset sample game-hud', 'skac asset sample reward-counter', 'skac asset sample sprout'],
-    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'row', 'roll', 'chain', 'layout', 'playback', 'migrate'],
+    topics: ['format', 'binary', 'text', 'hud', 'character', 'lighting', 'feathering', 'images', 'mesh', 'masking', 'attachments', 'landings', 'plates', 'row', 'roll', 'chain', 'layout', 'playback', 'performance', 'migrate'],
   },
   binary: {
     steps: [
@@ -71,6 +71,26 @@ const topics = {
       'skac asset preview scoreboard.skmotion --font=Counter=./fonts/Counter.ttf --font=Label=./fonts/Label.ttf',
       'skac asset unpack scoreboard.skmotion --out=scoreboard.edit.motion.json',
     ],
+  },
+  performance: {
+    measure: [
+      'Run skac asset cost <file> before shipping and after each change. It plays the frames through the app\'s own draw code and reports frame time, first-frame time, Skia objects per frame and image memory.',
+      'Compare a file with its last version, or two files, on the same machine. The times come from a CPU rasteriser, so they rank files and changes; a phone draws on its GPU.',
+      'objectsPerFrame counts what the draw code allocates each frame on the UI thread. Since 3.5.0 each shape, stroke, mesh and plate keeps one paint and rect, so a file makes 1 to 3 a frame. A higher count names its kind in byKind.',
+    ],
+    smooth: [
+      'Each distinct string in bound text, a row or a rolling number is laid out once. A value that changes every frame (a millisecond timer) is laid out every frame: round it to what the eye reads.',
+      'Animated path commands rebuild the path each frame (PathBuilder.Make in byKind). Animate a group transform or a mesh instead when the shape itself need not change.',
+      'A mesh whose vertices are fixed keeps its vertices. Vertices bound to channels are rebuilt each frame (MakeVertices in byKind).',
+      'Blur (feather), radial light and dashes are remade only when their animated value changes. A value that moves every frame remakes its filter every frame, so animate opacity or a transform where that reads the same.',
+      'firstFrameMs holds one-time work: decoding, layout and texture upload. Call preloadMotionAssets or preloadExpoMotionAssets before the screen opens, so that work happens before the first frame shows.',
+    ],
+    light: [
+      'images.withMipsBytes is the memory the file\'s paintings hold once decoded with their mip levels. Export art at its largest drawn size times device density, never larger.',
+      'A preloaded file holds that memory until release(). Release it when its screen is no longer about to open.',
+      'Keep the packed file under the 1 MiB asset limit. Fewer, smaller paintings cost less to decode, upload and hold.',
+    ],
+    commands: ['skac asset cost reward.skmotion', 'skac asset cost reward.skmotion --trace=0:1200:16 --commands=claim@0.1 --size=360x640'],
   },
   migrate: {
     steps: [

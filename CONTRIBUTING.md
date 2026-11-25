@@ -29,6 +29,8 @@ installs pinned host packages (`test/typecheck/package.json`) and runs `tsc` wit
 `noUncheckedIndexedAccess` over every entry point. CI runs it on every pull request. Raise the pins
 when the Expo SDK the runtime targets moves.
 
+For a change to drawing performance, run `node bin/skac.js asset cost <file>` on the samples and a real app file before and after the change. Report `objectsPerFrame` and the frame-time percentiles, and pixel-diff `asset frame --out=x.png` renders to show the output is unchanged. `test/unit/asset-cost.test.js` keeps the samples at 2 or fewer Skia objects per frame.
+
 The e2e suite needs `ffmpeg`. It runs `create` and `npm install` itself, which takes minutes.
 To reuse a project you already installed, set `SKIA_MOTION_E2E_PROJECT=/path/to/project`.
 
