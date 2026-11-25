@@ -164,10 +164,10 @@ test('preload decodes and uploads each shared image once, and accepts early Skia
   const calls = [];
   const texture = {};
   const early = {};
-  const raster = { makeTextureImage: () => { calls.push('upload'); return texture; } };
+  const raster = { makeTextureImage: (options) => { calls.push(options?.mipmapped ? 'upload with mips' : 'upload'); return texture; } };
   const lazy = { makeRasterImage: async () => { calls.push('decode'); return raster; } };
   const warmed = await app.preload({ ...loaded, images: { one: lazy, another: lazy, early } }, { uploadImages: true });
-  assert.deepEqual(calls, ['decode', 'upload']);
+  assert.deepEqual(calls, ['decode', 'upload with mips'], 'the texture carries the mip levels the draw samples');
   assert.equal(warmed.images.one, texture);
   assert.equal(warmed.images.another, texture);
   assert.equal(warmed.images.early, early);

@@ -35,6 +35,8 @@ type TextValues = Readonly<Record<string, string>>;
 export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
   artboard: Omit<MotionAsset['artboard'], 'nodes'> & { nodes: readonly DrawableNode[] };
   meshShaders?: AssetMeshShaders;
+  /** Each image's shader for image nodes, sampled through its mip levels (drawImageRect's strict constraint would turn them off). */
+  imageShaders?: AssetMeshShaders;
   fontProvider?: SkTypefaceFontProvider;
   textBindings?: readonly string[];
   palette?: Palette;
@@ -42,6 +44,7 @@ export type DrawableAsset = Pick<MotionAsset, 'channels'> & {
 export type AssetImages = Readonly<Record<string, SkImage>>;
 export type AssetFontSlots = Readonly<Record<string, SkTypeface>>;
 export type AssetMeshShaders = Readonly<Record<string, SkShader>>;
+type DrawShaders = { mesh: AssetMeshShaders; image: AssetMeshShaders };
 
 function skiaData(resource: AssetResource): SkData {
   if (typeof resource === 'string') return Skia.Data.fromBase64(resource.slice(resource.indexOf(',') + 1));
@@ -144,7 +147,27 @@ function meshTextureCoords(node: MeshNode | DrawableMesh, image: SkImage): Point
 
 function meshShader(image: SkImage): SkShader {
   'worklet';
-  return image.makeShaderOptions(TileMode.Decal, TileMode.Decal, FilterMode.Linear, MipmapMode.None);
+  // Mip levels keep art drawn below its size from aliasing.
+  return image.makeShaderOptions(TileMode.Decal, TileMode.Decal, FilterMode.Linear, MipmapMode.Linear);
+}
+
+/**
+ * An image node's shader. react-native-skia's drawImageRectOptions draws with SkCanvas::kStrict_SrcRectConstraint, under which Skia
+ * samples no mip levels, so art drawn small aliased whatever mipmap mode it asked for. A shader samples them; Clamp keeps the edges as
+ * drawImageRect drew them.
+ */
+function imageShader(image: SkImage): SkShader {
+  'worklet';
+  return image.makeShaderOptions(TileMode.Clamp, TileMode.Clamp, FilterMode.Linear, MipmapMode.Linear);
+}
+
+function imageShaders(images: AssetImages): AssetMeshShaders {
+  const byImage = new Map<SkImage, SkShader>();
+  return Object.fromEntries(Object.entries(images).map(([name, image]) => {
+    const shader = byImage.get(image) ?? imageShader(image);
+    byImage.set(image, shader);
+    return [name, shader];
+  }));
 }
 
 /**
@@ -405,7 +428,7 @@ export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetIma
   };
   const nodes = asset.artboard.nodes.map((node) => withParts(prepareNode(node, images, shaders, shadersByImage, fontProvider, textBindings, palette)));
   return {
-    channels: asset.channels, artboard: { ...asset.artboard, nodes }, meshShaders: shaders,
+    channels: asset.channels, artboard: { ...asset.artboard, nodes }, meshShaders: shaders, imageShaders: imageShaders(images),
     ...(fontProvider && { fontProvider }),
     ...(textBindings.size && { textBindings: [...textBindings] }),
     ...(asset.palette && { palette }),
@@ -414,6 +437,8 @@ export function prepareAssetDrawing(asset: DrawableMotionAsset, images: AssetIma
 
 /** Warmed images may be different native objects. Prepare their shaders with the same geometry. */
 export function rebindAssetMeshShaders(drawing: DrawableAsset, images: AssetImages): DrawableAsset {
+  const shown = Object.keys(drawing.imageShaders ?? {});
+  if (shown.length) drawing = { ...drawing, imageShaders: imageShaders(Object.fromEntries(shown.map((name) => [name, images[name]!]))) };
   const names = Object.keys(drawing.meshShaders ?? {});
   if (!names.length) return drawing;
   const byImage = new Map<SkImage, SkShader>();
@@ -578,7 +603,7 @@ function layoutRow(
 }
 
 function drawNodes(
-  canvas: SkCanvas, nodes: readonly DrawableNode[], channels: Channels, images: AssetImages, shaders: AssetMeshShaders,
+  canvas: SkCanvas, nodes: readonly DrawableNode[], channels: Channels, images: AssetImages, shaders: DrawShaders,
   values: TextValues, fonts: SkTypefaceFontProvider | undefined, palette: Palette, layout?: ReturnType<typeof fitAsset>,
 ): void {
   'worklet';
@@ -619,7 +644,7 @@ function drawNodes(
     const alpha = Math.min(1, Math.max(0, read(node.opacity, channels, 1)));
     if (node.kind === 'mesh') {
       const image = images[node.image];
-      if (image && alpha) drawMesh(canvas, node, channels, image, alpha, shaders[node.image]);
+      if (image && alpha) drawMesh(canvas, node, channels, image, alpha, shaders.mesh[node.image]);
       if (node.pins) {
         for (const pin of node.pins) {
           const { x, y } = meshPinPosition(node, pin, channels);
@@ -638,20 +663,25 @@ function drawNodes(
       if (node.stroke) drawStroke(canvas, path, node.stroke, alpha, Math.min(MAX_FEATHER, read(node.feather, channels)), channels, palette);
       continue;
     }
-    const paint = node.preparedPaint ?? makePaint(node, alpha, channels, palette);
     if (node.kind === 'image') {
       const image = images[node.image];
       const width = read(node.width, channels);
       const height = read(node.height, channels);
       if (!image || width <= 0 || height <= 0) continue;
-      canvas.drawImageRectOptions(
-        image,
-        Skia.XYWHRect(0, 0, image.width(), image.height()),
-        Skia.XYWHRect(read(node.x, channels), read(node.y, channels), width, height),
-        FilterMode.Linear, MipmapMode.None, paint,
-      );
+      const imageWidth = image.width();
+      const imageHeight = image.height();
+      const filled = Skia.Paint();
+      filled.setAntiAlias(true);
+      filled.setAlphaf(alpha);
+      filled.setShader(shaders.image[node.image] ?? imageShader(image));
+      canvas.save();
+      canvas.translate(read(node.x, channels), read(node.y, channels));
+      canvas.scale(width / imageWidth, height / imageHeight);
+      canvas.drawRect(Skia.XYWHRect(0, 0, imageWidth, imageHeight), filled);
+      canvas.restore();
       continue;
     }
+    const paint = node.preparedPaint ?? makePaint(node, alpha, channels, palette);
     const w = read(node.width, channels);
     const h = read(node.height, channels);
     if (w <= 0 || h <= 0) continue;
@@ -683,6 +713,7 @@ export function drawAsset(
     ? Skia.XYWHRect(-offsetX, -offsetY, board.width + spaceX, board.height + spaceY)
     : Skia.XYWHRect(0, 0, board.width, board.height);
   canvas.clipRect(bounds, ClipOp.Intersect, true);
-  drawNodes(canvas, board.nodes, { ...asset.channels, ...pose }, images, asset.meshShaders ?? {}, values, asset.fontProvider, asset.palette ?? {}, layout);
+  drawNodes(canvas, board.nodes, { ...asset.channels, ...pose }, images, { mesh: asset.meshShaders ?? {}, image: asset.imageShaders ?? {} },
+    values, asset.fontProvider, asset.palette ?? {}, layout);
   canvas.restore();
 }

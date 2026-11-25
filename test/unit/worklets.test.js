@@ -199,6 +199,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   const fonts = [];
   const paragraphs = [];
   const translations = [];
+  const scales = [];
   const clipsDrawn = [];
   const clipRects = [];
   const strokes = [];
@@ -262,7 +263,8 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     MakeVertices: (mode, positions, textures, _colors, indices) => ({ mode, positions, textures, indices }),
   };
   const canvas = {
-    save() {}, restore() {}, translate(x, y) { translations.push([x, y]); }, scale() {}, rotate() {},
+    save() {}, restore() {}, translate(x, y) { translations.push([x, y]); }, scale(x, y) { scales.push([x, y]); }, rotate() {},
+    drawRect(rect, paint) { imageDraws.push({ rect, alpha: paint.alpha, shader: paint.shader }); },
     clipRect(rect) { clipRects.push(rect); },
     clipPath(path, op, antiAlias) { clipsDrawn.push({ path, op, antiAlias }); },
     drawPath(path, paint) {
@@ -286,7 +288,7 @@ test('production Worklets transform preserves asset tracks, marker crossings and
     './asset-ink': load('runtime/asset-ink.ts', { './asset-unicode': load('runtime/asset-unicode.ts', {}, 'production') }, 'production'),
     'react-native-skia': {
       Skia: skia, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0, Decal: 3 }, FilterMode: { Linear: 1 },
-      MipmapMode: { None: 0 }, ClipOp: { Intersect: 1 }, VertexMode: { Triangles: 0 }, BlendMode: { SrcOver: 3 },
+      MipmapMode: { None: 0, Linear: 1 }, ClipOp: { Intersect: 1 }, VertexMode: { Triangles: 0 }, BlendMode: { SrcOver: 3 },
       TextDirection: { RTL: 0, LTR: 1 }, TextAlign: { Start: 4, End: 5, Center: 2 },
       PaintStyle: { Stroke: 1 }, StrokeCap: { Round: 1 }, StrokeJoin: { Bevel: 2 },
     },
@@ -305,12 +307,15 @@ test('production Worklets transform preserves asset tracks, marker crossings and
   assert.equal(images.portrait, images.painted);
   assert.equal(Object.hasOwn(images, 'unused'), false);
   assert.deepEqual(clipsDrawn, [{ path: [[-40, -150], [44, -150], [44, 20]], op: 1, antiAlias: true }]);
-  assert.deepEqual(imageDraws, [{ image, src: [0, 0, 2, 3], dest: [1, 2, 18, 20], filter: 1, mipmap: 0, alpha: 0.5 }]);
+  // An image node is a rect filled with the image's mipmapped shader, scaled from the image's size to its box at (1, 2), 18 x 20.
+  assert.deepEqual(imageDraws, [{ rect: [0, 0, 2, 3], alpha: 0.5, shader: 'source-texture' }]);
+  assert.ok(translations.some(([x, y]) => x === 1 && y === 2));
+  assert.ok(scales.some(([x, y]) => x === 9 && y === 20 / 3));
   assert.ok(gradients.includes(44));
   assert.deepEqual(filters, [[0, 5, true]]);
   assert.deepEqual(translations.slice(0, 2), [[40, 0], [80, 223]]);
   assert.ok(translations.some(([x, y]) => x === 22 && y === 10));
-  assert.deepEqual(shaders, [[3, 3, 1, 0]]);
+  assert.deepEqual(shaders, [[3, 3, 1, 1], [0, 0, 1, 1]], 'the mesh (Decal) and the image node (Clamp) both sample mip levels');
   assert.deepEqual(strokes, [{
     path: [[[1, 2], [80, 2]], 0.2, 0.75, false],
     color: '#0D7654', width: 4, cap: 1, join: 2, effect: [[5, 3], 44],

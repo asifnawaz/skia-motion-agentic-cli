@@ -94,3 +94,33 @@ test('a rolling number at rest draws exactly as its plain text with tabular figu
     }
   }
 });
+
+test('art drawn small is filtered through its mip levels: a 1 px checker at 0.3x reads as even grey', async () => {
+  const cwd = tmp('asset-canvaskit-mips-');
+  const kit = await loadCanvasKit();
+  const side = 100;
+  const checker = new Uint8Array(side * side * 4);
+  for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+    const v = (x + y) % 2 ? 255 : 0;
+    checker.set([v, v, v, 255], (y * side + x) * 4);
+  }
+  const image = kit.MakeImage({ width: side, height: side, colorType: kit.ColorType.RGBA_8888, alphaType: kit.AlphaType.Unpremul, colorSpace: kit.ColorSpace.SRGB }, checker, side * 4);
+  const png = Buffer.from(image.encodeToBytes()).toString('base64');
+  const file = join(cwd, 'checker.motion.json');
+  writeFileSync(file, JSON.stringify({
+    schema: 'skac.asset/1', name: 'Checker', images: { checker: `data:image/png;base64,${png}` },
+    artboard: { width: side, height: side, nodes: [{ kind: 'image', image: 'checker', x: 0, y: 0, width: side, height: side }] },
+    channels: {}, clips: { idle: { ms: 0, tracks: {} } },
+    machine: { schema: 'skac.machine/1', layers: [{ name: 'l', entry: 'idle', states: { idle: { clip: 'idle' } } }] },
+  }));
+  const shot = await pixels((await execute(['asset', 'frame', file, '--trace=0', '--size=30x30', '--out=small.png'], cwd)).file);
+  // Without mip levels, linear filtering reads a 2x2 patch of the checker at each pixel's phase, so pixels swing between near black
+  // and near white (moire). With them every pixel averages the whole footprint. CanvasKit is Skia's CPU rasteriser: this proves the
+  // sampling the draw code asks for, not a device's GPU texture.
+  let worst = { off: 0 };
+  for (let y = 5; y < 25; y++) for (let x = 5; x < 25; x++) { // away from the edges, where the filter reads past the image
+    const off = Math.abs(shot.at(x, y)[0] - 128);
+    if (off > worst.off) worst = { off, x, y, pixel: shot.at(x, y) };
+  }
+  assert.ok(worst.off <= 16, `every pixel within 16 of mid grey (worst ${JSON.stringify(worst)}, ${shot.width}x${shot.height})`);
+});
