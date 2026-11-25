@@ -1,6 +1,7 @@
 import {
   BlendMode, BlurStyle, ClipOp, FilterMode, MipmapMode, PaintStyle, Skia, StrokeCap, StrokeJoin, TextAlign, TextDirection, TileMode, VertexMode,
-  type SkCanvas, type SkData, type SkImage, type SkPaint, type SkParagraph, type SkPath, type SkShader, type SkTypeface, type SkTypefaceFontProvider,
+  type SkCanvas, type SkData, type SkImage, type SkPaint, type SkParagraph, type SkPath, type SkRect, type SkRRect, type SkShader, type SkTypeface,
+  type SkTypefaceFontProvider,
 } from 'react-native-skia';
 import { MAX_FEATHER, resolveAssetColor, resolveAssetFonts, usedAssetImages, type AssetNode, type AssetStroke, type AssetTextNode, type DrawableMotionAsset, type MotionAsset, type PathCommand } from './asset';
 import type { AssetResource } from './asset-binary';
@@ -15,6 +16,7 @@ type Point = ReturnType<typeof meshPosition>;
 type DrawablePin = Omit<MeshPin, 'children'> & { children: readonly DrawableNode[] };
 type DrawableMesh = Omit<MeshNode, 'pins'> & {
   pins?: readonly DrawablePin[];
+  cacheKey?: string;
   fixedPositions?: Point[];
   textureCoords?: Point[];
 };
@@ -22,6 +24,7 @@ type DrawableNode =
   | (Omit<Extract<AssetNode, { kind: 'group' }>, 'children'> & {
       children: readonly DrawableNode[];
       preparedClip?: SkPath;
+      cacheKey?: string;
       /** A row's embedded images' ink, as fractions of their boxes, by child; none for a host image slot. */
       rowParts?: readonly (Box | undefined)[];
     })
@@ -88,6 +91,72 @@ function read(value: string | number | undefined, channels: Channels, fallback =
   return typeof value === 'string' ? channels[value]! : value;
 }
 
+// Paragraphs, row ink, colors and one paint record per animated node: big files keep their per-frame paints resident.
+const CACHE_LIMIT = 1024;
+type CacheStore = Map<string, unknown>;
+
+/**
+ * The value under `key` on this thread, made once. Each thread (the UI thread, or Node for asset frame) has its own store on its global
+ * object: drawing worklets get a copy of every captured object, so a cache held by the drawing would start empty each frame.
+ */
+function cached<T>(key: string | undefined, make: () => T): T {
+  'worklet';
+  if (key === undefined) return make();
+  const holder = globalThis as unknown as { __skiaMotionCache?: CacheStore };
+  const store = holder.__skiaMotionCache ?? (holder.__skiaMotionCache = new Map());
+  if (store.has(key)) {
+    const hit = store.get(key) as T;
+    store.delete(key);
+    store.set(key, hit);
+    return hit;
+  }
+  const value = make();
+  if (store.size >= CACHE_LIMIT) store.delete(store.keys().next().value as string);
+  store.set(key, value);
+  return value;
+}
+
+/** A node's reused paint, and the inputs its costly parts were last made from, so a frame rebuilds them only when they change. */
+type PaintRecord = {
+  paint: SkPaint; blur?: number; shaderKey?: string; dash?: number;
+  image?: SkImage; shader?: SkShader; vertices?: ReturnType<typeof Skia.MakeVertices>;
+};
+
+function paintRecord(key: string | undefined): PaintRecord {
+  'worklet';
+  return cached(key, () => ({ paint: Skia.Paint() }));
+}
+
+/** A parsed color, once per color string. Callers read it and never change it. */
+function colorOf(value: string) {
+  'worklet';
+  return cached(`color|${value}`, () => Skia.Color(value));
+}
+
+type RectRecord = { x: number; y: number; w: number; h: number; r: number; rect: SkRect; rrect?: SkRRect };
+
+/** A node's rect (and rounded rect), remade only when its box or radius moves: a still shape allocates no Skia rect per frame. */
+function rectOf(key: string | undefined, x: number, y: number, w: number, h: number, r = 0): RectRecord {
+  'worklet';
+  const record = key === undefined ? undefined : cached<RectRecord | undefined>(`rect|${key}`, () => undefined);
+  if (record && record.x === x && record.y === y && record.w === w && record.h === h && record.r === r) return record;
+  const rect = Skia.XYWHRect(x, y, w, h);
+  const next: RectRecord = { x, y, w, h, r, rect, rrect: r > 0 ? Skia.RRectXY(rect, r, r) : undefined };
+  if (key !== undefined) {
+    const holder = globalThis as unknown as { __skiaMotionCache?: CacheStore };
+    holder.__skiaMotionCache?.set(`rect|${key}`, next);
+  }
+  return next;
+}
+
+function setBlur(record: PaintRecord, sigma: number) {
+  'worklet';
+  const next = sigma > 0 ? sigma : 0;
+  if ((record.blur ?? 0) === next) return;
+  record.blur = next;
+  record.paint.setMaskFilter(next > 0 ? Skia.MaskFilter.MakeBlur(BlurStyle.Normal, next, true) : null);
+}
+
 function makePath(commands: readonly PathCommand[], channels: Channels) {
   'worklet';
   const path = Skia.PathBuilder.Make();
@@ -102,27 +171,36 @@ function makePath(commands: readonly PathCommand[], channels: Channels) {
   return path.detach();
 }
 
-function makePaint(node: DrawableShape, alpha: number, channels: Channels, palette: Palette): SkPaint {
+/**
+ * A shape's fill paint. With a key (an animated node) the node keeps one paint and resets it each frame, remaking its blur and light only
+ * when their values change: a picture records a copy of the paint it draws with, so reuse is safe and the UI thread allocates nothing.
+ */
+function makePaint(node: DrawableShape, alpha: number, channels: Channels, palette: Palette, key?: string): SkPaint {
   'worklet';
-  const paint = Skia.Paint();
+  const record = key === undefined ? { paint: Skia.Paint() } as PaintRecord : paintRecord(`fill|${key}`);
+  const paint = record.paint;
   paint.setAntiAlias(true);
   if (node.kind === 'image') {
     paint.setAlphaf(alpha);
     return paint;
   }
-  const feather = Math.min(MAX_FEATHER, read(node.feather, channels));
-  if (feather > 0) paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, feather, true));
+  setBlur(record, Math.min(MAX_FEATHER, read(node.feather, channels)));
   if (!node.fill) return paint;
   if (typeof node.fill === 'string' || 'palette' in node.fill) {
-    const color = Skia.Color(resolveAssetColor(node.fill, palette));
+    const color = colorOf(resolveAssetColor(node.fill, palette));
     paint.setColor(color);
     paint.setAlphaf(alpha * color[3]!);
   } else {
     const light = node.fill;
-    const center = { x: read(light.x, channels), y: read(light.y, channels) };
+    const x = read(light.x, channels);
+    const y = read(light.y, channels);
     const radius = Math.max(0.001, read(light.radius, channels));
-    const colors = light.colors.map((color) => Skia.Color(color));
-    paint.setShader(Skia.Shader.MakeRadialGradient(center, radius, colors, null, TileMode.Clamp));
+    const shaderKey = `${x}|${y}|${radius}`;
+    if (record.shaderKey !== shaderKey) {
+      record.shaderKey = shaderKey;
+      const colors = light.colors.map((color) => colorOf(color));
+      paint.setShader(Skia.Shader.MakeRadialGradient({ x, y }, radius, colors, null, TileMode.Clamp));
+    }
     paint.setAlphaf(alpha);
   }
   return paint;
@@ -173,29 +251,6 @@ function imageShaders(images: AssetImages): AssetImageShaders {
 }
 
 /** The most laid-out paragraphs, row inks and image paints the drawing thread keeps; the oldest unused one goes first. */
-const CACHE_LIMIT = 256;
-type CacheStore = Map<string, unknown>;
-
-/**
- * The value under `key` on this thread, made once. Each thread (the UI thread, or Node for asset frame) has its own store on its global
- * object: drawing worklets get a copy of every captured object, so a cache held by the drawing would start empty each frame.
- */
-function cached<T>(key: string | undefined, make: () => T): T {
-  'worklet';
-  if (key === undefined) return make();
-  const holder = globalThis as unknown as { __skiaMotionCache?: CacheStore };
-  const store = holder.__skiaMotionCache ?? (holder.__skiaMotionCache = new Map());
-  if (store.has(key)) {
-    const hit = store.get(key) as T;
-    store.delete(key);
-    store.set(key, hit);
-    return hit;
-  }
-  const value = make();
-  if (store.size >= CACHE_LIMIT) store.delete(store.keys().next().value as string);
-  store.set(key, value);
-  return value;
-}
 
 let nextNodeKey = 0;
 
@@ -374,7 +429,7 @@ function prepareNode(
     : undefined;
   if (node.kind === 'group') {
     const { points: _points, ...drawing } = node;
-    return { ...drawing, preparedClip: prepared, children: node.children.map((child) =>
+    return { ...drawing, preparedClip: prepared, ...(node.row && { cacheKey: `n${nextNodeKey++}` }), children: node.children.map((child) =>
       prepareNode(child, images, shaders, shadersByImage, provider, textBindings, palette)) };
   }
   if (node.kind === 'mesh') {
@@ -390,13 +445,14 @@ function prepareNode(
     }));
     const fixed = node.vertices.every(([x, y]) => typeof x === 'number' && typeof y === 'number');
     return {
-      ...node, pins,
+      ...node, pins, cacheKey: `n${nextNodeKey++}`,
       fixedPositions: fixed ? node.vertices.map((vertex) => meshPosition(vertex, {})) : undefined,
       textureCoords: image ? meshTextureCoords(node, image) : undefined,
     };
   }
   if (node.kind === 'image') return { ...node, cacheKey: `n${nextNodeKey++}` };
-  return { ...node, preparedPath: prepared, preparedPaint: preparePaint(node, palette) };
+  // Every shape gets a key: an animated fill or any stroke reuses one paint per node instead of making one each frame.
+  return { ...node, preparedPath: prepared, preparedPaint: preparePaint(node, palette), cacheKey: `n${nextNodeKey++}` };
 }
 
 declare const __DEV__: boolean | undefined;
@@ -502,17 +558,31 @@ export function rebindAssetMeshShaders(drawing: DrawableAsset, images: AssetImag
 
 function drawMesh(canvas: SkCanvas, node: DrawableMesh, channels: Channels, image: SkImage, alpha: number, shader: SkShader | undefined) {
   'worklet';
-  const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
-  const textures = node.textureCoords ?? meshTextureCoords(node, image);
-  const paint = Skia.Paint();
+  const record = paintRecord(node.cacheKey === undefined ? undefined : `mesh|${node.cacheKey}`);
+  const paint = record.paint;
   paint.setAlphaf(alpha);
-  paint.setShader(shader ?? meshShader(image));
-  const mesh = Skia.MakeVertices(VertexMode.Triangles, positions, textures, undefined, node.indices as number[]);
+  if (record.image !== image) {
+    // A mesh whose vertices never move keeps its vertices; its texture coordinates follow the image drawn.
+    record.image = image;
+    record.vertices = undefined;
+    record.shader = undefined;
+  }
+  if (record.shader === undefined || (shader !== undefined && record.shader !== shader)) {
+    record.shader = shader ?? meshShader(image);
+    paint.setShader(record.shader);
+  }
+  let mesh = record.vertices;
+  if (!mesh) {
+    const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
+    const textures = node.textureCoords ?? meshTextureCoords(node, image);
+    mesh = Skia.MakeVertices(VertexMode.Triangles, positions, textures, undefined, node.indices as number[]);
+    if (node.fixedPositions) record.vertices = mesh;
+  }
   canvas.drawVertices(mesh, BlendMode.SrcOver, paint);
 }
 
 function drawStroke(
-  canvas: SkCanvas, path: SkPath, stroke: AssetStroke, alpha: number, feather: number, channels: Channels, palette: Palette,
+  canvas: SkCanvas, path: SkPath, stroke: AssetStroke, alpha: number, feather: number, channels: Channels, palette: Palette, key?: string,
 ): void {
   'worklet';
   const width = Math.min(4096, read(stroke.width, channels));
@@ -522,17 +592,24 @@ function drawStroke(
   if (end <= start) return;
   const trimmed = start === 0 && end === 1 ? path : Skia.Path.Trim(path, start, end, false);
   if (!trimmed) return;
-  const paint = Skia.Paint();
+  const record = paintRecord(key === undefined ? undefined : `stroke|${key}`);
+  const paint = record.paint;
   paint.setAntiAlias(true);
-  const color = Skia.Color(resolveAssetColor(stroke.color, palette));
+  const color = colorOf(resolveAssetColor(stroke.color, palette));
   paint.setColor(color);
   paint.setAlphaf(alpha * color[3]!);
   paint.setStyle(PaintStyle.Stroke);
   paint.setStrokeWidth(width);
   paint.setStrokeCap(stroke.cap === 'round' ? StrokeCap.Round : stroke.cap === 'square' ? StrokeCap.Square : StrokeCap.Butt);
   paint.setStrokeJoin(stroke.join === 'round' ? StrokeJoin.Round : stroke.join === 'bevel' ? StrokeJoin.Bevel : StrokeJoin.Miter);
-  if (stroke.dash) paint.setPathEffect(Skia.PathEffect.MakeDash([...stroke.dash.intervals], read(stroke.dash.phase, channels)));
-  if (feather > 0) paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, feather, true));
+  if (stroke.dash) {
+    const phase = read(stroke.dash.phase, channels);
+    if (record.dash !== phase) {
+      record.dash = phase;
+      paint.setPathEffect(Skia.PathEffect.MakeDash([...stroke.dash.intervals], phase));
+    }
+  }
+  setBlur(record, feather);
   canvas.drawPath(trimmed, paint);
 }
 
@@ -643,16 +720,17 @@ function layoutRow(
     const box = plateBox(widest, bands, row.gap, align, rtl, row.plate.padding);
     const rect = Skia.XYWHRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
     const radius = Math.min(row.plate.radius ?? Infinity, (box[2] - box[0]) / 2, (box[3] - box[1]) / 2);
-    const paint = Skia.Paint();
+    const key = node.cacheKey;
+    const paint = paintRecord(key === undefined ? undefined : `plate|${key}`).paint;
     paint.setAntiAlias(true);
-    paint.setColor(Skia.Color(resolveAssetColor(row.plate.fill, palette)));
+    paint.setColor(colorOf(resolveAssetColor(row.plate.fill, palette)));
     canvas.drawRRect(Skia.RRectXY(rect, radius, radius), paint);
     if (row.plate.stroke && row.plate.stroke.width > 0) {
-      const edge = Skia.Paint();
+      const edge = paintRecord(key === undefined ? undefined : `edge|${key}`).paint;
       edge.setAntiAlias(true);
       edge.setStyle(PaintStyle.Stroke);
       edge.setStrokeWidth(row.plate.stroke.width);
-      edge.setColor(Skia.Color(resolveAssetColor(row.plate.stroke.color, palette)));
+      edge.setColor(colorOf(resolveAssetColor(row.plate.stroke.color, palette)));
       canvas.drawRRect(Skia.RRectXY(rect, radius, radius), edge);
     }
   }
@@ -716,8 +794,8 @@ function drawNodes(
     if (!alpha) continue;
     if (node.kind === 'path') {
       const path = node.preparedPath ?? makePath(node.commands, channels);
-      if (node.fill) canvas.drawPath(path, node.preparedPaint ?? makePaint(node, alpha, channels, palette));
-      if (node.stroke) drawStroke(canvas, path, node.stroke, alpha, Math.min(MAX_FEATHER, read(node.feather, channels)), channels, palette);
+      if (node.fill) canvas.drawPath(path, node.preparedPaint ?? makePaint(node, alpha, channels, palette, node.cacheKey));
+      if (node.stroke) drawStroke(canvas, path, node.stroke, alpha, Math.min(MAX_FEATHER, read(node.feather, channels)), channels, palette, node.cacheKey);
       continue;
     }
     if (node.kind === 'image') {
@@ -742,19 +820,20 @@ function drawNodes(
       canvas.save();
       canvas.translate(read(node.x, channels), read(node.y, channels));
       canvas.scale(width / imageWidth, height / imageHeight);
-      canvas.drawRect(Skia.XYWHRect(0, 0, imageWidth, imageHeight), filled);
+      canvas.drawRect(rectOf(key, 0, 0, imageWidth, imageHeight).rect, filled);
       canvas.restore();
       continue;
     }
-    const paint = node.preparedPaint ?? makePaint(node, alpha, channels, palette);
+    const paint = node.preparedPaint ?? makePaint(node, alpha, channels, palette, node.cacheKey);
     const w = read(node.width, channels);
     const h = read(node.height, channels);
     if (w <= 0 || h <= 0) continue;
-    const rect = Skia.XYWHRect(read(node.x, channels), read(node.y, channels), w, h);
-    if (node.kind === 'ellipse') canvas.drawOval(rect, paint);
+    if (node.kind === 'ellipse') canvas.drawOval(rectOf(node.cacheKey, read(node.x, channels), read(node.y, channels), w, h).rect, paint);
     else {
       const radius = Math.min(w / 2, h / 2, Math.max(0, read(node.radius, channels)));
-      canvas.drawRRect(Skia.RRectXY(rect, radius, radius), paint);
+      const box = rectOf(node.cacheKey, read(node.x, channels), read(node.y, channels), w, h, radius);
+      if (box.rrect) canvas.drawRRect(box.rrect, paint);
+      else canvas.drawRect(box.rect, paint);
     }
   }
 }
