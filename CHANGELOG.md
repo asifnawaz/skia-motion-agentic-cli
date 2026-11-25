@@ -1,3 +1,23 @@
+# [3.6.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.5.1...v3.6.0) (2026-11-25)
+
+
+### Bug Fixes
+
+* **format:** the CLI refuses every newer-minor file, and the way forward comes first ([6d9178a](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/6d9178a3123f774da757926d7ec59817e0d14965))
+
+
+### Features
+
+* **format:** files carry a format minor, newer minors play, and skac asset migrate upgrades files ([552419c](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/552419c467a341f3ec25ca7f068c2ec7ce22bc13))
+
+
+### Existing .skmotion files
+
+**No change.** Existing files play as before. No step is needed.
+
+* No change: the CLI refuses every newer-minor file, and the way forward comes first (6d9178a)
+* No change: files carry a format minor, newer minors play, and skac asset migrate upgrades files (552419c). Existing files stay 1.0; packs are byte-identical to 3.5.1's.
+
 ## [3.5.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.5.0...v3.5.1) (2026-11-25)
 
 
