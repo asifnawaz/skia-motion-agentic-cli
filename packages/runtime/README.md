@@ -70,6 +70,7 @@ export function LessonReward() {
 - Bound text, rows and rolling numbers are laid out once per distinct string, so updating a counter is cheap; a string that changes every frame is laid out every frame.
 - Select a board by name with the `artboard` option when loading a multi-artboard file.
 - Prepare a shared file with `loadMotionAsset(text)` or `await preloadMotionAsset(text)`. Each player keeps its own state while sharing prepared artwork and image handles.
+- To have a screen's players ready on their first render, call `preloadMotionAssets(sources, options)` (or `preloadExpoMotionAssets([require('./reward.skmotion')])` from `skia-motion-runtime/expo`) before it opens. Use the same options its `useMotionAsset` or `useExpoMotionAsset` passes. The files stay prepared until you call the returned `release()`, so release when the screen is no longer about to open: prepared images stay in memory while held.
 - Use `MotionPicture` for a named clip in an existing Skia Canvas at a shared `timeMs`. Provide `width` and `height` to draw without a separate player layout pass. Use `MotionPlayer` when the asset owns transitions and markers.
 
 The text schema supports 1–16 lines and optional OpenType features such as `tnum` for fonts

@@ -151,7 +151,8 @@ test('asset loading shares pending resources, aborts released sources, and ignor
   assert.equal(firstFontAsset, use(fontC, 'caption', withFace(firstFace)).asset);
   assert.equal(firstFontAsset.options.fontSlots.label, firstFace);
   assert.equal(secondFontAsset.options.fontSlots.label, secondFace);
-  assert.equal(use(fontC, 'caption', withFace(secondFace)).status, 'loading');
+  // fontB already holds that prepared file, so switching to it is ready at once.
+  assert.equal(use(fontC, 'caption', withFace(secondFace)).asset, secondFontAsset);
   await setImmediate();
   assert.equal(use(fontC, 'caption', withFace(secondFace)).asset, secondFontAsset);
   for (const consumer of [fontA, fontB, fontC]) consumer.cleanup();
@@ -170,4 +171,70 @@ test('asset loading shares pending resources, aborts released sources, and ignor
   assert.equal(use(binaryB, bytes).asset, packed);
   assert.notEqual(use(binaryC, separate).asset, packed);
   for (const consumer of [binaryA, binaryB, binaryC]) consumer.cleanup();
+});
+
+test('preloadMotionAssets keeps files ready for players mounted later, until released', async () => {
+  let current;
+  const prepared = [];
+  const modules = {
+    react: {
+      useMemo: (compute) => compute(),
+      useState: () => {
+        const consumer = current;
+        return [consumer.state, (value) => {
+          consumer.state = typeof value === 'function' ? value(consumer.state) : value;
+        }];
+      },
+      useEffect: (effect, [key]) => {
+        if (current.key === key) return;
+        current.cleanup?.();
+        current.key = key;
+        current.cleanup = effect();
+      },
+    },
+    './asset-load': {
+      async preloadMotionAsset(text, options) {
+        const asset = { text, options };
+        prepared.push(asset);
+        return asset;
+      },
+    },
+  };
+  const module = { exports: {} };
+  new Function('module', 'require', bundle)(module, (name) => modules[name]);
+  const { preloadMotionAssets, useMotionAsset } = module.exports;
+  const use = (consumer, source, options) => {
+    current = consumer;
+    return useMotionAsset(source, options);
+  };
+  const reads = [];
+  const source = (key) => ({ key, read: (signal) => { reads.push({ key, signal }); return Promise.resolve(key); } });
+
+  const held = preloadMotionAssets([source('reward'), source('shelf')], { artboard: 'wide' });
+  const [reward, shelf] = await held.ready;
+  assert.deepEqual([reward.text, shelf.text], ['reward', 'shelf']);
+
+  // A player mounted after the preload is ready on its first render, with no second read or prepare.
+  const screen = {};
+  const first = use(screen, source('reward'), { artboard: 'wide' });
+  assert.equal(first.status, 'ready');
+  assert.equal(first.asset, reward);
+  assert.equal(prepared.length, 2);
+  assert.equal(reads.length, 2);
+  // Other options are a different prepared file.
+  assert.equal(use({}, source('reward')).status, 'loading');
+
+  // The player leaving does not drop a file the preload still holds.
+  screen.cleanup();
+  assert.equal(use({}, source('shelf'), { artboard: 'wide' }).asset, shelf);
+  assert.equal(reads.every(({ signal }) => !signal.aborted), true);
+
+  // Release drops both; a later player loads again. Releasing twice is harmless.
+  held.release();
+  held.release();
+  const later = {};
+  assert.equal(use(later, source('reward'), { artboard: 'wide' }).status, 'loading');
+  await setImmediate();
+  assert.notEqual(use(later, source('reward'), { artboard: 'wide' }).asset, reward);
+  later.cleanup();
 });

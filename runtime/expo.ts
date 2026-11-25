@@ -1,11 +1,10 @@
 import { Asset } from 'expo-asset';
 import { File } from 'expo-file-system';
 import { MAX_ASSET_BYTES } from './asset';
-import { useMotionAsset, type MotionAssetOptions } from './useMotionAsset';
+import { preloadMotionAssets, useMotionAsset, type MotionAssetOptions, type MotionAssetSource } from './useMotionAsset';
 
-/** Read a .skmotion from Expo's Metro asset registry in a development or release build. */
-export function useExpoMotionAsset(moduleId: number | null | undefined, options?: MotionAssetOptions) {
-  return useMotionAsset(moduleId == null ? null : {
+function expoSource(moduleId: number): MotionAssetSource {
+  return {
     key: `expo-module:${moduleId}`,
     async read(signal) {
       const asset = await Asset.fromModule(moduleId).downloadAsync();
@@ -15,5 +14,20 @@ export function useExpoMotionAsset(moduleId: number | null | undefined, options?
       if (file.size > MAX_ASSET_BYTES) throw new Error('Motion asset exceeds 1 MiB');
       return file.bytes();
     },
-  }, options);
+  };
+}
+
+/** Read a .skmotion from Expo's Metro asset registry in a development or release build. */
+export function useExpoMotionAsset(moduleId: number | null | undefined, options?: MotionAssetOptions) {
+  return useMotionAsset(moduleId == null ? null : expoSource(moduleId), options);
+}
+
+/**
+ * Prepare bundled .skmotion files before their screen mounts, e.g.
+ * `const { release } = preloadExpoMotionAssets([require('./reward.skmotion')])`.
+ * useExpoMotionAsset with the same module and options is then ready on its first render.
+ * Call release when the files are no longer about to be shown.
+ */
+export function preloadExpoMotionAssets(moduleIds: readonly number[], options?: MotionAssetOptions) {
+  return preloadMotionAssets(moduleIds.map(expoSource), options);
 }
