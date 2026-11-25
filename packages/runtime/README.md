@@ -64,6 +64,10 @@ export function LessonReward() {
 - A `row` group places an icon and its count by their ink on a plate that never resizes. It measures the ink with `SkParagraph.extendedVisit` (react-native-skia 3.10.2 or later); older react-native-skia and React Native Web fall back to advances and cap height, which is approximate.
 - For a rolling count, give the text node `roll: { progress, from }`: set the old and new strings with `setValues`, then `fire` the trigger whose clip runs `progress` from 0 to 1. Each digit place turns in its own column.
 - Use `live={false}` to pause a mounted player. The player uses system reduced motion by default and accepts a `reduced` override.
+- The player pauses by itself only when the app is in the background. iOS 'inactive' (permission prompts, StoreKit and sign-in sheets, the app switcher, Notification Center) keeps it playing, as on Android.
+- A stalled frame (an image decode, a sheet opening) delays motion instead of skipping a clip's start; a steadily slow device keeps real time.
+- Images drawn smaller than their size are filtered through mip levels. `preloadMotionAsset(text, { uploadImages: true })` uploads textures with their mip levels.
+- Bound text, rows and rolling numbers are laid out once per distinct string, so updating a counter is cheap; a string that changes every frame is laid out every frame.
 - Select a board by name with the `artboard` option when loading a multi-artboard file.
 - Prepare a shared file with `loadMotionAsset(text)` or `await preloadMotionAsset(text)`. Each player keeps its own state while sharing prepared artwork and image handles.
 - Use `MotionPicture` for a named clip in an existing Skia Canvas at a shared `timeMs`. Provide `width` and `height` to draw without a separate player layout pass. Use `MotionPlayer` when the asset owns transitions and markers.
