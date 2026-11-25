@@ -93,7 +93,16 @@ const topics = {
     commands: ['skac asset cost reward.skmotion', 'skac asset cost reward.skmotion --trace=0:1200:16 --commands=claim@0.1 --size=360x640'],
   },
   migrate: {
+    format: [
+      'A file\'s format is its schema\'s major (skac.asset/1, skac.bundle/1) and an optional root minor (absent is 0). Every file so far is format 1.0.',
+      'A runtime plays every file of its major. A file of a newer minor still plays on an older runtime of that major, which skips the fields and node kinds it does not know. The runtime that ships this skipping is 3.6.0; runtimes up to 3.5.1 refuse any field they do not know.',
+      'A file of another major is refused, with the way forward. A newer major means update skia-motion-runtime; an older major means run skac asset migrate.',
+      'The CLI checks and packs only formats it fully reads: update skia-motion-agentic-cli for a file of a newer minor.',
+      'Run skac asset migrate <file> --dry-run to see the steps and the fields they change, then skac asset migrate <file> to write <name>.migrated.<ext>. It reads JSON sources and packed files, keeps the input\'s format, and checks the result. Compare skac asset frame on both files at the same times before replacing the app\'s file.',
+      'Each release note says what it means for existing files: no change, optional (skac asset migrate adds something new), or required (a new major).',
+    ],
     steps: [
+      'Run skac asset migrate <file> --dry-run first. A file that is current needs nothing.',
       'Keep the current packed asset and record the CLI and runtime versions before updating a React Native or Expo app.',
       'Run asset check on the existing packed file. Read warnings even when ok is true. Check each artboard in a bundle with --artboard.',
       'Replay the same commands and millisecond samples with both CLI versions. Include the first, middle, and last frame of each affected transition. Open both previews and test the exact file with the new native runtime.',
@@ -103,6 +112,8 @@ const topics = {
       'Test a hidden or backgrounded MotionPlayer if host shared values drive its channels. It should hold the last sampled values while paused and catch up on resume.',
     ],
     commands: [
+      'skac asset migrate scene.skmotion --dry-run',
+      'skac asset migrate scene.skmotion',
       'skac asset check scene.skmotion',
       'skac asset check scene.skmotion --artboard=reward',
       'skac asset trace scene.skmotion --trace=100,150,200 --commands=confirm@0.1',
