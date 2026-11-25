@@ -26,8 +26,8 @@ type DrawableNode =
       rowParts?: readonly (Box | undefined)[];
     })
   | DrawableMesh
-  | (AssetTextNode & { paragraph?: SkParagraph })
-  | (DrawableShape & { preparedPath?: SkPath; preparedPaint?: SkPaint });
+  | (AssetTextNode & { paragraph?: SkParagraph; cacheKey?: string })
+  | (DrawableShape & { preparedPath?: SkPath; preparedPaint?: SkPaint; cacheKey?: string });
 
 type DrawableShape = Exclude<AssetNode, { kind: 'group' | 'mesh' | 'text' }>;
 type TextValues = Readonly<Record<string, string>>;
@@ -362,11 +362,11 @@ function prepareNode(
   provider: SkTypefaceFontProvider | undefined, textBindings: Set<string>, palette: Palette,
 ): DrawableNode {
   if (node.kind === 'text') {
-    if (typeof node.text === 'string') return { ...node, paragraph: makeParagraph(node, node.text, provider) };
-    node = { ...node, cacheKey: `n${nextNodeKey++}` } as AssetTextNode;
-    textBindings.add(node.text.value);
+    const { text } = node;
+    if (typeof text === 'string') return { ...node, paragraph: makeParagraph(node, text, provider) };
+    textBindings.add(text.value);
     if (node.roll) textBindings.add(node.roll.from);
-    return node;
+    return { ...node, cacheKey: `n${nextNodeKey++}` };
   }
   const commands = node.kind === 'group' ? node.clip : node.kind === 'path' ? node.commands : undefined;
   const prepared = commands?.every(([, ...coordinates]) => coordinates.every((value) => typeof value === 'number'))
@@ -395,7 +395,7 @@ function prepareNode(
       textureCoords: image ? meshTextureCoords(node, image) : undefined,
     };
   }
-  if (node.kind === 'image') return { ...node, cacheKey: `n${nextNodeKey++}` } as DrawableNode;
+  if (node.kind === 'image') return { ...node, cacheKey: `n${nextNodeKey++}` };
   return { ...node, preparedPath: prepared, preparedPaint: preparePaint(node, palette) };
 }
 
@@ -730,7 +730,7 @@ function drawNodes(
       // The prepared shader only for the image it was made from: a host can pass other images to drawAsset.
       const prepared = shaders.image[node.image];
       const shader = prepared && prepared.image === image ? prepared.shader : imageShader(image);
-      const key = (node as { cacheKey?: string }).cacheKey;
+      const key = node.cacheKey;
       // One paint per image node, reset each frame: a picture records a copy of the paint it draws with.
       const filled = cached(key === undefined ? undefined : `paint|${key}`, () => {
         const paint = Skia.Paint();
