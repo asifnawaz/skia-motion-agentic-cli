@@ -31,6 +31,10 @@ jobs:
             case "$path" in
               .github/workflows/*|.releaserc.json|README.md|docs/README.md|packages/runtime/package.json|scripts/pack-runtime.js|test/unit/*)
                 ;;
+              # Prose agents read. The unit suite checks the docs index, topics and rules; e2e renders video.
+              skills/*.md|skills/*/*.md|docs/*.md|docs/motion/*.md|CONTRIBUTING.md|CHANGELOG.md|packages/runtime/README.md|\
+              scripts/typecheck-runtime.js|test/typecheck/*)
+                ;;
               # Packed assets use the unit suite. Shared runtime and CLI files still run video tests.
               runtime/asset.ts|runtime/asset-*.ts|runtime/base64.ts|runtime/expo.ts|runtime/expo-audio.ts|\
               runtime/mobile.tsx|runtime/useMotionAsset.ts|templates/assets/*)
