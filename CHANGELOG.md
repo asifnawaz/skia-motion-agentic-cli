@@ -1,3 +1,16 @@
+# [3.5.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.4.2...v3.5.0) (2026-11-25)
+
+
+### Features
+
+* **cli:** skac asset cost reports what each frame of a file costs ([3d787e8](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/3d787e8ba024677674c2720aab8517d2218bbb54))
+* **runtime:** preload files so a screen's players are ready on first render ([0507013](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/050701312ccb138aeddc312522de169b0f5d6994))
+
+
+### Performance Improvements
+
+* **runtime:** a frame reuses each node's paint, rect and vertices ([00f339b](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/00f339b7be70c0ea8befbaf7c88d48f2e52be731))
+
 ## [3.4.2](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.4.1...v3.4.2) (2026-11-25)
 
 
