@@ -72,7 +72,8 @@ export function LessonReward() {
 - Select a board by name with the `artboard` option when loading a multi-artboard file.
 - Prepare a shared file with `loadMotionAsset(text)` or `await preloadMotionAsset(text)`. Each player keeps its own state while sharing prepared artwork and image handles.
 - To have a screen's players ready on their first render, call `preloadMotionAssets(sources, options)` (or `preloadExpoMotionAssets([require('./reward.skmotion')])` from `skia-motion-runtime/expo`) before it opens. Use the same options its `useMotionAsset` or `useExpoMotionAsset` passes. The files stay prepared until you call the returned `release()`, so release when the screen is no longer about to open: prepared images stay in memory while held.
-- Use `MotionPicture` for a named clip in an existing Skia Canvas at a shared `timeMs`. Provide `width` and `height` to draw without a separate player layout pass. Use `MotionPlayer` when the asset owns transitions and markers.
+- Use `MotionPicture` for a named clip in an existing Skia Canvas at a shared `timeMs`. Provide `width` and `height` to draw without a separate player layout pass. A time where the clip's channels hold records no new picture. Use `MotionPlayer` when the asset owns transitions and markers.
+- In your own `createPicture` worklet, sample a clip once with `motionClipChannels(asset, clip, timeMs, options)` and draw it with `drawMotionPose(canvas, asset, channels, options)`. `drawMotionClip` does both. Return the previous picture when the channels are unchanged, and the canvas will not present again.
 
 The text schema supports 1–16 lines and optional OpenType features such as `tnum` for fonts
 with tabular digits. Skia can ellipsize overflow. Check representative labels with the CLI's
