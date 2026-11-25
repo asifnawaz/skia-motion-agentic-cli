@@ -1,3 +1,23 @@
+## [3.6.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.0...v3.6.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **runtime:** MotionPicture keeps its memo off shared values and matches props by value ([c40af86](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/c40af8648f4c37c6e63b0e96801ec741dd5bc919))
+
+
+### Performance Improvements
+
+* **runtime:** MotionPicture records no picture while its clip holds, and hosts can sample a pose once ([359d0ab](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/359d0ab049b41f8e4db083150bbe25f5bb4b5dba))
+
+
+### Existing .skmotion files
+
+**No change.** Existing files play as before. No step is needed.
+
+* No change: MotionPicture keeps its memo off shared values and matches props by value (c40af86)
+* No change: MotionPicture records no picture while its clip holds, and hosts can sample a pose once (359d0ab)
+
 # [3.6.0](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.5.1...v3.6.0) (2026-11-25)
 
 
