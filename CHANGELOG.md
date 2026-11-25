@@ -1,3 +1,23 @@
+## [3.6.2](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.1...v3.6.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **runtime:** a reused path matches its commands too, and clips of any group are reused ([7314a75](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/7314a7598ae5f4abc2aa0299f7636b3ed7388ed9))
+
+
+### Performance Improvements
+
+* **runtime:** an animated path builds a new path only when a coordinate changes ([9e60aab](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/9e60aab1b165b02814972ad7765721f6df5033ba))
+
+
+### Existing .skmotion files
+
+**No change.** Existing files play as before. No step is needed.
+
+* No change: a reused path matches its commands too, and clips of any group are reused (7314a75)
+* No change: an animated path builds a new path only when a coordinate changes (9e60aab)
+
 ## [3.6.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.0...v3.6.1) (2026-11-25)
 
 
