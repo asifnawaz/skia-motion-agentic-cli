@@ -1,3 +1,10 @@
+## [3.4.2](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.4.1...v3.4.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **runtime:** bound text narrows without a cast, so strict apps typecheck ([bbd84b7](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/bbd84b766ed03c7e016cab4a501516c1c7cb2cb0))
+
 ## [3.4.1](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.4.0...v3.4.1) (2026-11-25)
 
 
