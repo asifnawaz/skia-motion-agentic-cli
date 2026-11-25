@@ -54,6 +54,7 @@
     "readme:media": "node scripts/readme-media.js",
     "test": "node --test test/unit/*.test.js",
     "test:unit": "node --test test/unit/*.test.js",
+    "typecheck:runtime": "node scripts/typecheck-runtime.js",
     "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.js"
   },
   "repository": {
