@@ -17,8 +17,9 @@ npm ls skia-motion-runtime --depth=0
 | Runtime entry point | Use it when |
 | --- | --- |
 | `MotionPlayer` | The asset's state machine owns transitions, markers, audio cues and semantic tap regions. The player fits a measured React Native view. |
-| `MotionPicture` | Your app already owns a Skia `Canvas` and wants a named clip at a specific time. Provide `width`, `height` and a shared `timeMs`. Drawing starts without a separate player view's layout pass. Supply optional text overrides with `text={{ xpLabel: label }}`. |
+| `MotionPicture` | Your app already owns a Skia `Canvas` and wants a named clip at a specific time. Provide `width`, `height` and a shared `timeMs`. Drawing starts without a separate player view's layout pass. Supply optional text overrides with `text={{ xpLabel: label }}`. A time or render where nothing it draws changes records no new picture, so a host clock may keep running. |
 | `drawMotionClip` | Your worklet already owns the `SkCanvas` and needs to draw the named clip at an exact time or draw order. |
+| `motionClipChannels` + `drawMotionPose` | Your worklet reads the pose too (for its own text or layout): sample the clip once with `motionClipChannels`, then draw those channels with `drawMotionPose`. |
 
 In Expo, add `skmotion` to Metro's `resolver.assetExts`. Load the bundled asset via
 `useExpoMotionAsset(require('./reward-counter.skmotion'))` from `skia-motion-runtime/expo`
