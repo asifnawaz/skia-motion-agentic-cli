@@ -89,16 +89,36 @@ function AssetPicture({ drawing, images, pose, snapshot, readOnUI, width, height
       }
     },
   );
+  // The machine writes a new snapshot every frame it runs, even when nothing drawn moves (a hold, a timer, a state that waits).
+  // Bound text is read from it here and published only when a string changes, so the picture below is recorded again only when
+  // the pose, a host channel or a bound string changes, not on every machine frame.
+  const texts = useSharedValue<Record<string, string>>({});
+  useAnimatedReaction(
+    () => {
+      // The reaction subscribes to captured shared values, and readOnUI hides its snapshot.
+      void snapshot?.value;
+      let key = '';
+      for (const name of drawing.textBindings ?? []) {
+        const value = readOnUI(name);
+        if (typeof value === 'string') key += name + '\x01' + value + '\x02';
+      }
+      return key;
+    },
+    (key, previous) => {
+      if (key === previous) return;
+      const values: Record<string, string> = {};
+      for (const name of drawing.textBindings ?? []) {
+        const value = readOnUI(name);
+        if (typeof value === 'string') values[name] = value;
+      }
+      texts.value = values;
+    },
+  );
   const picture = useDerivedValue(() => {
-    // The mapper subscribes to captured shared values, and readOnUI hides its snapshot.
-    void snapshot?.value;
-    const values: Record<string, string> = {};
-    for (const name of drawing.textBindings ?? []) {
-      const value = readOnUI(name);
-      if (typeof value === 'string') values[name] = value;
-    }
+    const channels = { ...pose.value.channels, ...overrides.value };
+    const values = texts.value;
     return createPicture(
-      (canvas) => drawAsset(canvas, drawing, { ...pose.value.channels, ...overrides.value }, width, height, images, values, layout),
+      (canvas) => drawAsset(canvas, drawing, channels, width, height, images, values, layout),
       Skia.XYWHRect(0, 0, width, height),
     );
   });
