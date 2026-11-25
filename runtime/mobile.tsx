@@ -120,9 +120,11 @@ function LoadedPlayer({
     setViewport((current) => current.width === width && current.height === height ? current : { width, height });
   }, []);
   const measured = viewport.width > 0 && viewport.height > 0;
-  const [foreground, setForeground] = useState(() => !AppState.currentState || AppState.currentState === 'active');
+  // Away is 'background' only: iOS reports system sheets (permission prompts, password managers, StoreKit) as 'inactive' and
+  // launch can read 'unknown', states Android never reports, so pausing on them made one file play differently on each platform.
+  const [foreground, setForeground] = useState(() => AppState.currentState !== 'background');
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
+    const subscription = AppState.addEventListener('change', (state) => setForeground(state !== 'background'));
     return () => subscription.remove();
   }, []);
   const markerCallback = useRef(onMarker);
