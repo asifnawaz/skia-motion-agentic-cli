@@ -80,7 +80,7 @@ const topics = {
     ],
     smooth: [
       'Each distinct string in bound text, a row or a rolling number is laid out once. A value that changes every frame (a millisecond timer) is laid out every frame: round it to what the eye reads.',
-      'Animated path commands rebuild the path each frame (PathBuilder.Make in byKind). Animate a group transform or a mesh instead when the shape itself need not change.',
+      'A path or clip whose commands read channels is rebuilt on each frame where one of its coordinates changes (PathBuilder.Make in byKind), and reused while they hold. Animate a group transform or a mesh instead when the shape itself need not change.',
       'A mesh whose vertices are fixed keeps its vertices. Vertices bound to channels are rebuilt each frame (MakeVertices in byKind).',
       'Blur (feather), radial light and dashes are remade only when their animated value changes. A value that moves every frame remakes its filter every frame, so animate opacity or a transform where that reads the same.',
       'firstFrameMs holds one-time work: decoding, layout and texture upload. Call preloadMotionAssets or preloadExpoMotionAssets before the screen opens, so that work happens before the first frame shows.',
