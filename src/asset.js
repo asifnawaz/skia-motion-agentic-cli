@@ -7,7 +7,7 @@ import { previewHTML } from './asset-preview.js';
 import { extentKey, measureImageInk, measureTextExtents, measureTextLayout } from './asset-text-layout.js';
 import { platesOf, textInPlate } from './asset-plate.js';
 import { causalChain } from './asset-chain.js';
-import { renderAssetPNG } from './asset-canvaskit.js';
+import { measureAssetFrames, renderAssetPNG } from './asset-canvaskit.js';
 import { aimLandings, hasAims } from './asset-land.js';
 import { measureLandings, splitAuthoring, textClearance } from './asset-clear.js';
 import { loadConfig } from './config.js';
@@ -30,6 +30,7 @@ const USAGE = [
   'skac asset resource <font.ttf|font.otf|cue.wav|cue.mp3|cue.m4a|cue.aac>',
   'skac asset check <file> [--strict] [--text-layout] [--font=slot=font.ttf] [--size=360x640] [--trace=0:2400:16] [--commands=cue@0] (also runs landings, skac/text-clear, skac/text-in-plate and skac/causal-chain)',
   'skac asset trace <file> --trace=0,250,800 --commands "health=0.2@0.1 reload@0.25"',
+  'skac asset cost <file> [--trace=0:3000:16] [--commands=cue@0] [--size=360x640] [--font=slot=font.ttf] (frame time and Skia objects per frame, drawn by the app\'s own draw code)',
   'skac asset frame <file> --trace=250 [--font=slot=font.ttf] [--size=1200x240] [--out=<frame.svg|frame.png>] [--background=#FFFFFF]',
   'skac asset preview <file.skmotion> [--artboard=<name>] [--font=slot=font.ttf] [--size=1200x240] [--out=<preview.html>] [--force]',
   'skac asset types <file> [--artboard=<name>] [--out=<bindings.d.ts>] [--force|--check]',
@@ -470,7 +471,7 @@ export function assetCommand(args, flags, cwd) {
     fail('--fonts=host is for asset pack', 'use it to omit embedded fonts from an asset that uses font slots');
   }
   if (flags.fonts !== undefined && flags.fonts !== 'host') fail('unknown font export option', 'use --fonts=host or omit --fonts to keep the authored fallbacks');
-  if (flags.font?.length && !['preview', 'frame', 'check', 'pack', 'trace'].includes(action)) {
+  if (flags.font?.length && !['preview', 'frame', 'cost', 'check', 'pack', 'trace'].includes(action)) {
     fail('--font is for asset preview, frame, check, pack or trace', 'supply --font=slot=path/to/font.ttf');
   }
   if (action === 'sample') return sample(input, output, cwd, flags.force);
@@ -481,7 +482,7 @@ export function assetCommand(args, flags, cwd) {
   }
   if (action === 'image' && input && !output) return embedImage(resolve(cwd, input), flags.size);
   if (action === 'resource' && input && !output) return embedResource(resolve(cwd, input));
-  if (!['check', 'trace', 'frame', 'pack', 'unpack', 'types', 'preview'].includes(action) || !input || output) {
+  if (!['check', 'trace', 'frame', 'cost', 'pack', 'unpack', 'types', 'preview'].includes(action) || !input || output) {
     fail('invalid asset command', 'run skac asset for the command list');
   }
   const path = resolve(cwd, input);
@@ -601,6 +602,24 @@ function assetAction(action, input, path, flags, cwd, { file, source, binary, bo
       }
     } else writeOutput(destination, declaration, flags.force);
     return { ok: true, name: asset.name, file: destination, ...bundleInfo };
+  }
+  if (action === 'cost') {
+    let size = { width: asset.artboard.width, height: asset.artboard.height };
+    if (flags.size !== undefined) {
+      const sides = dimensions(flags.size);
+      if (!sides) fail('invalid frame size', 'use two dimensions from 1 to 4096, like --size=360x640');
+      size = { width: sides[0], height: sides[1] };
+    }
+    const longest = Math.max(0, ...Object.values(asset.clips ?? {}).map((clip) => clip?.ms ?? 0));
+    const rows = trace(asset, { ...flags, trace: flags.trace ?? `0:${Math.min(Math.max(longest, 1000), 7984)}:16` });
+    const visual = binary || extname(path).toLowerCase() === '.skmotion' ? asset : applyDefaultFont(asset);
+    const { fonts, warnings } = previewFonts(assetRuntime().resolveAssetFonts(visual, hostFonts));
+    const drawn = { ...visual, fonts };
+    return (visual.imageInk ? Promise.resolve(drawn) : addRowImageInk(drawn)).then((board) => measureAssetFrames(board, rows, size)).then((cost) => ({
+      ok: true, name: asset.name, size, renderer: 'canvaskit-cpu', ...cost,
+      note: 'Times are from the CPU rasteriser in Node: compare files and versions, not phones. Objects per frame are what the draw code allocates each frame on the UI thread.',
+      ...(warnings.length && { warnings }),
+    }));
   }
   if (action === 'frame') {
     if (flags.trace && /[,:]/.test(flags.trace)) fail('asset frame takes one time', 'like --trace=250');
