@@ -11,6 +11,18 @@ Use conventional commits. The prefix decides the next version:
 | `docs:`, `chore:`, `test:`, `ci:` | none |
 | any type with `BREAKING CHANGE:` in the body, or `feat!:` | major |
 
+A `feat`, `fix` or `perf` commit that touches `runtime/`, `src/asset*` or `templates/motion/machine.ts` ends with a
+footer line that says what it means for the .skmotion files apps already ship. CI checks it on pull requests
+(`node scripts/files-footer.js <base> <head>`), and the release notes gather the lines under "Existing .skmotion files":
+
+```
+Files: no change.
+Files: optional. skac asset migrate adds <what>; files without it play as before.
+Files: required. <why>; run skac asset migrate <file> before upgrading the runtime.
+```
+
+"required" goes with a new format major (`skac.asset/2`), a registered migration step and `BREAKING CHANGE:`.
+
 On every push to `main`, once CI passes, semantic-release reads the commits since the last
 tag, picks the version, updates CHANGELOG.md, tags, publishes to npm and creates the GitHub release.
 
