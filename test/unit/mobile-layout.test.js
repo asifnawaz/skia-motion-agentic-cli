@@ -25,6 +25,9 @@ function harness() {
   const binding = { value: undefined };
   let reaction;
   let previous;
+  // AssetPicture's first shared value and reaction are its host channel overrides; the next ones carry bound text.
+  let shared = 0;
+  let reactions = 0;
   const jsx = (type, props) => ({ type, props });
   const modules = {
     'react/jsx-runtime': { jsx, jsxs: jsx },
@@ -62,9 +65,9 @@ function harness() {
       },
     },
     'react-native-reanimated': {
-      useSharedValue: () => binding,
+      useSharedValue: (initial) => (shared++ === 0 ? binding : { value: initial }),
       useDerivedValue: (compute) => ({ value: compute() }),
-      useAnimatedReaction: (prepare, apply) => { reaction = { prepare, apply }; },
+      useAnimatedReaction: (prepare, apply) => { if (reactions++ === 0) reaction = { prepare, apply }; },
     },
     'machine-stub': {
       useMachine: (_machine, _clips, options) => {
@@ -90,6 +93,8 @@ function harness() {
     preparedPaths: () => preparedPaths,
     sampleChannels(view) {
       const picture = view.props.children[0].props.children;
+      shared = 0;
+      reactions = 0;
       picture.type(picture.props);
       const next = reaction.prepare();
       reaction.apply(next, previous);
