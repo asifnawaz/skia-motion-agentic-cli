@@ -1,3 +1,17 @@
+## [3.6.4](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.3...v3.6.4) (2026-11-26)
+
+
+### Bug Fixes
+
+* **runtime:** an animated mesh rebuilds its vertices only when a channel moving it changes ([7f8ab15](https://github.com/asifnawaz/skia-motion-agentic-cli/commit/7f8ab15fc06200f48931027267df2e2a91d01d5d))
+
+
+### Existing .skmotion files
+
+**Not stated.** A change below does not say what it means for existing files: run skac asset check on each file, and skac asset migrate <file> --dry-run, before upgrading.
+
+* Not stated: an animated mesh rebuilds its vertices only when a channel moving it changes (7f8ab15)
+
 ## [3.6.3](https://github.com/asifnawaz/skia-motion-agentic-cli/compare/v3.6.2...v3.6.3) (2026-11-25)
 
 
