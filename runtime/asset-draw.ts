@@ -18,6 +18,7 @@ type DrawableMesh = Omit<MeshNode, 'pins'> & {
   pins?: readonly DrawablePin[];
   cacheKey?: string;
   fixedPositions?: Point[];
+  positionChannels?: readonly string[];
   textureCoords?: Point[];
 };
 type DrawableNode =
@@ -120,8 +121,7 @@ function cached<T>(key: string | undefined, make: () => T): T {
 type PaintRecord = {
   paint: SkPaint; blur?: number; shaderKey?: string; dash?: number;
   image?: SkImage; shader?: SkShader; vertices?: ReturnType<typeof Skia.MakeVertices>;
-  /** An animated mesh's last positions (x, y pairs) and index count, so held vertices are reused. */
-  positions?: number[]; indexCount?: number;
+  positionChannelValues?: number[];
 };
 
 function paintRecord(key: string | undefined): PaintRecord {
@@ -476,10 +476,15 @@ function prepareNode(
       ...pin,
       children: pin.children!.map((child) => prepareNode(child, images, shaders, shadersByImage, provider, textBindings, palette)),
     }));
-    const fixed = node.vertices.every(([x, y]) => typeof x === 'number' && typeof y === 'number');
+    let positionChannels: Set<string> | undefined;
+    for (const [x, y] of node.vertices) {
+      if (typeof x === 'string') (positionChannels ??= new Set<string>()).add(x);
+      if (typeof y === 'string') (positionChannels ??= new Set<string>()).add(y);
+    }
     return {
       ...node, pins, cacheKey: `n${nextNodeKey++}`,
-      fixedPositions: fixed ? node.vertices.map((vertex) => meshPosition(vertex, {})) : undefined,
+      fixedPositions: positionChannels ? undefined : node.vertices.map((vertex) => meshPosition(vertex, {})),
+      positionChannels: positionChannels && Array.from(positionChannels),
       textureCoords: image ? meshTextureCoords(node, image) : undefined,
     };
   }
@@ -595,7 +600,7 @@ function drawMesh(canvas: SkCanvas, node: DrawableMesh, channels: Channels, imag
   const paint = record.paint;
   paint.setAlphaf(alpha);
   if (record.image !== image) {
-    // A mesh whose vertices never move keeps its vertices; its texture coordinates follow the image drawn.
+    // Texture coordinates depend on the image drawn.
     record.image = image;
     record.vertices = undefined;
     record.shader = undefined;
@@ -604,27 +609,23 @@ function drawMesh(canvas: SkCanvas, node: DrawableMesh, channels: Channels, imag
     record.shader = shader ?? meshShader(image);
     paint.setShader(record.shader);
   }
-  let mesh = record.vertices;
-  // An animated mesh reads each position once, and reuses its vertices while every position holds (vertices never change once made;
-  // a new image already cleared them above).
-  const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
-  if (mesh && !node.fixedPositions) {
-    const last = record.positions;
-    let held = last !== undefined && record.indexCount === node.indices.length && last.length === positions.length * 2;
-    for (let i = 0; held && i < positions.length; i++) held = last![i * 2] === positions[i]!.x && last![i * 2 + 1] === positions[i]!.y;
-    if (!held) mesh = undefined;
+  const names = node.positionChannels;
+  if (names) {
+    const last = record.positionChannelValues ?? (record.positionChannelValues = []);
+    for (let i = 0; i < names.length; i++) {
+      const value = channels[names[i]!]!;
+      if (last[i] !== value) {
+        record.vertices = undefined;
+        last[i] = value;
+      }
+    }
   }
+  let mesh = record.vertices;
   if (!mesh) {
+    const positions = node.fixedPositions ?? node.vertices.map((vertex) => meshPosition(vertex, channels));
     const textures = node.textureCoords ?? meshTextureCoords(node, image);
     mesh = Skia.MakeVertices(VertexMode.Triangles, positions, textures, undefined, node.indices as number[]);
-    if (node.fixedPositions) record.vertices = mesh;
-    else if (node.cacheKey !== undefined) {
-      record.vertices = mesh;
-      const flat: number[] = [];
-      for (const point of positions) flat.push(point.x, point.y);
-      record.positions = flat;
-      record.indexCount = node.indices.length;
-    }
+    if (node.fixedPositions || names) record.vertices = mesh;
   }
   canvas.drawVertices(mesh, BlendMode.SrcOver, paint);
 }
